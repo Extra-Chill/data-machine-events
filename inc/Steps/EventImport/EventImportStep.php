@@ -32,7 +32,8 @@ class EventImportStep extends Step {
 			class: self::class,
 			position: 25,
 			usesHandler: true,
-			hasPipelineConfig: false
+			hasPipelineConfig: false,
+			producesBatchItems: true
 		);
 	}
 

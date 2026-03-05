@@ -36,7 +36,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: '8.3'
           extensions: mbstring, intl, pdo_sqlite, mysqli
           tools: composer:v2
           coverage: none
@@ -53,7 +53,7 @@ jobs:
           auto-issue: ${{ github.event_name != 'pull_request' }}
           component: data-machine-events
           settings: '{"database_type": "mysql"}'
-          php-version: '8.2'
+          php-version: '8.3'
           node-version: '20'
 
   audit:
@@ -67,7 +67,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: '8.3'
           extensions: mbstring, intl, pdo_sqlite, mysqli
           tools: composer:v2
           coverage: none
@@ -82,5 +82,5 @@ jobs:
           commands: audit
           auto-issue: ${{ github.event_name != 'pull_request' }}
           component: data-machine-events
-          php-version: '8.2'
+          php-version: '8.3'
           node-version: '20'

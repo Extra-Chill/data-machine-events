@@ -38,6 +38,24 @@ class CheckQualityCommand {
 	 * default: 90
 	 * ---
 	 *
+	 * [--flow-id=<id>]
+	 * : Optional flow ID filter.
+	 *
+	 * [--location-term-id=<id>]
+	 * : Optional location term ID filter.
+	 *
+	 * [--issue=<issue>]
+	 * : Optional issue filter.
+	 * ---
+	 * default: all
+	 * options:
+	 *   - all
+	 *   - missing_start_date
+	 *   - missing_start_time
+	 *   - missing_venue
+	 *   - duplicates
+	 * ---
+	 *
 	 * [--limit=<limit>]
 	 * : Max rows to show per category.
 	 * ---
@@ -62,6 +80,9 @@ class CheckQualityCommand {
 			array(
 				'scope'      => $assoc_args['scope'] ?? 'upcoming',
 				'days_ahead' => (int) ( $assoc_args['days-ahead'] ?? 90 ),
+				'flow_id'    => (int) ( $assoc_args['flow-id'] ?? 0 ),
+				'location_term_id' => (int) ( $assoc_args['location-term-id'] ?? 0 ),
+				'issue'      => $assoc_args['issue'] ?? 'all',
 				'limit'      => (int) ( $assoc_args['limit'] ?? 25 ),
 			)
 		);

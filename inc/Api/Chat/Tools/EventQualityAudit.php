@@ -41,6 +41,21 @@ class EventQualityAudit extends BaseTool {
 					'required'    => false,
 					'description' => 'Days to look ahead for upcoming scope (default: 90).',
 				),
+				'flow_id'    => array(
+					'type'        => 'integer',
+					'required'    => false,
+					'description' => 'Optional flow ID filter.',
+				),
+				'location_term_id' => array(
+					'type'        => 'integer',
+					'required'    => false,
+					'description' => 'Optional location term ID filter.',
+				),
+				'issue'      => array(
+					'type'        => 'string',
+					'required'    => false,
+					'description' => 'Optional issue filter: all, missing_start_date, missing_start_time, missing_venue, or duplicates.',
+				),
 				'limit'      => array(
 					'type'        => 'integer',
 					'required'    => false,

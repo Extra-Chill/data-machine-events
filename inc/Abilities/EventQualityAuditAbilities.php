@@ -52,6 +52,19 @@ class EventQualityAuditAbilities {
 								'type'        => 'integer',
 								'description' => 'Days to look ahead for upcoming scope.',
 							),
+							'flow_id'    => array(
+								'type'        => 'integer',
+								'description' => 'Optional flow ID filter.',
+							),
+							'location_term_id' => array(
+								'type'        => 'integer',
+								'description' => 'Optional location term ID filter.',
+							),
+							'issue'      => array(
+								'type'        => 'string',
+								'enum'        => array( 'all', 'missing_start_date', 'missing_start_time', 'missing_venue', 'duplicates' ),
+								'description' => 'Optional issue filter.',
+							),
 							'limit'      => array(
 								'type'        => 'integer',
 								'description' => 'Max rows to return per category.',
@@ -90,6 +103,9 @@ class EventQualityAuditAbilities {
 	public function executeAudit( array $input ): array {
 		$scope      = $input['scope'] ?? 'upcoming';
 		$days_ahead = (int) ( $input['days_ahead'] ?? self::DEFAULT_DAYS_AHEAD );
+		$flow_id    = (int) ( $input['flow_id'] ?? 0 );
+		$location   = (int) ( $input['location_term_id'] ?? 0 );
+		$issue      = $input['issue'] ?? 'all';
 		$limit      = (int) ( $input['limit'] ?? self::DEFAULT_LIMIT );
 
 		if ( $days_ahead <= 0 ) {
@@ -100,7 +116,7 @@ class EventQualityAuditAbilities {
 			$limit = self::DEFAULT_LIMIT;
 		}
 
-		$events = $this->queryEvents( $scope, $days_ahead );
+		$events = $this->queryEvents( $scope, $days_ahead, $flow_id, $location );
 		if ( is_wp_error( $events ) ) {
 			return array( 'error' => $events->get_error_message() );
 		}
@@ -177,38 +193,54 @@ class EventQualityAuditAbilities {
 		);
 
 		$message_parts = array();
-		if ( ! empty( $missing_start_date ) ) {
+		if ( ! empty( $missing_start_date ) && ( 'all' === $issue || 'missing_start_date' === $issue ) ) {
 			$message_parts[] = count( $missing_start_date ) . ' missing start date';
 		}
-		if ( ! empty( $missing_start_time ) ) {
+		if ( ! empty( $missing_start_time ) && ( 'all' === $issue || 'missing_start_time' === $issue ) ) {
 			$message_parts[] = count( $missing_start_time ) . ' missing start time';
 		}
-		if ( ! empty( $missing_venue ) ) {
+		if ( ! empty( $missing_venue ) && ( 'all' === $issue || 'missing_venue' === $issue ) ) {
 			$message_parts[] = count( $missing_venue ) . ' missing venue';
 		}
-		if ( ! empty( $duplicate_groups ) ) {
+		if ( ! empty( $duplicate_groups ) && ( 'all' === $issue || 'duplicates' === $issue ) ) {
 			$message_parts[] = count( $duplicate_groups ) . ' probable duplicate groups';
 		}
+
+		$missing_start_date_result = ( 'all' === $issue || 'missing_start_date' === $issue )
+			? array(
+				'count'  => count( $missing_start_date ),
+				'events' => array_slice( $missing_start_date, 0, $limit ),
+			)
+			: array( 'count' => 0, 'events' => array() );
+
+		$missing_start_time_result = ( 'all' === $issue || 'missing_start_time' === $issue )
+			? array(
+				'count'  => count( $missing_start_time ),
+				'events' => array_slice( $missing_start_time, 0, $limit ),
+			)
+			: array( 'count' => 0, 'events' => array() );
+
+		$missing_venue_result = ( 'all' === $issue || 'missing_venue' === $issue )
+			? array(
+				'count'  => count( $missing_venue ),
+				'events' => array_slice( $missing_venue, 0, $limit ),
+			)
+			: array( 'count' => 0, 'events' => array() );
+
+		$duplicate_result = ( 'all' === $issue || 'duplicates' === $issue )
+			? array(
+				'count'  => count( $duplicate_groups ),
+				'groups' => array_slice( $duplicate_groups, 0, $limit ),
+			)
+			: array( 'count' => 0, 'groups' => array() );
 
 		return array(
 			'total_scanned'       => count( $events ),
 			'scope'               => $scope,
-			'missing_start_date'  => array(
-				'count'  => count( $missing_start_date ),
-				'events' => array_slice( $missing_start_date, 0, $limit ),
-			),
-			'missing_start_time'  => array(
-				'count'  => count( $missing_start_time ),
-				'events' => array_slice( $missing_start_time, 0, $limit ),
-			),
-			'missing_venue'       => array(
-				'count'  => count( $missing_venue ),
-				'events' => array_slice( $missing_venue, 0, $limit ),
-			),
-			'probable_duplicates' => array(
-				'count'  => count( $duplicate_groups ),
-				'groups' => array_slice( $duplicate_groups, 0, $limit ),
-			),
+			'missing_start_date'  => $missing_start_date_result,
+			'missing_start_time'  => $missing_start_time_result,
+			'missing_venue'       => $missing_venue_result,
+			'probable_duplicates' => $duplicate_result,
 			'culprit_flows'       => array_slice( $culprit_flow_counts, 0, $limit ),
 			'message'             => empty( $message_parts )
 				? 'No major quality issues found.'
@@ -216,7 +248,7 @@ class EventQualityAuditAbilities {
 		);
 	}
 
-	private function queryEvents( string $scope, int $days_ahead ): array|\WP_Error {
+	private function queryEvents( string $scope, int $days_ahead, int $flow_id = 0, int $location_term_id = 0 ): array|\WP_Error {
 		$args = array(
 			'post_type'      => Event_Post_Type::POST_TYPE,
 			'post_status'    => 'publish',
@@ -243,6 +275,24 @@ class EventQualityAuditAbilities {
 					'value'   => $today . ' 00:00:00',
 					'compare' => '<',
 					'type'    => 'DATETIME',
+				),
+			);
+		}
+
+		if ( $flow_id > 0 ) {
+			$args['meta_query'][] = array(
+				'key'     => '_datamachine_post_flow_id',
+				'value'   => (string) $flow_id,
+				'compare' => '=',
+			);
+		}
+
+		if ( $location_term_id > 0 ) {
+			$args['tax_query'] = array(
+				array(
+					'taxonomy' => 'location',
+					'field'    => 'term_id',
+					'terms'    => array( $location_term_id ),
 				),
 			);
 		}

@@ -975,6 +975,13 @@ class EventUpsert extends UpdateHandler {
 	private function processVenue( int $post_id, array $parameters, EngineData $engine ): void {
 		$venue_name = $engine->get( 'venue' ) ?? $parameters['venue'] ?? '';
 
+		if ( empty( $venue_name ) ) {
+			$venue_context = $engine->get( 'venue_context' );
+			if ( is_array( $venue_context ) && ! empty( $venue_context['name'] ) ) {
+				$venue_name = $venue_context['name'];
+			}
+		}
+
 		if ( ! empty( $venue_name ) ) {
 			// Merge engine data with AI parameters (engine takes precedence)
 			$merged_params  = array_merge( $parameters, $engine->all() );

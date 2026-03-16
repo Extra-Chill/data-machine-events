@@ -187,6 +187,8 @@ class EventUpsert extends UpdateHandler {
 	 * @return int|null Post ID if found, null otherwise
 	 */
 	private function findExistingEvent( string $title, string $venue, string $startDate, string $ticketUrl = '' ): ?int {
+		$identity_confidence = EventIdentifierGenerator::getIdentityConfidence( $title, $startDate, $venue );
+
 		// Try ticket URL matching first (most reliable)
 		if ( ! empty( $ticketUrl ) && ! empty( $startDate ) ) {
 			$ticket_match = $this->findEventByTicketUrl( $ticketUrl, $startDate );
@@ -213,8 +215,22 @@ class EventUpsert extends UpdateHandler {
 		// Catches cross-source duplicates where venue names differ between scrapers
 		// (e.g. "Come and Take It Live" vs "Come and Take It Productions").
 		// Venue is passed for confirmation when both sides have it.
-		if ( ! empty( $startDate ) ) {
+		if ( ! empty( $startDate ) && 'low' !== $identity_confidence ) {
 			return $this->findEventByDateAndFuzzyTitle( $title, $startDate, $venue );
+		}
+
+		if ( ! empty( $startDate ) ) {
+			do_action(
+				'datamachine_log',
+				'debug',
+				'Event Upsert: Skipping venue-agnostic fuzzy fallback for low-confidence event identity',
+				array(
+					'title'               => $title,
+					'venue'               => $venue,
+					'startDate'           => $startDate,
+					'identity_confidence' => $identity_confidence,
+				)
+			);
 		}
 
 		return null;
@@ -232,6 +248,20 @@ class EventUpsert extends UpdateHandler {
 	 * @return int|null Post ID if fuzzy match found, null otherwise
 	 */
 	private function findEventByVenueDateAndFuzzyTitle( string $title, string $venue, string $startDate ): ?int {
+		if ( EventIdentifierGenerator::isLowConfidenceTitle( $title ) ) {
+			do_action(
+				'datamachine_log',
+				'debug',
+				'Event Upsert: Skipping venue-scoped fuzzy match for low-confidence title',
+				array(
+					'title'     => $title,
+					'venue'     => $venue,
+					'startDate' => $startDate,
+				)
+			);
+			return null;
+		}
+
 		// Find venue term — try exact name first, then slug-based lookup
 		$venue_term = get_term_by( 'name', $venue, 'venue' );
 		if ( ! $venue_term ) {
@@ -378,6 +408,8 @@ class EventUpsert extends UpdateHandler {
 	 * @return int|null Post ID if found, null otherwise
 	 */
 	private function findEventByExactTitle( string $title, string $venue, string $startDate ): ?int {
+		$low_confidence_title = EventIdentifierGenerator::isLowConfidenceTitle( $title );
+
 		$args = array(
 			'post_type'      => Event_Post_Type::POST_TYPE,
 			'title'          => $title,
@@ -401,15 +433,21 @@ class EventUpsert extends UpdateHandler {
 		if ( ! empty( $posts ) ) {
 			$post_id = $posts[0];
 
-			// No incoming venue — trust the title+date match
+			// No incoming venue — trust the title+date match only for stronger titles.
 			if ( empty( $venue ) ) {
+				if ( $low_confidence_title ) {
+					return null;
+				}
 				return $post_id;
 			}
 
 			$venue_terms = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'names' ) );
 
-			// Existing post has no venue — trust the title+date match
+			// Existing post has no venue — trust the title+date match only for stronger titles.
 			if ( empty( $venue_terms ) ) {
+				if ( $low_confidence_title ) {
+					return null;
+				}
 				return $post_id;
 			}
 
@@ -572,6 +610,10 @@ class EventUpsert extends UpdateHandler {
 	 * @return int|null Post ID if fuzzy match found, null otherwise
 	 */
 	private function findEventByDateAndFuzzyTitle( string $title, string $startDate, string $venue = '' ): ?int {
+		if ( EventIdentifierGenerator::isLowConfidenceTitle( $title ) ) {
+			return null;
+		}
+
 		$args = array(
 			'post_type'      => Event_Post_Type::POST_TYPE,
 			'posts_per_page' => 20,

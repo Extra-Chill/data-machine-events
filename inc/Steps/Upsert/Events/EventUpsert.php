@@ -93,6 +93,19 @@ class EventUpsert extends UpdateHandler {
 
 		// Search for existing event
 		$existing_post_id = $this->findExistingEvent( $title, $venue, $startDate, $ticketUrl );
+		$datetime_confidence = $this->getDateTimeConfidence( $parameters, $engine );
+
+		if ( 'none' === $datetime_confidence ) {
+			return $this->errorResponse(
+				'valid startDate is required for event upsert',
+				array(
+					'title'               => $title,
+					'venue'               => $venue,
+					'startDate'           => $startDate,
+					'datetime_confidence' => $datetime_confidence,
+				)
+			);
+		}
 
 		if ( $existing_post_id ) {
 			// Event exists - check if data changed
@@ -962,6 +975,28 @@ class EventUpsert extends UpdateHandler {
 		if ( empty( $event_data['endTime'] ) ) {
 			$event_data['endTime'] = $date_obj->format( 'H:i:s' );
 		}
+	}
+
+	/**
+	 * Determine datetime confidence from engine/AI parameters.
+	 *
+	 * @param array $parameters Event parameters.
+	 * @param EngineData $engine Engine data helper.
+	 * @return string One of full|date_only|none.
+	 */
+	private function getDateTimeConfidence( array $parameters, EngineData $engine ): string {
+		$start_date = trim( (string) ( $engine->get( 'startDate' ) ?? $parameters['startDate'] ?? '' ) );
+		$start_time = trim( (string) ( $engine->get( 'startTime' ) ?? $parameters['startTime'] ?? '' ) );
+
+		if ( '' === $start_date ) {
+			return 'none';
+		}
+
+		if ( '' === $start_time ) {
+			return 'date_only';
+		}
+
+		return 'full';
 	}
 
 	/**

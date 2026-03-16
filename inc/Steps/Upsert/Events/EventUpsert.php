@@ -930,7 +930,7 @@ class EventUpsert extends UpdateHandler {
 	}
 
 	private function hydrateStartDateFromMeta( int $post_id, array &$event_data ): void {
-		if ( ! empty( $event_data['startDate'] ) && ! empty( $event_data['startTime'] ) ) {
+		if ( ! empty( $event_data['startDate'] ) && array_key_exists( 'startTime', $event_data ) ) {
 			return;
 		}
 
@@ -948,13 +948,16 @@ class EventUpsert extends UpdateHandler {
 			$event_data['startDate'] = $date_obj->format( 'Y-m-d' );
 		}
 
-		if ( empty( $event_data['startTime'] ) ) {
-			$event_data['startTime'] = $date_obj->format( 'H:i:s' );
+		if ( ! array_key_exists( 'startTime', $event_data ) ) {
+			$time = $date_obj->format( 'H:i:s' );
+			if ( '00:00:00' !== $time ) {
+				$event_data['startTime'] = $time;
+			}
 		}
 	}
 
 	private function hydrateEndDateFromMeta( int $post_id, array &$event_data ): void {
-		if ( ! empty( $event_data['endDate'] ) && ! empty( $event_data['endTime'] ) ) {
+		if ( ! empty( $event_data['endDate'] ) && array_key_exists( 'endTime', $event_data ) ) {
 			return;
 		}
 
@@ -972,8 +975,11 @@ class EventUpsert extends UpdateHandler {
 			$event_data['endDate'] = $date_obj->format( 'Y-m-d' );
 		}
 
-		if ( empty( $event_data['endTime'] ) ) {
-			$event_data['endTime'] = $date_obj->format( 'H:i:s' );
+		if ( ! array_key_exists( 'endTime', $event_data ) ) {
+			$time = $date_obj->format( 'H:i:s' );
+			if ( '00:00:00' !== $time && ( $event_data['startTime'] ?? '' ) !== $time ) {
+				$event_data['endTime'] = $time;
+			}
 		}
 	}
 

@@ -220,6 +220,7 @@ class DATAMACHINE_Events {
 		new \DataMachineEvents\Api\Chat\Tools\VenueHealthCheck();
 		new \DataMachineEvents\Api\Chat\Tools\UpdateVenue();
 		new \DataMachineEvents\Api\Chat\Tools\EventHealthCheck();
+		new \DataMachineEvents\Api\Chat\Tools\EventQualityAudit();
 		new \DataMachineEvents\Api\Chat\Tools\UpdateEvent();
 		new \DataMachineEvents\Api\Chat\Tools\GetVenueEvents();
 		new \DataMachineEvents\Api\Chat\Tools\FindBrokenTimezoneEvents();

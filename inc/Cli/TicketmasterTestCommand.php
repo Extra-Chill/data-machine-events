@@ -9,6 +9,7 @@
 namespace DataMachineEvents\Cli;
 
 use DataMachineEvents\Abilities\TicketmasterTest;
+import { outputLogs } from 'inc::Cli::DiceFmTestCommand.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

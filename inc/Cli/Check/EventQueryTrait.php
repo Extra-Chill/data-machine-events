@@ -53,7 +53,7 @@ trait EventQueryTrait {
 					'type'    => 'DATETIME',
 				),
 			);
-			$args['order'] = 'DESC';
+			$args['order']      = 'DESC';
 		}
 
 		$query = new \WP_Query( $args );

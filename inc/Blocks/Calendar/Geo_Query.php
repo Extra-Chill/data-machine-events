@@ -62,6 +62,7 @@ class Geo_Query {
 		// _venue_coordinates is stored as "lat,lng" string in termmeta.
 		//
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQLPlaceholders -- Dynamic query construction with safe values.
 		$results = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT
@@ -88,6 +89,7 @@ class Geo_Query {
 				$radius
 			)
 		);
+		// phpcs:enable WordPress.DB.PreparedSQLPlaceholders
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		if ( empty( $results ) ) {

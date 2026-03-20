@@ -34,7 +34,7 @@ class EventUpsertSettings {
 	 * @param array $current_config Current configuration values for this handler
 	 * @return array Field definitions for Data Machine settings interface
 	 */
-	public static function get_fields( array $current_config = array() ): array {
+	public static function get_fields(): array {
 		// Get available WordPress users for post authorship
 		$user_options = WordPressSettingsHandler::get_user_options();
 

@@ -138,7 +138,7 @@ function datamachine_unwrap_affiliate_url( string $url ): string {
 		'tkqlhce.com',
 	);
 
-	$host = strtolower( $parsed['host'] );
+	$host         = strtolower( $parsed['host'] );
 	$is_affiliate = false;
 	foreach ( $affiliate_hosts as $affiliate_host ) {
 		if ( $host === $affiliate_host || str_ends_with( $host, '.' . $affiliate_host ) ) {
@@ -174,7 +174,7 @@ function datamachine_unwrap_affiliate_url( string $url ): string {
  * @param WP_Post $post    Post object.
  * @param bool    $update  Whether this is an update.
  */
-function data_machine_events_sync_datetime_meta( $post_id, $post, $update ) {
+function data_machine_events_sync_datetime_meta( $post_id, $post) {
 	// Only for data_machine_events post type.
 	if ( Event_Post_Type::POST_TYPE !== $post->post_type ) {
 		return;

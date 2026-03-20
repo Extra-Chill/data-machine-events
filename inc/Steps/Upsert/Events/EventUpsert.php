@@ -245,9 +245,9 @@ class EventUpsert extends UpdateHandler {
 	private function acquireUpsertLock( string $title, string $startDate ): string {
 		global $wpdb;
 
-		$date_only       = self::extractDateForQuery( $startDate );
-		$normalized      = SimilarityEngine::normalizeTitle( $title );
-		$lock_key        = 'dme_' . md5( $date_only . '|' . $normalized );
+		$date_only  = self::extractDateForQuery( $startDate );
+		$normalized = SimilarityEngine::normalizeTitle( $title );
+		$lock_key   = 'dme_' . md5( $date_only . '|' . $normalized );
 
 		// MySQL lock names are limited to 64 characters; md5 = 36 + prefix = 40, safe.
 		// Timeout of 10 seconds: long enough for upsert to complete, short enough
@@ -262,10 +262,10 @@ class EventUpsert extends UpdateHandler {
 				'debug',
 				'Event Upsert: Advisory lock timeout, proceeding without lock',
 				array(
-					'lock_key'        => $lock_key,
-					'title'           => $title,
-					'startDate'       => $startDate,
-					'normalized'      => $normalized,
+					'lock_key'   => $lock_key,
+					'title'      => $title,
+					'startDate'  => $startDate,
+					'normalized' => $normalized,
 				)
 			);
 		}
@@ -1394,15 +1394,15 @@ class EventUpsert extends UpdateHandler {
 		}
 
 		$venue_metadata = array(
-			'address'     => $this->getParameterValue( $parameters, 'venueAddress' ) ?: ( $engine->get( 'venueAddress' ) ?? '' ),
-			'city'        => $this->getParameterValue( $parameters, 'venueCity' ) ?: ( $engine->get( 'venueCity' ) ?? '' ),
-			'state'       => $this->getParameterValue( $parameters, 'venueState' ) ?: ( $engine->get( 'venueState' ) ?? '' ),
-			'zip'         => $this->getParameterValue( $parameters, 'venueZip' ) ?: ( $engine->get( 'venueZip' ) ?? '' ),
-			'country'     => $this->getParameterValue( $parameters, 'venueCountry' ) ?: ( $engine->get( 'venueCountry' ) ?? '' ),
-			'phone'       => $this->getParameterValue( $parameters, 'venuePhone' ) ?: ( $engine->get( 'venuePhone' ) ?? '' ),
-			'website'     => $this->getParameterValue( $parameters, 'venueWebsite' ) ?: ( $engine->get( 'venueWebsite' ) ?? '' ),
-			'coordinates' => $this->getParameterValue( $parameters, 'venueCoordinates' ) ?: ( $engine->get( 'venueCoordinates' ) ?? '' ),
-			'capacity'    => $this->getParameterValue( $parameters, 'venueCapacity' ) ?: ( $engine->get( 'venueCapacity' ) ?? '' ),
+			'address'     => $this->getParameterValue( $parameters, 'venueAddress' ) ? $this->getParameterValue( $parameters, 'venueAddress' ) : ( $engine->get( 'venueAddress' ) ?? '' ),
+			'city'        => $this->getParameterValue( $parameters, 'venueCity' ) ? $this->getParameterValue( $parameters, 'venueCity' ) : ( $engine->get( 'venueCity' ) ?? '' ),
+			'state'       => $this->getParameterValue( $parameters, 'venueState' ) ? $this->getParameterValue( $parameters, 'venueState' ) : ( $engine->get( 'venueState' ) ?? '' ),
+			'zip'         => $this->getParameterValue( $parameters, 'venueZip' ) ? $this->getParameterValue( $parameters, 'venueZip' ) : ( $engine->get( 'venueZip' ) ?? '' ),
+			'country'     => $this->getParameterValue( $parameters, 'venueCountry' ) ? $this->getParameterValue( $parameters, 'venueCountry' ) : ( $engine->get( 'venueCountry' ) ?? '' ),
+			'phone'       => $this->getParameterValue( $parameters, 'venuePhone' ) ? $this->getParameterValue( $parameters, 'venuePhone' ) : ( $engine->get( 'venuePhone' ) ?? '' ),
+			'website'     => $this->getParameterValue( $parameters, 'venueWebsite' ) ? $this->getParameterValue( $parameters, 'venueWebsite' ) : ( $engine->get( 'venueWebsite' ) ?? '' ),
+			'coordinates' => $this->getParameterValue( $parameters, 'venueCoordinates' ) ? $this->getParameterValue( $parameters, 'venueCoordinates' ) : ( $engine->get( 'venueCoordinates' ) ?? '' ),
+			'capacity'    => $this->getParameterValue( $parameters, 'venueCapacity' ) ? $this->getParameterValue( $parameters, 'venueCapacity' ) : ( $engine->get( 'venueCapacity' ) ?? '' ),
 		);
 
 		$venue_result = \DataMachineEvents\Core\Venue_Taxonomy::find_or_create_venue( $venue_name, $venue_metadata );
@@ -1472,8 +1472,8 @@ class EventUpsert extends UpdateHandler {
 		}
 
 		$promoter_metadata = array(
-			'url'  => $this->getParameterValue( $parameters, 'organizerUrl' ) ?: ( $engine->get( 'organizerUrl' ) ?? '' ),
-			'type' => $this->getParameterValue( $parameters, 'organizerType' ) ?: ( $engine->get( 'organizerType' ) ?? 'Organization' ),
+			'url'  => $this->getParameterValue( $parameters, 'organizerUrl' ) ? $this->getParameterValue( $parameters, 'organizerUrl' ) : ( $engine->get( 'organizerUrl' ) ?? '' ),
+			'type' => $this->getParameterValue( $parameters, 'organizerType' ) ? $this->getParameterValue( $parameters, 'organizerType' ) : ( $engine->get( 'organizerType' ) ?? 'Organization' ),
 		);
 
 		$promoter_result = Promoter_Taxonomy::find_or_create_promoter( $promoter_name, $promoter_metadata );

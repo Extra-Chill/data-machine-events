@@ -51,6 +51,7 @@ class DateTimeParser {
 			$result['timezone'] = $timezone;
 		} catch ( Exception $e ) {
 			// Invalid datetime format, return empty result
+			unset( $e );
 		}
 
 		return $result;
@@ -92,6 +93,7 @@ class DateTimeParser {
 			$result['timezone'] = $timezone;
 		} catch ( Exception $e ) {
 			// Invalid datetime format, return empty result
+			unset( $e );
 		}
 
 		return $result;
@@ -122,6 +124,7 @@ class DateTimeParser {
 			$result['timezone'] = $tz ? $tz->getName() : '';
 		} catch ( Exception $e ) {
 			// Invalid datetime format, return empty result
+			unset( $e );
 		}
 
 		return $result;
@@ -212,6 +215,7 @@ class DateTimeParser {
 			$result['timezone'] = $tz_name;
 		} catch ( Exception $e ) {
 			// Invalid datetime format, return empty result
+			unset( $e );
 		}
 
 		return $result;

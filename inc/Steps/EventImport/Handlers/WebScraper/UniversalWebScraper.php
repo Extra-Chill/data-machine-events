@@ -285,17 +285,17 @@ class UniversalWebScraper extends EventImportHandler {
 				// pagination instead of returning immediately. This allows
 				// multi-page APIs (e.g. Tribe Events with 9 pages) to be
 				// fully scraped in a single fetch cycle.
-				$page_items = isset( $structured_result['items'] ) ? $structured_result['items'] : array( $structured_result );
+				$page_items        = isset( $structured_result['items'] ) ? $structured_result['items'] : array( $structured_result );
 				$accumulated_items = array_merge( $accumulated_items, $page_items );
 
 				$context->log(
 					'info',
 					'Universal Web Scraper: Accumulated structured items from page',
 					array(
-						'page'             => $current_page,
-						'page_items'       => count( $page_items ),
-						'total_items'      => count( $accumulated_items ),
-						'source_url'       => $current_url,
+						'page'        => $current_page,
+						'page_items'  => count( $page_items ),
+						'total_items' => count( $accumulated_items ),
+						'source_url'  => $current_url,
 					)
 				);
 
@@ -406,7 +406,7 @@ class UniversalWebScraper extends EventImportHandler {
 				continue;
 			}
 
-			$events = $extractor->extract( $html_content, $current_url );
+			$events = $extractor->extract( $html_content);
 			if ( empty( $events ) ) {
 				continue;
 			}

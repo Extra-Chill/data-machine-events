@@ -47,7 +47,7 @@ class EmbeddedCalendarExtractor extends BaseExtractor {
 		}
 
 		// Extract venue info from page context (fallback for calendar events that lack venue data)
-		$page_venue = PageVenueExtractor::extract( $html, $source_url );
+		$page_venue = PageVenueExtractor::extract( $html);
 
 		// Prefer timezone from embed URL, fall back to page context
 		$timezone = $calendar_data['timezone'] ? $calendar_data['timezone'] : $page_venue['venueTimezone'];

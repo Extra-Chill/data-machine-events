@@ -21,7 +21,7 @@ class EventFlyerSettings {
 
 	use VenueFieldsTrait;
 
-	public static function get_fields( array $current_config = array() ): array {
+	public static function get_fields(): array {
 		$event_fields = array(
 			'title' => array(
 				'type'        => 'text',
@@ -93,7 +93,7 @@ class EventFlyerSettings {
 		return self::save_venue_on_settings_save( $settings );
 	}
 
-	public static function requires_authentication( array $current_config = array() ): bool {
+	public static function requires_authentication(): bool {
 		return false;
 	}
 

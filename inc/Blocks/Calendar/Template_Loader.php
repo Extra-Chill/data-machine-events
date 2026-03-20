@@ -45,7 +45,7 @@ class Template_Loader {
 
 		if ( ! empty( $variables ) ) {
 			// phpcs:ignore WordPress.PHP.DontExtract.extract_extract -- Template variable extraction with EXTR_SKIP is intentional
-			extract( $variables, EXTR_SKIP );
+			extract( $variables);
 		}
 		ob_start();
 		include $template_file;

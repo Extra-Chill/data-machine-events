@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+import { resolveVenue } from 'inc::Abilities::VenueAbilities.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

@@ -143,6 +143,7 @@ class SpotHopperExtractor extends BaseExtractor {
 						$start_datetime->modify( '+' . (int) $event['duration_minutes'] . ' minutes' );
 						$end_time = $start_datetime->format( 'H:i' );
 					} catch ( \Exception $e ) {
+						unset( $e );
 					}
 				}
 			}
@@ -212,7 +213,7 @@ class SpotHopperExtractor extends BaseExtractor {
 		$target_id = $image_ids[0];
 
 		foreach ( $linked_images as $image ) {
-			if ( ( $image['id'] ?? null ) == $target_id ) {
+			if ( ( $image['id'] ?? null ) === $target_id ) {
 				$url = $image['urls']['full'] ?? ( $image['urls']['large'] ?? ( $image['url'] ?? '' ) );
 				return esc_url_raw( $url );
 			}

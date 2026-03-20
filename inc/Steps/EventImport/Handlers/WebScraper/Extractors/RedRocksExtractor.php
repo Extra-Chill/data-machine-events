@@ -8,6 +8,7 @@
  * @package DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors
  */
 
+import { normalizeTime } from 'inc::Steps::EventImport::Handlers::WebScraper::Extractors::FreshtixExtractor.php';
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 if ( ! defined( 'ABSPATH' ) ) {

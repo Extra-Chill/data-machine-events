@@ -11,6 +11,7 @@
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\PageVenueExtractor;
+import { normalizeTime } from 'inc::Steps::EventImport::Handlers::WebScraper::Extractors::FreshtixExtractor.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

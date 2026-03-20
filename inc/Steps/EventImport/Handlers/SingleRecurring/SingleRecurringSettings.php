@@ -29,7 +29,7 @@ class SingleRecurringSettings {
 	 * @param array $current_config Current configuration values
 	 * @return array Associative array defining the settings fields
 	 */
-	public static function get_fields( array $current_config = array() ): array {
+	public static function get_fields(): array {
 		$event_fields = array(
 			'event_title'       => array(
 				'type'        => 'text',
@@ -155,7 +155,7 @@ class SingleRecurringSettings {
 	 * @param array $current_config Current configuration values
 	 * @return bool True if authentication is required
 	 */
-	public static function requires_authentication( array $current_config = array() ): bool {
+	public static function requires_authentication(): bool {
 		return false;
 	}
 

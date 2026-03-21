@@ -101,7 +101,7 @@ class PageBoundary {
 		}
 
 		// Handle additional taxonomy filters from the filter bar.
-		$tax_filters = $params['tax_filters'] ?? array();
+		$tax_filters  = $params['tax_filters'] ?? array();
 		$filter_index = 0;
 		foreach ( $tax_filters as $taxonomy_slug => $term_ids ) {
 			if ( empty( $term_ids ) || ! is_array( $term_ids ) ) {
@@ -130,19 +130,24 @@ class PageBoundary {
 
 		// Single query: fetch all event IDs with start/end datetimes.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 		$rows = $wpdb->get_results(
 			empty( $query_values )
 				? "SELECT p.ID, pm_start.meta_value AS start_datetime, pm_end.meta_value AS end_datetime
+		// phpcs:enable WordPress.DB.PreparedSQL
 				   FROM {$wpdb->posts} p
 				   INNER JOIN {$wpdb->postmeta} pm_start ON p.ID = pm_start.post_id
+				   // phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 				   LEFT JOIN {$wpdb->postmeta} pm_end ON p.ID = pm_end.post_id AND pm_end.meta_key = '" . esc_sql( EVENT_END_DATETIME_META_KEY ) . "'
 				   {$joins}
 				   WHERE {$where}
 				   ORDER BY pm_start.meta_value ASC"
 				: $wpdb->prepare(
+				   // phpcs:enable WordPress.DB.PreparedSQL
 					"SELECT p.ID, pm_start.meta_value AS start_datetime, pm_end.meta_value AS end_datetime
 					FROM {$wpdb->posts} p
 					INNER JOIN {$wpdb->postmeta} pm_start ON p.ID = pm_start.post_id
+					// phpcs:disable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders -- Table name from $wpdb->prefix, not user input.
 					LEFT JOIN {$wpdb->postmeta} pm_end ON p.ID = pm_end.post_id AND pm_end.meta_key = '" . esc_sql( EVENT_END_DATETIME_META_KEY ) . "'
 					{$joins}
 					WHERE {$where}
@@ -150,6 +155,7 @@ class PageBoundary {
 					...$query_values
 				)
 		);
+					// phpcs:enable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders
 
 		$total_events    = count( $rows );
 		$events_per_date = array();

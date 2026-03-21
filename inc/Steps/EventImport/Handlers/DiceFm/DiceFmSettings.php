@@ -26,7 +26,7 @@ class DiceFmSettings {
 	 * @param array $current_config Current configuration values for this handler
 	 * @return array Associative array defining the settings fields
 	 */
-	public static function get_fields( array $current_config = array() ): array {
+	public static function get_fields(): array {
 		$handler_fields = array(
 			'city' => array(
 				'type'        => 'text',
@@ -77,7 +77,7 @@ class DiceFmSettings {
 	 * @param array $current_config Current configuration values.
 	 * @return bool True if authentication is required.
 	 */
-	public static function requires_authentication( array $current_config = array() ): bool {
+	public static function requires_authentication(): bool {
 		return true;
 	}
 

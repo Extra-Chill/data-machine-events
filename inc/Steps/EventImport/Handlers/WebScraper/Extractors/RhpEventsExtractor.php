@@ -11,6 +11,7 @@
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\PageVenueExtractor;
+import { normalizeTime } from 'inc::Steps::EventImport::Handlers::WebScraper::Extractors::FreshtixExtractor.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -24,15 +25,15 @@ class RhpEventsExtractor extends BaseExtractor {
 	}
 
 	public function extract( string $html, string $source_url ): array {
-		$loaded = $this->loadDom( $html );
-		$xpath  = $loaded['xpath'];
+		$loaded      = $this->loadDom( $html );
+		$xpath       = $loaded['xpath'];
 		$event_nodes = $xpath->query( "//*[contains(@class, 'rhpSingleEvent')]" );
 
 		if ( 0 === $event_nodes->length ) {
 			return array();
 		}
 
-		$page_venue = PageVenueExtractor::extract( $html, $source_url );
+		$page_venue = PageVenueExtractor::extract( $html);
 
 		$current_year = $this->detectYear( $xpath );
 		$events       = array();

@@ -97,8 +97,8 @@ class EventFlyer extends EventImportHandler {
 
 		// Add image context to engine data for vision processing.
 		$engine_data['image_file_path'] = $image_file['persistent_path'];
-		$upload_dir = wp_upload_dir();
-		$engine_data['image_url'] = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $image_file['persistent_path'] );
+		$upload_dir                     = wp_upload_dir();
+		$engine_data['image_url']       = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $image_file['persistent_path'] );
 
 		$this->stripVenueMetadataFromEvent( $event_data );
 

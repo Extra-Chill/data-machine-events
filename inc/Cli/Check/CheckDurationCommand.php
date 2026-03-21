@@ -130,7 +130,7 @@ class CheckDurationCommand {
 				'End'      => $event['end_date'],
 				'Days'     => $event['span_days'],
 				'Venue'    => mb_substr( $event['venue'], 0, 25 ),
-				'Pipeline' => $event['pipeline_id'] ?: '—',
+				'Pipeline' => $event['pipeline_id'] ? $event['pipeline_id'] : '—',
 			);
 		}
 
@@ -222,7 +222,7 @@ class CheckDurationCommand {
 				'end_date'    => substr( $row['end_dt'], 0, 10 ),
 				'span_days'   => (int) $row['span_days'],
 				'venue'       => $venue,
-				'pipeline_id' => $row['pipeline_id'] ?: '',
+				'pipeline_id' => $row['pipeline_id'] ? $row['pipeline_id'] : '',
 				'edit_url'    => get_edit_post_link( (int) $row['ID'], 'raw' ),
 			);
 		}

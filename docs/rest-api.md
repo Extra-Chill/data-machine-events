@@ -61,7 +61,6 @@ Data Machine Events exposes a focused REST surface under the `datamachine/v1` na
 - **Permissions**: `manage_options`.
 - **Arguments**:
   - `query` (string): Sanitized with `sanitize_text_field`.
-- **Behavior**: Calls Nominatim (with `DataMachine\Core\HttpClient`), handles rate limiting, returns `display_name`, `lat`, `lon`, and address parts, and surfaces errors when remote services fail.
 
 ## Notes
 

@@ -26,7 +26,7 @@ class UniversalWebScraperSettings {
 	 * @param array $current_config Current configuration values for this handler
 	 * @return array Associative array defining the settings fields
 	 */
-	public static function get_fields( array $current_config = array() ): array {
+	public static function get_fields(): array {
 		$handler_fields = array(
 			'source_url'       => array(
 				'type'        => 'url',
@@ -82,7 +82,7 @@ class UniversalWebScraperSettings {
 	 * @param array $current_config Current configuration values
 	 * @return bool Always false - no authentication required
 	 */
-	public static function requires_authentication( array $current_config = array() ): bool {
+	public static function requires_authentication(): bool {
 		return false;
 	}
 

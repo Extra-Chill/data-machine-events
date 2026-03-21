@@ -51,7 +51,7 @@ class PageVenueExtractor {
 	 * @param string $source_url Source URL for context
 	 * @return array Venue data with keys: venue, venueAddress, venueCity, venueState, venueZip, venueCountry, venueTimezone
 	 */
-	public static function extract( string $html, string $source_url = '' ): array {
+	public static function extract( string $html): array {
 		$venue = array(
 			'venue'         => '',
 			'venueAddress'  => '',

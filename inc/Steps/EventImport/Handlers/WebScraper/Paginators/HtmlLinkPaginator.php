@@ -183,7 +183,7 @@ class HtmlLinkPaginator implements PaginatorInterface {
 			$href   = $scheme . '://' . $current_host . $href;
 		} elseif ( ! preg_match( '/^https?:\/\//i', $href ) ) {
 			// Handle relative URLs
-			$base_path = dirname( wp_parse_url( $current_url, PHP_URL_PATH ) ?: '/' );
+			$base_path = dirname( wp_parse_url( $current_url, PHP_URL_PATH ) ? wp_parse_url( $current_url, PHP_URL_PATH ) : '/' );
 			$scheme    = wp_parse_url( $current_url, PHP_URL_SCHEME ) ?? 'https';
 			$href      = $scheme . '://' . $current_host . $base_path . '/' . $href;
 		}

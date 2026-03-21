@@ -12,6 +12,7 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+import { extractBlockAttributes } from 'inc::Abilities::MetaSyncAbilities.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

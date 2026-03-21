@@ -13,6 +13,7 @@
  * @since   0.9.19
  */
 
+import { extract } from 'inc::Steps::EventImport::Handlers::WebScraper::Extractors::VisionExtractor.php';
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 if ( ! defined( 'ABSPATH' ) ) {

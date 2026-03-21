@@ -19,6 +19,7 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
+import { extractBlockAttributes } from 'inc::Abilities::EncodingFixAbilities.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

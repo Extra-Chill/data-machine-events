@@ -173,7 +173,7 @@ class Settings_Page {
 	 * @param mixed $default Default value if not found
 	 * @return mixed Setting value
 	 */
-	public static function get_setting( $key, $default = null ) {
+	public static function get_setting( $key, $default_value = null ) {
 		$instance = new self();
 		$settings = get_option( self::OPTION_KEY, $instance->defaults );
 
@@ -181,8 +181,8 @@ class Settings_Page {
 			return $settings[ $key ];
 		}
 
-		if ( null !== $default ) {
-			return $default;
+		if ( null !== $default_value ) {
+			return $default_value;
 		}
 
 		return isset( $instance->defaults[ $key ] ) ? $instance->defaults[ $key ] : null;

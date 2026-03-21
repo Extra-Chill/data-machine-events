@@ -11,7 +11,7 @@ The Calendar block renders a Carousel List of events with progressive enhancemen
 
 ## Server Templates & Helpers
 
-- `event-item.php`, `date-group.php`, `navigation.php`, `pagination.php`, `results-counter.php`, `no-events.php`, `filter-bar.php`, `time-gap-separator.php`, and `modal/taxonomy-filter.php` live under `inc/Blocks/Calendar/templates` and are orchestrated by `inc/Core/Template_Loader`.
+- `event-item.php`, `date-group.php`, `navigation.php`, `pagination.php`, `results-counter.php`, `no-events.php`, `filter-bar.php`, `time-gap-separator.php`, and `inc/Blocks/Calendar/templates/modal/taxonomy-filter.php` live under `inc/Blocks/Calendar/templates` and are orchestrated by `inc/Core/Template_Loader`.
 - `inc/Core/Taxonomy_Helper` builds hierarchical term data and counts for each template, while `Taxonomy_Badges` renders badge markup that respects `data_machine_events_badge_wrapper_classes`, `data_machine_events_badge_classes`, and `data_machine_events_more_info_button_classes` filters.
 - The filter modal uses taxonomy helpers to surface dynamic dependencies, counts, and active state indicators before handing control to the filter modal module.
 
@@ -23,14 +23,7 @@ The Calendar block renders a Carousel List of events with progressive enhancemen
 
 ## JavaScript Modules
 
-- `inc/Blocks/Calendar/src/frontend.js` bootstraps each `.data-machine-events-calendar`, wiring the following modules:
-  - `modules/api-client.js` handles REST requests and swaps fragments.
-  - `modules/carousel.js` detects overflow, updates dots, and powers chevrons (with click-and-hold support).
-  - `modules/date-picker.js` integrates Flatpickr for date range filters.
-  - `modules/filter-modal.js` keeps the taxonomy modal accessible and debounced when filters change.
-  - `modules/filter-state.js` centralizes filter state management across URL params, localStorage, and DOM with regex support for both indexed (`tax_filter[taxonomy][0]`) and non-indexed (`tax_filter[taxonomy][]`) array syntax.
-  - `modules/navigation.js` powers past/upcoming toggles, calendar navigation, and pagination link handling.
-  - `modules/state.js` serializes query parameters, manages history state, and debounces search input.
+- `inc/Blocks/EventDetails/src/frontend.js` bootstraps each `.data-machine-events-calendar`, wiring the following modules:
 
 ## Filter Modal & Taxonomy Helpers
 

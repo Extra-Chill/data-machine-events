@@ -42,6 +42,7 @@ class EventIdentityWriter {
 	 * @param mixed  $meta_value Meta value.
 	 */
 	public static function onMetaChange( $meta_id, $post_id, $meta_key, $meta_value ): void {
+		unset( $meta_value );
 		// Only react to event identity meta keys.
 		if ( EVENT_DATETIME_META_KEY !== $meta_key && EVENT_TICKET_URL_META_KEY !== $meta_key ) {
 			return;
@@ -114,7 +115,7 @@ class EventIdentityWriter {
 				'post_type'     => Event_Post_Type::POST_TYPE,
 				'event_date'    => $event_date,
 				'venue_term_id' => $venue_term_id,
-				'ticket_url'    => $ticket_url ?: null,
+				'ticket_url'    => $ticket_url ? $ticket_url : null,
 				'title_hash'    => $title_hash,
 			)
 		);
@@ -130,9 +131,9 @@ class EventIdentityWriter {
 	 * @return int Total events processed.
 	 */
 	public static function backfill( int $batch_size = 500, ?callable $progress = null ): int {
-		$index     = new PostIdentityIndex();
-		$total     = 0;
-		$offset    = 0;
+		$index  = new PostIdentityIndex();
+		$total  = 0;
+		$offset = 0;
 
 		while ( true ) {
 			$missing = $index->find_missing_post_ids( Event_Post_Type::POST_TYPE, $batch_size, $offset );

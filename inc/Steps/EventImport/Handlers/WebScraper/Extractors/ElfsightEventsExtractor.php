@@ -46,7 +46,7 @@ class ElfsightEventsExtractor extends BaseExtractor {
 			return array();
 		}
 
-		$page_venue = PageVenueExtractor::extract( $html, $source_url );
+		$page_venue = PageVenueExtractor::extract( $html);
 		$timezone   = $page_venue['venueTimezone'] ? $page_venue['venueTimezone'] : 'America/Chicago';
 
 		$normalized_events = array();

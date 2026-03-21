@@ -173,8 +173,8 @@ class CheckMetaSyncCommand {
 			update_post_meta( (int) $post_id, '_datamachine_event_datetime', $start_datetime );
 
 			if ( ! empty( $attrs['endDate'] ) ) {
-				$end_datetime = $attrs['endDate'];
-				$end_time     = ! empty( $attrs['endTime'] ) ? $attrs['endTime'] : '23:59:59';
+				$end_datetime  = $attrs['endDate'];
+				$end_time      = ! empty( $attrs['endTime'] ) ? $attrs['endTime'] : '23:59:59';
 				$end_datetime .= ' ' . $end_time;
 				update_post_meta( (int) $post_id, '_datamachine_event_end_datetime', $end_datetime );
 			} elseif ( ! empty( $attrs['endTime'] ) ) {

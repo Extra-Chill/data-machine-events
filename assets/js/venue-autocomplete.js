@@ -8,6 +8,7 @@
  * @since 1.0.0
  */
 
+import { escapeHtml } from 'assets::js::venue-map.js';
 (function() {
     'use strict';
 

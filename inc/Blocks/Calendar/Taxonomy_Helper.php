@@ -147,19 +147,19 @@ class Taxonomy_Helper {
 			$current_datetime = current_time( 'mysql' );
 
 			if ( ! empty( $date_start ) && ! empty( $date_end ) ) {
-				$filter = DateFilter::date_range_sql( $wpdb->postmeta );
+				$filter         = DateFilter::date_range_sql( $wpdb->postmeta );
 				$joins         .= ' ' . $filter['joins'];
 				$where_clauses .= ' AND ' . $filter['where'];
 				$params[]       = $date_start . ' 00:00:00';
 				$params[]       = $date_end . ' 23:59:59';
 			} elseif ( $show_past ) {
-				$filter = DateFilter::past_sql( $wpdb->postmeta );
+				$filter         = DateFilter::past_sql( $wpdb->postmeta );
 				$joins         .= ' ' . $filter['joins'];
 				$where_clauses .= ' AND ' . $filter['where'];
 				$params[]       = $current_datetime;
 				$params[]       = $current_datetime;
 			} else {
-				$filter = DateFilter::upcoming_sql( $wpdb->postmeta );
+				$filter         = DateFilter::upcoming_sql( $wpdb->postmeta );
 				$joins         .= ' ' . $filter['joins'];
 				$where_clauses .= ' AND ' . $filter['where'];
 				$params[]       = $current_datetime;
@@ -219,11 +219,14 @@ class Taxonomy_Helper {
 		}
 
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQLPlaceholders -- Dynamic query construction with safe values.
 		$query = $wpdb->prepare(
+		// phpcs:enable WordPress.DB.PreparedSQLPlaceholders
 			"SELECT tt.term_id, COUNT(DISTINCT tr.object_id) as event_count
             FROM {$wpdb->term_relationships} tr
             INNER JOIN {$wpdb->term_taxonomy} tt 
                 ON tr.term_taxonomy_id = tt.term_taxonomy_id
+            // phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
             INNER JOIN {$wpdb->posts} p 
                 ON tr.object_id = p.ID
             {$joins}
@@ -234,6 +237,7 @@ class Taxonomy_Helper {
             GROUP BY tt.term_id",
 			$params
 		);
+			// phpcs:enable WordPress.DB.PreparedSQL
 
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		$results = $wpdb->get_results( $query );
@@ -269,7 +273,7 @@ class Taxonomy_Helper {
 				$effective_parent = $parent_term && ! is_wp_error( $parent_term ) ? $parent_term->parent : 0;
 			}
 
-			if ( $effective_parent == $parent_id ) {
+			if ( $effective_parent === $parent_id ) {
 				$term_data = array(
 					'term_id'     => $term->term_id,
 					'name'        => $term->name,

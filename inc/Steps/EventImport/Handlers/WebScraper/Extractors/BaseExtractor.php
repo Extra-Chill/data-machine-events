@@ -13,6 +13,9 @@ namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 use DataMachineEvents\Core\DateTimeParser;
 use DataMachineEvents\Core\PriceFormatter;
+import { sanitizeText } from 'inc::Steps::EventImport::Handlers::EventImportHandler.php';
+import { formatStructuredPrice } from 'inc::Steps::EventImport::Handlers::EventImportHandler.php';
+import { formatPriceRange } from 'inc::Steps::EventImport::Handlers::EventImportHandler.php';
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -371,7 +374,7 @@ abstract class BaseExtractor implements ExtractorInterface {
 		}
 
 		if ( str_starts_with( $url, '//' ) ) {
-			$scheme = wp_parse_url( $base_url, PHP_URL_SCHEME ) ?: 'https';
+			$scheme = wp_parse_url( $base_url, PHP_URL_SCHEME ) ? wp_parse_url( $base_url, PHP_URL_SCHEME ) : 'https';
 			return $scheme . ':' . $url;
 		}
 

@@ -268,7 +268,7 @@ class Promoter_Taxonomy {
 		add_action( 'edited_promoter', array( __CLASS__, 'save_promoter_meta' ) );
 	}
 
-	public static function add_promoter_form_fields( $taxonomy ) {
+	public static function add_promoter_form_fields() {
 		?>
 		<div class="form-field">
 			<label for="_promoter_url"><?php esc_html_e( 'Website', 'data-machine-events' ); ?></label>

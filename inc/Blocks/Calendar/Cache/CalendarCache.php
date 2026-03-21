@@ -17,9 +17,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class CalendarCache {
 
-	const PREFIX         = 'data-machine_cal_';
-	const TTL_DATES      = 30 * MINUTE_IN_SECONDS;
-	const TTL_COUNTS     = 30 * MINUTE_IN_SECONDS;
+	const PREFIX     = 'data-machine_cal_';
+	const TTL_DATES  = 30 * MINUTE_IN_SECONDS;
+	const TTL_COUNTS = 30 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Get a cached value.

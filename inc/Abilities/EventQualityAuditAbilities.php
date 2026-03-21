@@ -43,16 +43,16 @@ class EventQualityAuditAbilities {
 					'input_schema'        => array(
 						'type'       => 'object',
 						'properties' => array(
-							'scope'      => array(
+							'scope'            => array(
 								'type'        => 'string',
 								'enum'        => array( 'upcoming', 'all', 'past' ),
 								'description' => 'Which events to audit.',
 							),
-							'days_ahead' => array(
+							'days_ahead'       => array(
 								'type'        => 'integer',
 								'description' => 'Days to look ahead for upcoming scope.',
 							),
-							'flow_id'    => array(
+							'flow_id'          => array(
 								'type'        => 'integer',
 								'description' => 'Optional flow ID filter.',
 							),
@@ -60,12 +60,12 @@ class EventQualityAuditAbilities {
 								'type'        => 'integer',
 								'description' => 'Optional location term ID filter.',
 							),
-							'issue'      => array(
+							'issue'            => array(
 								'type'        => 'string',
 								'enum'        => array( 'all', 'missing_start_date', 'missing_start_time', 'missing_venue', 'duplicates' ),
 								'description' => 'Optional issue filter.',
 							),
-							'limit'      => array(
+							'limit'            => array(
 								'type'        => 'integer',
 								'description' => 'Max rows to return per category.',
 							),
@@ -74,14 +74,14 @@ class EventQualityAuditAbilities {
 					'output_schema'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'total_scanned'          => array( 'type' => 'integer' ),
-							'scope'                  => array( 'type' => 'string' ),
-							'missing_start_date'     => array( 'type' => 'object' ),
-							'missing_start_time'     => array( 'type' => 'object' ),
-							'missing_venue'          => array( 'type' => 'object' ),
-							'probable_duplicates'    => array( 'type' => 'object' ),
-							'culprit_flows'          => array( 'type' => 'array' ),
-							'message'                => array( 'type' => 'string' ),
+							'total_scanned'       => array( 'type' => 'integer' ),
+							'scope'               => array( 'type' => 'string' ),
+							'missing_start_date'  => array( 'type' => 'object' ),
+							'missing_start_time'  => array( 'type' => 'object' ),
+							'missing_venue'       => array( 'type' => 'object' ),
+							'probable_duplicates' => array( 'type' => 'object' ),
+							'culprit_flows'       => array( 'type' => 'array' ),
+							'message'             => array( 'type' => 'string' ),
 						),
 					),
 					'execute_callback'    => array( $this, 'executeAudit' ),
@@ -134,13 +134,13 @@ class EventQualityAuditAbilities {
 			$flow_id     = (int) get_post_meta( $event->ID, '_datamachine_post_flow_id', true );
 
 			$info = array(
-				'id'         => $event->ID,
-				'title'      => $event->post_title,
-				'startDate'  => $block_attrs['startDate'] ?? '',
-				'startTime'  => $block_attrs['startTime'] ?? '',
-				'venue'      => $venue_name,
-				'flow_id'    => $flow_id,
-				'flow_name'  => $this->getFlowName( $flow_id ),
+				'id'        => $event->ID,
+				'title'     => $event->post_title,
+				'startDate' => $block_attrs['startDate'] ?? '',
+				'startTime' => $block_attrs['startTime'] ?? '',
+				'venue'     => $venue_name,
+				'flow_id'   => $flow_id,
+				'flow_name' => $this->getFlowName( $flow_id ),
 			);
 
 			if ( empty( $info['startDate'] ) ) {
@@ -211,28 +211,40 @@ class EventQualityAuditAbilities {
 				'count'  => count( $missing_start_date ),
 				'events' => array_slice( $missing_start_date, 0, $limit ),
 			)
-			: array( 'count' => 0, 'events' => array() );
+			: array(
+				'count'  => 0,
+				'events' => array(),
+			);
 
 		$missing_start_time_result = ( 'all' === $issue || 'missing_start_time' === $issue )
 			? array(
 				'count'  => count( $missing_start_time ),
 				'events' => array_slice( $missing_start_time, 0, $limit ),
 			)
-			: array( 'count' => 0, 'events' => array() );
+			: array(
+				'count'  => 0,
+				'events' => array(),
+			);
 
 		$missing_venue_result = ( 'all' === $issue || 'missing_venue' === $issue )
 			? array(
 				'count'  => count( $missing_venue ),
 				'events' => array_slice( $missing_venue, 0, $limit ),
 			)
-			: array( 'count' => 0, 'events' => array() );
+			: array(
+				'count'  => 0,
+				'events' => array(),
+			);
 
 		$duplicate_result = ( 'all' === $issue || 'duplicates' === $issue )
 			? array(
 				'count'  => count( $duplicate_groups ),
 				'groups' => array_slice( $duplicate_groups, 0, $limit ),
 			)
-			: array( 'count' => 0, 'groups' => array() );
+			: array(
+				'count'  => 0,
+				'groups' => array(),
+			);
 
 		return array(
 			'total_scanned'       => count( $events ),
@@ -328,8 +340,10 @@ class EventQualityAuditAbilities {
 		}
 
 		global $wpdb;
+		// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 		$table = $wpdb->prefix . 'datamachine_flows';
 		$name  = $wpdb->get_var( $wpdb->prepare( "SELECT flow_name FROM {$table} WHERE flow_id = %d", $flow_id ) );
+		// phpcs:enable WordPress.DB.PreparedSQL
 
 		return is_string( $name ) ? $name : '';
 	}

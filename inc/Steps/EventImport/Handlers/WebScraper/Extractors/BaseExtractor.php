@@ -371,7 +371,7 @@ abstract class BaseExtractor implements ExtractorInterface {
 		}
 
 		if ( str_starts_with( $url, '//' ) ) {
-			$scheme = wp_parse_url( $base_url, PHP_URL_SCHEME ) ?: 'https';
+			$scheme = wp_parse_url( $base_url, PHP_URL_SCHEME ) ? wp_parse_url( $base_url, PHP_URL_SCHEME ) : 'https';
 			return $scheme . ':' . $url;
 		}
 

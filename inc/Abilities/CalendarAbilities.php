@@ -10,8 +10,7 @@
 
 namespace DataMachineEvents\Abilities;
 
-use WP_Query;
-use DataMachineEvents\Blocks\Calendar\Query\EventQueryBuilder;
+use DateTime;
 use DataMachineEvents\Blocks\Calendar\Query\ScopeResolver;
 use DataMachineEvents\Blocks\Calendar\Data\EventHydrator;
 use DataMachineEvents\Blocks\Calendar\Grouping\DateGrouper;
@@ -268,13 +267,67 @@ class CalendarAbilities {
 			}
 		}
 
-		$built         = EventQueryBuilder::build_query_args( $query_params );
-		$events_query  = new WP_Query( $built['args'] );
-		$built['cleanup']();
+		// Build ability input from query_params.
+		$ability_input = array(
+			'scope'       => $query_params['show_past'] ? 'past' : 'upcoming',
+			'tax_filters' => $query_params['tax_filters'],
+			'search'      => $query_params['search_query'],
+			'order'       => $query_params['show_past'] ? 'DESC' : 'ASC',
+		);
 
-		$event_counts = EventQueryBuilder::get_event_counts();
+		// Date range overrides scope.
+		if ( ! empty( $query_params['date_start'] ) || ! empty( $query_params['date_end'] ) ) {
+			$ability_input['date_start'] = $query_params['date_start'];
+			$ability_input['date_end']   = $query_params['date_end'];
+			$ability_input['time_start'] = $query_params['time_start'] ?? '';
+			$ability_input['time_end']   = $query_params['time_end'] ?? '';
+			// When user provides explicit dates, don't add scope filter.
+			if ( $query_params['user_date_range'] ) {
+				$ability_input['scope'] = 'all';
+			}
+		}
 
-		$paged_events      = DateGrouper::build_paged_events( $events_query );
+		// Taxonomy archive constraint.
+		if ( ! empty( $query_params['archive_taxonomy'] ) && ! empty( $query_params['archive_term_id'] ) ) {
+			$ability_input['tax_filters'][ $query_params['archive_taxonomy'] ] = array( (int) $query_params['archive_term_id'] );
+		}
+
+		// Apply calendar_base_query filter.
+		$tax_query_override = apply_filters(
+			'data_machine_events_calendar_base_query',
+			null,
+			array(
+				'archive_taxonomy' => $query_params['archive_taxonomy'],
+				'archive_term_id'  => $query_params['archive_term_id'],
+				'source'           => 'ability',
+			)
+		);
+		if ( $tax_query_override ) {
+			foreach ( $tax_query_override as $clause ) {
+				if ( isset( $clause['taxonomy'] ) && isset( $clause['terms'] ) ) {
+					$ability_input['tax_filters'][ $clause['taxonomy'] ] = (array) $clause['terms'];
+				}
+			}
+		}
+
+		// Geo.
+		if ( ! empty( $query_params['geo_lat'] ) && ! empty( $query_params['geo_lng'] ) ) {
+			$ability_input['geo'] = array(
+				'lat'    => (float) $query_params['geo_lat'],
+				'lng'    => (float) $query_params['geo_lng'],
+				'radius' => (float) ( $query_params['geo_radius'] ?? 25 ),
+				'unit'   => $query_params['geo_radius_unit'] ?? 'mi',
+			);
+		}
+
+		$event_date_query = new \DataMachineEvents\Abilities\EventDateQueryAbilities();
+		$query_result     = $event_date_query->executeQueryEvents( $ability_input );
+
+		$event_counts = self::compute_event_counts_via_ability();
+
+		// Build paged_events from ability result posts (replaces DateGrouper::build_paged_events
+		// which requires a WP_Query object — we have raw WP_Post objects from the ability).
+		$paged_events = self::build_paged_events_from_posts( $query_result['posts'] );
 		$paged_date_groups = DateGrouper::group_events_by_date(
 			$paged_events,
 			$show_past,
@@ -293,7 +346,7 @@ class CalendarAbilities {
 			'current_page'      => $current_page,
 			'max_pages'         => $max_pages,
 			'total_event_count' => $total_event_count,
-			'event_count'       => $events_query->post_count,
+			'event_count'       => $query_result['post_count'],
 			'date_boundaries'   => array(
 				'start_date' => $date_boundaries['start_date'],
 				'end_date'   => $date_boundaries['end_date'],
@@ -315,7 +368,7 @@ class CalendarAbilities {
 				$max_pages,
 				$show_past,
 				$date_boundaries,
-				$events_query->post_count,
+				$query_result['post_count'],
 				$total_event_count,
 				$event_counts,
 				$deferred_dates,
@@ -325,6 +378,66 @@ class CalendarAbilities {
 
 		wp_reset_postdata();
 
+		return $result;
+	}
+
+	/**
+	 * Build paged events array from raw WP_Post objects.
+	 *
+	 * Mirrors DateGrouper::build_paged_events() but operates on a plain
+	 * array of WP_Post objects instead of requiring a WP_Query instance.
+	 *
+	 * @param array $posts Array of WP_Post objects.
+	 * @return array Array of event items with post, datetime, and event_data.
+	 */
+	private static function build_paged_events_from_posts( array $posts ): array {
+		$paged_events = array();
+
+		foreach ( $posts as $event_post ) {
+			$event_data = EventHydrator::parse_event_data( $event_post );
+
+			if ( $event_data ) {
+				$start_time     = $event_data['startTime'] ?? '00:00:00';
+				$event_tz       = DateGrouper::get_event_timezone( $event_data );
+				$event_datetime = new DateTime(
+					$event_data['startDate'] . ' ' . $start_time,
+					$event_tz
+				);
+
+				$paged_events[] = array(
+					'post'       => $event_post,
+					'datetime'   => $event_datetime,
+					'event_data' => $event_data,
+				);
+			}
+		}
+
+		return $paged_events;
+	}
+
+	/**
+	 * Compute past/future event counts via the query-events ability (cached).
+	 *
+	 * @return array ['past' => int, 'future' => int]
+	 */
+	private static function compute_event_counts_via_ability(): array {
+		$cache_key = 'data-machine_cal_counts';
+		$cached    = get_transient( $cache_key );
+		if ( false !== $cached ) {
+			return $cached;
+		}
+
+		$ability = new \DataMachineEvents\Abilities\EventDateQueryAbilities();
+
+		$future = $ability->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'count' ) );
+		$past   = $ability->executeQueryEvents( array( 'scope' => 'past', 'fields' => 'count' ) );
+
+		$result = array(
+			'past'   => $past['total'],
+			'future' => $future['total'],
+		);
+
+		set_transient( $cache_key, $result, 10 * MINUTE_IN_SECONDS );
 		return $result;
 	}
 

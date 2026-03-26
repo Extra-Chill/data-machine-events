@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $gap_text = '';
-if ( 2 == $gap_days ) {
+if ( 2 === $gap_days ) {
 	$gap_text = __( '1 day later', 'data-machine-events' );
 } else {
 	$gap_text = sprintf( __( '%d days later', 'data-machine-events' ), $gap_days - 1 );

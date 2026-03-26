@@ -95,6 +95,8 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	\WP_CLI::add_command( 'datamachine-events backfill-event-dates', function( $args, $assoc_args ) {
+		unset( $args );
+		unset( $assoc_args );
 		\DataMachineEvents\Core\EventDatesTable::create_table();
 		\WP_CLI::log( 'Table ensured. Starting backfill...' );
 

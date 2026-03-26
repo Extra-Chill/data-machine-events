@@ -105,12 +105,12 @@ class FilterAbilities {
 							'geo_context'     => array(
 								'type'       => 'object',
 								'properties' => array(
-									'active'       => array( 'type' => 'boolean' ),
-									'venue_count'  => array( 'type' => 'integer' ),
-									'lat'          => array( 'type' => 'number' ),
-									'lng'          => array( 'type' => 'number' ),
-									'radius'       => array( 'type' => 'number' ),
-									'radius_unit'  => array( 'type' => 'string' ),
+									'active'      => array( 'type' => 'boolean' ),
+									'venue_count' => array( 'type' => 'integer' ),
+									'lat'         => array( 'type' => 'number' ),
+									'lng'         => array( 'type' => 'number' ),
+									'radius'      => array( 'type' => 'number' ),
+									'radius_unit' => array( 'type' => 'string' ),
 								),
 							),
 							'meta'            => array(
@@ -447,11 +447,14 @@ class FilterAbilities {
 		}
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQLPlaceholders -- Dynamic query construction with safe values.
 		$query = $wpdb->prepare(
+		// phpcs:enable WordPress.DB.PreparedSQLPlaceholders
 			"SELECT tt.term_id, COUNT(DISTINCT tr.object_id) as event_count
             FROM {$wpdb->term_relationships} tr
             INNER JOIN {$wpdb->term_taxonomy} tt 
                 ON tr.term_taxonomy_id = tt.term_taxonomy_id
+            // phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
             INNER JOIN {$wpdb->posts} p 
                 ON tr.object_id = p.ID
             {$joins}
@@ -462,6 +465,7 @@ class FilterAbilities {
             GROUP BY tt.term_id",
 			$params
 		);
+			// phpcs:enable WordPress.DB.PreparedSQL
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		$results = $wpdb->get_results( $query );
@@ -499,7 +503,7 @@ class FilterAbilities {
 				$effective_parent = $parent_term && ! is_wp_error( $parent_term ) ? $parent_term->parent : 0;
 			}
 
-			if ( $effective_parent == $parent_id ) {
+			if ( $effective_parent === $parent_id ) {
 				$term_data = array(
 					'term_id'     => $term->term_id,
 					'name'        => $term->name,

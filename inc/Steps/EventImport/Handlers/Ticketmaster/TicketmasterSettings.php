@@ -116,7 +116,7 @@ class TicketmasterSettings {
 	 * @param array $current_config Current configuration values.
 	 * @return bool True if authentication is required.
 	 */
-	public static function requires_authentication( array $current_config = array() ): bool {
+	public static function requires_authentication(): bool {
 		return true; // Ticketmaster requires API key authentication
 	}
 

@@ -48,27 +48,27 @@ Everything needed for this is already built — it just needs to be wired togeth
 
 | Component | File | Status |
 |-----------|------|--------|
-| `PageBoundary` | `Pagination/PageBoundary.php` | **Exists.** Computes date boundaries per page. Returns `events_per_date` counts. |
-| `CalendarAbilities` | `Abilities/CalendarAbilities.php` | **Exists.** Accepts `date_start`/`date_end` params. Setting both to same date = single day query. |
-| `EventQueryBuilder` | `Query/EventQueryBuilder.php` | **Exists.** Handles date range, taxonomy, geo, search filters. |
-| REST endpoint | `Api/Controllers/Calendar.php` | **Exists.** Thin wrapper: `GET /datamachine/v1/events/calendar?date_start=X&date_end=X`. Returns rendered HTML. |
-| `EventRenderer` | `Display/EventRenderer.php` | **Exists.** Renders date groups with lazy placeholder threshold (`LAZY_RENDER_THRESHOLD = 5`). |
-| `date-group.php` template | `templates/date-group.php` | **Exists.** Renders date header with `data-date` attribute and event count. |
+| `PageBoundary` | `inc/Blocks/Calendar/Pagination/PageBoundary.php` | **Exists.** Computes date boundaries per page. Returns `events_per_date` counts. |
+| `CalendarAbilities` | `inc/Abilities/CalendarAbilities.php` | **Exists.** Accepts `date_start`/`date_end` params. Setting both to same date = single day query. |
+| `EventQueryBuilder` | `inc/Blocks/Calendar/Query/EventQueryBuilder.php` | **Exists.** Handles date range, taxonomy, geo, search filters. |
+| REST endpoint | `inc/Api/Controllers/Calendar.php` | **Exists.** Thin wrapper: `GET /datamachine/v1/events/calendar?date_start=X&date_end=X`. Returns rendered HTML. |
+| `EventRenderer` | `inc/Blocks/Calendar/Display/EventRenderer.php` | **Exists.** Renders date groups with lazy placeholder threshold (`LAZY_RENDER_THRESHOLD = 5`). |
+| `date-group.php` template | `inc/Blocks/Calendar/templates/date-group.php` | **Exists.** Renders date header with `data-date` attribute and event count. |
 
 ### Client-side (TypeScript)
 
 | Component | File | Status |
 |-----------|------|--------|
-| `api-client.ts` | `src/modules/api-client.ts` | **Exists.** `fetchCalendarEvents()` calls REST endpoint, handles DOM updates for content, pagination, counter, navigation. |
-| `lazy-render.ts` | `src/modules/lazy-render.ts` | **Exists.** IntersectionObserver pattern for `.data-machine-events-wrapper` elements. Currently hydrates JSON from DOM — needs to fetch from REST instead. |
-| `geo-sync.ts` | `src/modules/geo-sync.ts` | **Exists.** Already fetches full calendar pages via REST on map interactions. Proof that the REST→DOM flow works. |
-| Types | `src/types.ts` | **Exists.** `CalendarResponse`, `ArchiveContext`, etc. |
+| `api-client.ts` | `inc/Blocks/Calendar/src/modules/api-client.ts` | **Exists.** `fetchCalendarEvents()` calls REST endpoint, handles DOM updates for content, pagination, counter, navigation. |
+| `lazy-render.ts` | `inc/Blocks/Calendar/src/modules/lazy-render.ts` | **Exists.** IntersectionObserver pattern for `.data-machine-events-wrapper` elements. Currently hydrates JSON from DOM — needs to fetch from REST instead. |
+| `geo-sync.ts` | `inc/Blocks/Calendar/src/modules/geo-sync.ts` | **Exists.** Already fetches full calendar pages via REST on map interactions. Proof that the REST→DOM flow works. |
+| Types | `inc/Blocks/EventsMap/src/types.ts` | **Exists.** `CalendarResponse`, `ArchiveContext`, etc. |
 
 ## Implementation Plan
 
 ### Phase 1: Server — Render shells with deferred day containers
 
-**File: `Display/EventRenderer.php`**
+**File: `inc/Blocks/Calendar/Display/EventRenderer.php`**
 
 Change `render_date_groups()` to accept a render mode:
 
@@ -117,7 +117,7 @@ $result['deferred_dates'] = array_slice($unique_dates_in_page, 1); // Dates to l
 
 ### Phase 2: Client — Fetch days on scroll
 
-**File: `src/modules/lazy-render.ts`** (or new `src/modules/day-loader.ts`)
+**File: `inc/Blocks/Calendar/src/modules/lazy-render.ts`** (or new `inc/Blocks/Calendar/src/modules/day-loader.ts`)
 
 Replace the current placeholder hydration with day-level fetching:
 
@@ -204,7 +204,7 @@ async function loadDayEvents(
 
 ### Phase 3: REST endpoint — single-day response optimization
 
-**File: `Api/Controllers/Calendar.php`**
+**File: `inc/Api/Controllers/Calendar.php`**
 
 The existing endpoint already works for single-day queries. However, it currently also runs `PageBoundary` (pagination computation) even for a single day, which is wasted work.
 
@@ -256,15 +256,15 @@ The REST endpoint already supports date ranges, so this works out of the box. Th
 
 | File | Change |
 |------|--------|
-| `Display/EventRenderer.php` | Add `RENDER_MODE_PROGRESSIVE`, render shells for deferred days |
-| `Abilities/CalendarAbilities.php` | Support partial hydration, return `deferred_dates` |
+| `inc/Blocks/Calendar/Display/EventRenderer.php` | Add `RENDER_MODE_PROGRESSIVE`, render shells for deferred days |
+| `inc/Abilities/CalendarAbilities.php` | Support partial hydration, return `deferred_dates` |
 | `render.php` | Pass render mode, emit deferred date metadata |
-| `Api/Controllers/Calendar.php` | Add `mode=day` fast path |
-| `templates/date-group.php` | No change needed (already has `data-date` and count) |
-| `src/modules/day-loader.ts` | New module: IntersectionObserver → REST fetch → DOM insert |
-| `src/modules/lazy-render.ts` | Unchanged (still handles within-day placeholder hydration) |
-| `src/frontend.ts` | Init `dayLoader` alongside existing modules |
-| `src/types.ts` | Add `DayLoaderConfig` type |
+| `inc/Api/Controllers/Calendar.php` | Add `mode=day` fast path |
+| `inc/Blocks/Calendar/templates/date-group.php` | No change needed (already has `data-date` and count) |
+| `inc/Blocks/Calendar/src/modules/day-loader.ts` | New module: IntersectionObserver → REST fetch → DOM insert |
+| `inc/Blocks/Calendar/src/modules/lazy-render.ts` | Unchanged (still handles within-day placeholder hydration) |
+| `inc/Blocks/Calendar/src/frontend.ts` | Init `dayLoader` alongside existing modules |
+| `inc/Blocks/EventsMap/src/types.ts` | Add `DayLoaderConfig` type |
 
 ### No changes needed
 

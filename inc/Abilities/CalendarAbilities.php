@@ -329,7 +329,7 @@ class CalendarAbilities {
 
 		// Build paged_events from ability result posts (replaces DateGrouper::build_paged_events
 		// which requires a WP_Query object — we have raw WP_Post objects from the ability).
-		$paged_events = self::build_paged_events_from_posts( $query_result['posts'] );
+		$paged_events      = self::build_paged_events_from_posts( $query_result['posts'] );
 		$paged_date_groups = DateGrouper::group_events_by_date(
 			$paged_events,
 			$show_past,
@@ -431,8 +431,14 @@ class CalendarAbilities {
 
 		$ability = new \DataMachineEvents\Abilities\EventDateQueryAbilities();
 
-		$future = $ability->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'count' ) );
-		$past   = $ability->executeQueryEvents( array( 'scope' => 'past', 'fields' => 'count' ) );
+		$future = $ability->executeQueryEvents( array(
+			'scope'  => 'upcoming',
+			'fields' => 'count',
+		) );
+		$past   = $ability->executeQueryEvents( array(
+			'scope'  => 'past',
+			'fields' => 'count',
+		) );
 
 		$result = array(
 			'past'   => $past['total'],
@@ -638,6 +644,7 @@ class CalendarAbilities {
 
 		// Fetch start/end dates without IDs — DATE() in SQL avoids gmdate() in PHP.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders -- Table name from $wpdb->prefix, not user input.
 		$rows = $wpdb->get_results(
 			empty( $query_values )
 				? "SELECT DATE(ed.start_datetime) AS start_date, DATE(ed.end_datetime) AS end_date
@@ -656,6 +663,7 @@ class CalendarAbilities {
 					...$query_values
 				)
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders
 
 		$total_events    = count( $rows );
 		$events_per_date = array();

@@ -56,7 +56,7 @@ class CraftpeakExtractor extends BaseExtractor {
 	 * @param string $source_url Source URL for context
 	 * @return array Array of normalized event data
 	 */
-	public function extract( string $html, string $source_url ): array {
+	public function extract( string $html): array {
 		$page_venue = PageVenueExtractor::extract( $html, $source_url );
 
 		$raw_events = $this->parseEventCards( $html, $source_url );

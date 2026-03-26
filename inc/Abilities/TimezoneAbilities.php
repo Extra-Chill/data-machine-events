@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use DataMachineEvents\Abilities\MetaSyncAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use DataMachineEvents\Abilities\VenueAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -191,7 +192,7 @@ class EventQueryAbilities {
 		};
 		add_filter( 'posts_clauses', $venue_event_filter );
 
-		$query               = new \WP_Query( $query_args );
+		$query = new \WP_Query( $query_args );
 
 		remove_filter( 'posts_clauses', $venue_event_filter );
 

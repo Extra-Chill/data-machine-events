@@ -15,6 +15,8 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
+use DataMachineEvents\Abilities\EncodingFixAbilities;
+use DataMachineEvents\Abilities\MetaSyncAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

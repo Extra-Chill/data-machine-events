@@ -159,7 +159,7 @@ class Event_Post_Type {
 	 *
 	 * @param \WP $wp The WordPress environment object.
 	 */
-	public static function fix_taxonomy_archive_404( $wp ) {
+	public static function fix_taxonomy_archive_404() {
 		if ( is_admin() ) {
 			return;
 		}
@@ -177,8 +177,8 @@ class Event_Post_Type {
 				// Verify the term actually exists.
 				$term = get_term_by( 'slug', $wp_query->query[ $taxonomy ], $taxonomy );
 				if ( $term && ! is_wp_error( $term ) ) {
-					$wp_query->is_404  = false;
-					$wp_query->is_tax  = true;
+					$wp_query->is_404     = false;
+					$wp_query->is_tax     = true;
 					$wp_query->is_archive = true;
 					status_header( 200 );
 				}
@@ -247,7 +247,7 @@ class Event_Post_Type {
 		$orderby = $query->get( 'orderby' );
 
 		if ( 'event_date' === $orderby ) {
-			$sort_direction = $query->get( 'order' ) ?: 'ASC';
+			$sort_direction = $query->get( 'order' ) ? $query->get( 'order' ) : 'ASC';
 			add_filter(
 				'posts_clauses',
 				function ( $clauses ) use ( $sort_direction ) {

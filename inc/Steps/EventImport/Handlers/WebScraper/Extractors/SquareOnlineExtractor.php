@@ -13,6 +13,7 @@
  * @since   0.9.19
  */
 
+use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\VisionExtractor;
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 if ( ! defined( 'ABSPATH' ) ) {

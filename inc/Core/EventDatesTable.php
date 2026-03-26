@@ -63,8 +63,10 @@ class EventDatesTable {
 	 */
 	public static function table_exists(): bool {
 		global $wpdb;
+		// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 		$table = self::table_name();
 		return $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table;
+		// phpcs:enable WordPress.DB.PreparedSQL
 	}
 
 	/**
@@ -79,7 +81,7 @@ class EventDatesTable {
 		global $wpdb;
 
 		if ( null === $post_status ) {
-			$post_status = get_post_status( $post_id ) ?: 'publish';
+			$post_status = get_post_status( $post_id ) ? get_post_status( $post_id ) : 'publish';
 		}
 
 		$wpdb->replace(
@@ -141,11 +143,13 @@ class EventDatesTable {
 		$table = self::table_name();
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 		$row = $wpdb->get_row(
 			$wpdb->prepare( "SELECT start_datetime, end_datetime FROM {$table} WHERE post_id = %d", $post_id )
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL
 
-		return $row ?: null;
+		return $row ? $row : null;
 	}
 
 	/**
@@ -158,9 +162,9 @@ class EventDatesTable {
 	public static function backfill( int $batch_size = 500, ?callable $progress = null ): int {
 		global $wpdb;
 
-		$table    = self::table_name();
-		$total    = 0;
-		$offset   = 0;
+		$table  = self::table_name();
+		$total  = 0;
+		$offset = 0;
 
 		while ( true ) {
 			// Find events with postmeta datetime but no row in event_dates table.
@@ -172,6 +176,7 @@ class EventDatesTable {
 							pm_end.meta_value AS end_datetime,
 							p.post_status
 					FROM {$wpdb->postmeta} pm_start
+					// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 					INNER JOIN {$wpdb->posts} p ON pm_start.post_id = p.ID
 					LEFT JOIN {$table} ed ON pm_start.post_id = ed.post_id
 					LEFT JOIN {$wpdb->postmeta} pm_end
@@ -183,6 +188,7 @@ class EventDatesTable {
 					$batch_size
 				)
 			);
+					// phpcs:enable WordPress.DB.PreparedSQL
 
 			if ( empty( $rows ) ) {
 				break;
@@ -192,7 +198,7 @@ class EventDatesTable {
 				self::upsert(
 					(int) $row->post_id,
 					$row->start_datetime,
-					$row->end_datetime ?: null,
+					$row->end_datetime ? $row->end_datetime : null,
 					$row->post_status
 				);
 				++$total;

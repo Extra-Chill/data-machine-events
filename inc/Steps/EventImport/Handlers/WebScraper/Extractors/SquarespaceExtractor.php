@@ -71,7 +71,7 @@ class SquarespaceExtractor extends BaseExtractor {
 		}
 
 		// Extract venue info from page context as fallback
-		$page_venue = \DataMachineEvents\Steps\EventImport\Handlers\WebScraper\PageVenueExtractor::extract( $html, $source_url );
+		$page_venue = \DataMachineEvents\Steps\EventImport\Handlers\WebScraper\PageVenueExtractor::extract( $html);
 
 		$events = array();
 		foreach ( $raw_items as $raw_item ) {
@@ -564,7 +564,7 @@ class SquarespaceExtractor extends BaseExtractor {
 
 			if ( ! empty( $matches[3] ) ) {
 				try {
-					$dt = new \DateTime( "{$month} {$day} {$matches[3]}" );
+					$dt                 = new \DateTime( "{$month} {$day} {$matches[3]}" );
 					$event['startDate'] = $dt->format( 'Y-m-d' );
 				} catch ( \Exception $e ) {
 					return;

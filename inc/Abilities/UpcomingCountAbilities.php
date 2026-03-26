@@ -129,6 +129,7 @@ class UpcomingCountAbilities {
 				"SELECT t.term_id, t.name, t.slug, COUNT(DISTINCT tr.object_id) AS event_count
 				FROM {$wpdb->term_relationships} tr
 				INNER JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+				// phpcs:disable WordPress.DB.PreparedSQL -- Table name from $wpdb->prefix, not user input.
 				INNER JOIN {$wpdb->terms} t ON tt.term_id = t.term_id
 				INNER JOIN {$ed_table} ed ON tr.object_id = ed.post_id
 				WHERE tt.taxonomy = %s
@@ -141,6 +142,7 @@ class UpcomingCountAbilities {
 				$today
 			)
 		);
+				// phpcs:enable WordPress.DB.PreparedSQL
 
 		if ( empty( $rows ) ) {
 			return array(

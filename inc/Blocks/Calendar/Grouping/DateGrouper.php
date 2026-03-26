@@ -247,6 +247,7 @@ class DateGrouper {
 				return new DateTimeZone( $tz_string );
 			} catch ( \Exception $e ) {
 				// Invalid timezone, fall through to default.
+				unset( $e );
 			}
 		}
 

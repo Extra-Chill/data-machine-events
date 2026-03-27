@@ -83,7 +83,7 @@ abstract class EventImportHandler extends FetchHandler {
 		if ( empty( $html ) ) {
 			return '';
 		}
-		return html_entity_decode( strip_tags( $html, '<a><br><p>' ) );
+		return html_entity_decode( wp_strip_all_tags( $html, '<a><br><p>' ) );
 	}
 
 	/**

@@ -288,7 +288,7 @@ class MicrodataExtractor extends BaseExtractor {
 	 */
 	private function extractDatetime( \DOMNode $node ): string {
 		if ( $node instanceof \DOMElement ) {
-			return $node->getAttribute( 'datetime' ) ?: $node->textContent;
+			return $node->getAttribute( 'datetime' ) ? $node->getAttribute( 'datetime' ) : $node->textContent;
 		}
 		return $node->textContent;
 	}
@@ -298,7 +298,7 @@ class MicrodataExtractor extends BaseExtractor {
 	 */
 	private function extractHrefOrContent( \DOMNode $node ): string {
 		if ( $node instanceof \DOMElement ) {
-			return $node->getAttribute( 'href' ) ?: $node->textContent;
+			return $node->getAttribute( 'href' ) ? $node->getAttribute( 'href' ) : $node->textContent;
 		}
 		return $node->textContent;
 	}

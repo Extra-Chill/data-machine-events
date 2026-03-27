@@ -38,6 +38,8 @@ class EventIdentityWriter {
 	 * @param string|null $end_datetime   End datetime or null.
 	 */
 	public static function onEventDatesUpdated( int $post_id, string $start_datetime, ?string $end_datetime ): void {
+		unset( $start_datetime );
+		unset( $end_datetime );
 		$post_type = get_post_type( $post_id );
 		if ( Event_Post_Type::POST_TYPE !== $post_type ) {
 			return;
@@ -55,6 +57,7 @@ class EventIdentityWriter {
 	 * @param mixed  $meta_value Meta value.
 	 */
 	public static function onTicketUrlMetaChange( $meta_id, $post_id, $meta_key, $meta_value ): void {
+		unset( $meta_value );
 		if ( EVENT_TICKET_URL_META_KEY !== $meta_key ) {
 			return;
 		}
@@ -83,7 +86,7 @@ class EventIdentityWriter {
 			return;
 		}
 
-		$dates = \DataMachineEvents\Core\EventDatesTable::get( $post_id );
+		$dates    = \DataMachineEvents\Core\EventDatesTable::get( $post_id );
 		$datetime = $dates ? $dates->start_datetime : '';
 		if ( empty( $datetime ) ) {
 			return;
@@ -126,7 +129,7 @@ class EventIdentityWriter {
 				'post_type'     => Event_Post_Type::POST_TYPE,
 				'event_date'    => $event_date,
 				'venue_term_id' => $venue_term_id,
-				'ticket_url'    => $ticket_url ?: null,
+				'ticket_url'    => $ticket_url ? $ticket_url : null,
 				'title_hash'    => $title_hash,
 			)
 		);
@@ -142,9 +145,9 @@ class EventIdentityWriter {
 	 * @return int Total events processed.
 	 */
 	public static function backfill( int $batch_size = 500, ?callable $progress = null ): int {
-		$index     = new PostIdentityIndex();
-		$total     = 0;
-		$offset    = 0;
+		$index  = new PostIdentityIndex();
+		$total  = 0;
+		$offset = 0;
 
 		while ( true ) {
 			$missing = $index->find_missing_post_ids( Event_Post_Type::POST_TYPE, $batch_size, $offset );

@@ -104,13 +104,13 @@ class VenueMapAbilities {
 							),
 						),
 						'total'  => array( 'type' => 'integer' ),
-					'center' => array(
-						'type'       => array( 'object', 'null' ),
-						'properties' => array(
-							'lat' => array( 'type' => 'number' ),
-							'lng' => array( 'type' => 'number' ),
+						'center' => array(
+							'type'       => array( 'object', 'null' ),
+							'properties' => array(
+								'lat' => array( 'type' => 'number' ),
+								'lng' => array( 'type' => 'number' ),
+							),
 						),
-					),
 						'radius' => array( 'type' => 'integer' ),
 					),
 				),
@@ -154,7 +154,7 @@ class VenueMapAbilities {
 		}
 
 		// Geo proximity: use Geo_Query to get venue IDs + distances.
-		$distance_map = array();
+		$distance_map  = array();
 		$geo_venue_ids = null;
 
 		if ( $has_geo && ! $has_bounds ) {
@@ -169,7 +169,10 @@ class VenueMapAbilities {
 				return array(
 					'venues' => array(),
 					'total'  => 0,
-					'center' => array( 'lat' => $lat, 'lng' => $lng ),
+					'center' => array(
+						'lat' => $lat,
+						'lng' => $lng,
+					),
 					'radius' => $radius,
 				);
 			}
@@ -192,7 +195,10 @@ class VenueMapAbilities {
 			return array(
 				'venues' => array(),
 				'total'  => 0,
-				'center' => $has_geo ? array( 'lat' => $lat, 'lng' => $lng ) : null,
+				'center' => $has_geo ? array(
+					'lat' => $lat,
+					'lng' => $lng,
+				) : null,
 				'radius' => $radius,
 			);
 		}
@@ -228,10 +234,8 @@ class VenueMapAbilities {
 					if ( $venue_lon < $bounds_parsed['sw_lng'] || $venue_lon > $bounds_parsed['ne_lng'] ) {
 						continue;
 					}
-				} else {
-					if ( $venue_lon < $bounds_parsed['sw_lng'] && $venue_lon > $bounds_parsed['ne_lng'] ) {
-						continue;
-					}
+				} elseif ( $venue_lon < $bounds_parsed['sw_lng'] && $venue_lon > $bounds_parsed['ne_lng'] ) {
+					continue;
 				}
 			}
 
@@ -275,7 +279,10 @@ class VenueMapAbilities {
 		return array(
 			'venues' => $venues,
 			'total'  => count( $venues ),
-			'center' => $has_geo ? array( 'lat' => $lat, 'lng' => $lng ) : null,
+			'center' => $has_geo ? array(
+				'lat' => $lat,
+				'lng' => $lng,
+			) : null,
 			'radius' => $radius,
 		);
 	}

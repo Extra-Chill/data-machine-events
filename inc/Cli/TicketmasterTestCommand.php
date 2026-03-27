@@ -9,6 +9,7 @@
 namespace DataMachineEvents\Cli;
 
 use DataMachineEvents\Abilities\TicketmasterTest;
+use DataMachineEvents\Cli\DiceFmTestCommand;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

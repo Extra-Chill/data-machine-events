@@ -30,18 +30,18 @@ class EventQualityAudit extends BaseTool {
 			'method'      => 'handle_tool_call',
 			'description' => 'Run a unified event quality audit: missing start date, missing start time, missing venue, probable duplicate groups, and culprit flows.',
 			'parameters'  => array(
-				'scope'      => array(
+				'scope'            => array(
 					'type'        => 'string',
 					'required'    => false,
 					'description' => 'Which events to check: upcoming (default), all, or past.',
 					'enum'        => array( 'upcoming', 'all', 'past' ),
 				),
-				'days_ahead' => array(
+				'days_ahead'       => array(
 					'type'        => 'integer',
 					'required'    => false,
 					'description' => 'Days to look ahead for upcoming scope (default: 90).',
 				),
-				'flow_id'    => array(
+				'flow_id'          => array(
 					'type'        => 'integer',
 					'required'    => false,
 					'description' => 'Optional flow ID filter.',
@@ -51,12 +51,12 @@ class EventQualityAudit extends BaseTool {
 					'required'    => false,
 					'description' => 'Optional location term ID filter.',
 				),
-				'issue'      => array(
+				'issue'            => array(
 					'type'        => 'string',
 					'required'    => false,
 					'description' => 'Optional issue filter: all, missing_start_date, missing_start_time, missing_venue, or duplicates.',
 				),
-				'limit'      => array(
+				'limit'            => array(
 					'type'        => 'integer',
 					'required'    => false,
 					'description' => 'Max rows to return per category (default: 25).',

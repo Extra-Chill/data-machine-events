@@ -19,6 +19,7 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
+use DataMachineEvents\Abilities\EncodingFixAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

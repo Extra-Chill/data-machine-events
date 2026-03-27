@@ -45,7 +45,7 @@ class DateFilter {
 				$clauses['join'] .= " INNER JOIN {$table} AS ed ON {$wpdb->posts}.ID = ed.post_id";
 			}
 
-			$date_where = $wpdb->prepare(
+			$date_where        = $wpdb->prepare(
 				'(ed.start_datetime >= %s OR ed.end_datetime >= %s)',
 				$datetime,
 				$datetime
@@ -74,7 +74,7 @@ class DateFilter {
 				$clauses['join'] .= " INNER JOIN {$table} AS ed ON {$wpdb->posts}.ID = ed.post_id";
 			}
 
-			$date_where = $wpdb->prepare(
+			$date_where        = $wpdb->prepare(
 				'(ed.start_datetime < %s AND (ed.end_datetime < %s OR ed.end_datetime IS NULL))',
 				$datetime,
 				$datetime
@@ -128,7 +128,7 @@ class DateFilter {
 	 * @return array{joins: string, where: string, param_count: int}
 	 */
 	public static function upcoming_sql( bool $include_status = true, string $join_column = 'p.ID' ): array {
-		$table = EventDatesTable::table_name();
+		$table         = EventDatesTable::table_name();
 		$status_clause = $include_status ? " AND ed.post_status = 'publish'" : '';
 
 		return array(
@@ -146,7 +146,7 @@ class DateFilter {
 	 * @return array{joins: string, where: string, param_count: int}
 	 */
 	public static function past_sql( bool $include_status = true, string $join_column = 'p.ID' ): array {
-		$table = EventDatesTable::table_name();
+		$table         = EventDatesTable::table_name();
 		$status_clause = $include_status ? " AND ed.post_status = 'publish'" : '';
 
 		return array(
@@ -164,7 +164,7 @@ class DateFilter {
 	 * @return array{joins: string, where: string, param_count: int}
 	 */
 	public static function date_range_sql( bool $include_status = true, string $join_column = 'p.ID' ): array {
-		$table = EventDatesTable::table_name();
+		$table         = EventDatesTable::table_name();
 		$status_clause = $include_status ? " AND ed.post_status = 'publish'" : '';
 
 		return array(

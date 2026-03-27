@@ -100,7 +100,7 @@ class PageBoundary {
 		}
 
 		// Handle additional taxonomy filters from the filter bar.
-		$tax_filters = $params['tax_filters'] ?? array();
+		$tax_filters  = $params['tax_filters'] ?? array();
 		$filter_index = 0;
 		foreach ( $tax_filters as $taxonomy_slug => $term_ids ) {
 			if ( empty( $term_ids ) || ! is_array( $term_ids ) ) {
@@ -129,6 +129,7 @@ class PageBoundary {
 
 		// Fetch start/end dates without IDs — DATE() in SQL avoids gmdate() in PHP.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders -- Table name from $wpdb->prefix, not user input.
 		$rows = $wpdb->get_results(
 			empty( $query_values )
 				? "SELECT DATE(ed.start_datetime) AS start_date, DATE(ed.end_datetime) AS end_date
@@ -147,6 +148,7 @@ class PageBoundary {
 					...$query_values
 				)
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders
 
 		$total_events    = count( $rows );
 		$events_per_date = array();

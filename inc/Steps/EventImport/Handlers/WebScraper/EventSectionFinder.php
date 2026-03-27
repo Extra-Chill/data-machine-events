@@ -48,6 +48,7 @@ final class EventSectionFinder {
 	 * @return array{html: string, raw_html: string, identifier: string, selector: string, url: string}|null
 	 */
 	public function find_first_eligible_section( string $html_content, string $url, ExecutionContext $context ): ?array {
+		unset( $context );
 		$dom = new \DOMDocument();
 		libxml_use_internal_errors( true );
 		$dom->loadHTML( $html_content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );

@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Steps\EventImport\Handlers\Ticketmaster\Ticketmaster;
 use DataMachineEvents\Steps\EventImport\Handlers\Ticketmaster\TicketmasterAuth;
+use DataMachineEvents\Abilities\DiceFmTest;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

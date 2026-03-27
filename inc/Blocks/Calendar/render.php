@@ -122,7 +122,7 @@ $date_context = array(
 
 // Use FilterAbilities to determine filter-bar visibility on archive pages.
 $hide_filter_button_when_inactive = false;
-$filter_count = ! empty( $tax_filters ) ? array_sum( array_map( 'count', $tax_filters ) ) : 0;
+$filter_count                     = ! empty( $tax_filters ) ? array_sum( array_map( 'count', $tax_filters ) ) : 0;
 
 if ( ! empty( $archive_context['taxonomy'] ) && ! empty( $archive_context['term_id'] ) && 0 === $filter_count ) {
 	$filter_abilities = new FilterAbilities();

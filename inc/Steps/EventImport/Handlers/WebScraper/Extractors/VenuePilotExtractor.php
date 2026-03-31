@@ -171,8 +171,7 @@ class VenuePilotExtractor extends BaseExtractor {
 		// Pattern 2: Widget script tag — fetch the JS to get the embedded settings.
 		if ( preg_match( '#https?://www\.venuepilot\.co/widgets/([a-zA-Z0-9_-]+)\.js#', $html, $matches ) ) {
 			$widget_url = $matches[0];
-			$result     = HttpClient::get( $widget_url, array( 'timeout' => 15 ) );
-			$widget_js  = ( ! empty( $result['success'] ) ) ? ( $result['data'] ?? '' ) : '';
+			$widget_js  = $this->fetchUrl( $widget_url, array(), 'VenuePilot widget JS' );
 
 			if ( ! empty( $widget_js ) && preg_match( '/["\']?accountIds["\']?\s*:\s*\[\s*([\d,\s]+)\s*\]/s', $widget_js, $js_matches ) ) {
 				$ids = array_map( 'intval', array_filter( explode( ',', $js_matches[1] ) ) );

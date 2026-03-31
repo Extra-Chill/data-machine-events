@@ -96,14 +96,30 @@ class VenuePilotExtractor extends BaseExtractor {
 	/**
 	 * Check if this page contains VenuePilot widget integration.
 	 *
+	 * Detects direct VenuePilot markers, or Wix HtmlComponent embeds
+	 * that may contain a VenuePilot widget (resolved via Wix Thunderbolt API).
+	 *
 	 * @param string $html HTML content to check.
 	 * @return bool True if VenuePilot markers are detected.
 	 */
 	public function canExtract( string $html ): bool {
-		return strpos( $html, 'venuepilot.co/widgets/' ) !== false
+		// Direct VenuePilot markers.
+		if ( strpos( $html, 'venuepilot.co/widgets/' ) !== false
 			|| strpos( $html, 'venuepilotSettings' ) !== false
 			|| strpos( $html, 'widget.staging.venuepilot.com' ) !== false
-			|| strpos( $html, 'venuepilot-app' ) !== false;
+			|| strpos( $html, 'venuepilot-app' ) !== false ) {
+			return true;
+		}
+
+		// Wix site with HtmlComponent — may contain an embedded VenuePilot widget.
+		// We check for HtmlComponent in the Wix warmup data since the actual embed
+		// content is loaded at runtime via the Thunderbolt features API.
+		if ( strpos( $html, '"HtmlComponent"' ) !== false
+			&& strpos( $html, 'staticHTMLComponentUrl' ) !== false ) {
+			return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -149,9 +165,10 @@ class VenuePilotExtractor extends BaseExtractor {
 	/**
 	 * Extract account IDs from the HTML.
 	 *
-	 * Handles two integration patterns:
+	 * Handles three integration patterns:
 	 * 1. Inline venuepilotSettings object with accountIds array.
 	 * 2. Widget script URL that embeds settings when loaded.
+	 * 3. Wix HtmlComponent — resolve via Thunderbolt features API.
 	 *
 	 * @param string $html       Page HTML.
 	 * @param string $source_url Source URL.
@@ -175,6 +192,75 @@ class VenuePilotExtractor extends BaseExtractor {
 
 			if ( ! empty( $widget_js ) && preg_match( '/["\']?accountIds["\']?\s*:\s*\[\s*([\d,\s]+)\s*\]/s', $widget_js, $js_matches ) ) {
 				$ids = array_map( 'intval', array_filter( explode( ',', $js_matches[1] ) ) );
+				if ( ! empty( $ids ) ) {
+					return $ids;
+				}
+			}
+		}
+
+		// Pattern 3: Wix HtmlComponent — VenuePilot embed is inside a Wix-hosted HTML file.
+		// Resolve the HtmlComponent URL via the Thunderbolt features API, then extract accountIds.
+		$ids = $this->extractFromWixHtmlComponent( $html );
+		if ( ! empty( $ids ) ) {
+			return $ids;
+		}
+
+		return array();
+	}
+
+	/**
+	 * Extract account IDs from a Wix HtmlComponent embed.
+	 *
+	 * Wix HtmlComponent stores its content in a static HTML file at filesusr.com.
+	 * The URL is resolved via the Wix Thunderbolt features API which returns
+	 * component props including the embed URL.
+	 *
+	 * @param string $html Page HTML containing Wix warmup data.
+	 * @return array Account IDs or empty array.
+	 */
+	private function extractFromWixHtmlComponent( string $html ): array {
+		// Find HtmlComponent IDs from Wix warmup data.
+		if ( ! preg_match_all( '/"(comp-[a-z0-9]+)"\s*:\s*"HtmlComponent"/', $html, $comp_matches ) ) {
+			return array();
+		}
+
+		// Find the Thunderbolt features API URL for this page.
+		if ( ! preg_match( '#(https://siteassets\.parastorage\.com/pages/pages/thunderbolt\?[^"\']+module=thunderbolt-features[^"\']*)#', $html, $api_matches ) ) {
+			return array();
+		}
+
+		$features_url = html_entity_decode( $api_matches[1] );
+		$features_json = $this->fetchUrl( $features_url, array( 'timeout' => 20 ), 'Wix Thunderbolt features' );
+
+		if ( empty( $features_json ) ) {
+			return array();
+		}
+
+		$features = json_decode( $features_json, true );
+		if ( json_last_error() !== JSON_ERROR_NONE || empty( $features ) ) {
+			return array();
+		}
+
+		// Look for HtmlComponent props containing a filesusr.com URL.
+		$comp_props = $features['props']['render']['compProps'] ?? array();
+
+		foreach ( $comp_matches[1] as $comp_id ) {
+			$props = $comp_props[ $comp_id ] ?? array();
+			$embed_url = $props['url'] ?? '';
+
+			if ( empty( $embed_url ) || strpos( $embed_url, 'filesusr.com' ) === false ) {
+				continue;
+			}
+
+			// Fetch the embedded HTML and check for VenuePilot config.
+			$embed_html = $this->fetchUrl( $embed_url, array( 'timeout' => 15 ), 'Wix HtmlComponent embed' );
+
+			if ( empty( $embed_html ) ) {
+				continue;
+			}
+
+			if ( preg_match( '/["\']?accountIds["\']?\s*:\s*\[\s*([\d,\s]+)\s*\]/s', $embed_html, $id_matches ) ) {
+				$ids = array_map( 'intval', array_filter( explode( ',', $id_matches[1] ) ) );
 				if ( ! empty( $ids ) ) {
 					return $ids;
 				}

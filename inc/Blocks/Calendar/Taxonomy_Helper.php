@@ -174,11 +174,6 @@ class Taxonomy_Helper {
 				$has_date_filter = true;
 			} else {
 				$filter = DateFilter::upcoming_sql( true, 'tr.object_id' );
-				$joins         .= ' ' . $filter['joins'];
-				$where_clauses .= ' AND ' . $filter['where'];
-				$params[]       = $current_datetime;
-				$params[]       = $current_datetime;
-				$has_date_filter = true;
 			}
 		}
 

@@ -13,6 +13,7 @@ namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 use DataMachineEvents\Core\DateTimeParser;
 use DataMachineEvents\Core\PriceFormatter;
+use DataMachineEvents\Steps\EventImport\Handlers\EventImportHandler;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -116,16 +117,6 @@ abstract class BaseExtractor implements ExtractorInterface {
 	}
 
 	/**
-	 * Sanitize text field.
-	 *
-	 * @param string $text Text to sanitize
-	 * @return string Sanitized text
-	 */
-	protected function sanitizeText( string $text ): string {
-		return sanitize_text_field( trim( $text ) );
-	}
-
-	/**
 	 * Clean HTML content for descriptions.
 	 *
 	 * @param string $html HTML content
@@ -213,30 +204,6 @@ abstract class BaseExtractor implements ExtractorInterface {
 		}
 
 		return null;
-	}
-
-	/**
-	 * Format a price range as a display string.
-	 *
-	 * @param float|null $min Minimum price
-	 * @param float|null $max Maximum price (optional)
-	 * @return string Formatted price or empty if invalid
-	 */
-	protected function formatPriceRange( ?float $min, ?float $max = null ): string {
-		return PriceFormatter::formatRange( $min, $max );
-	}
-
-	/**
-	 * Format structured price data into a display string.
-	 *
-	 * @param float|null $min Minimum price.
-	 * @param float|null $max Maximum price.
-	 * @param string     $currency ISO currency code.
-	 * @param bool|null  $is_free Explicit free flag.
-	 * @return string
-	 */
-	protected function formatStructuredPrice( ?float $min = null, ?float $max = null, string $currency = 'USD', ?bool $is_free = null ): string {
-		return PriceFormatter::formatStructured( $min, $max, $currency, $is_free );
 	}
 
 	/**
@@ -387,4 +354,43 @@ abstract class BaseExtractor implements ExtractorInterface {
 
 		return $base . $dir . $url;
 	}
+
+    public function getMethod(): string {
+		return 'opendate';
+    }
+
+    public function extract( string $html, string $source_url ): array {
+		$event_urls = $this->parseListingPage( $html );
+		if ( empty( $event_urls ) ) {
+			return array();
+		}
+
+		$events = array();
+		foreach ( $event_urls as $event_url ) {
+			$detail_html = $this->fetchDetailPage( $event_url );
+			if ( empty( $detail_html ) ) {
+				continue;
+			}
+
+			$jsonld = $this->extractJsonLd( $detail_html );
+			if ( empty( $jsonld ) ) {
+				continue;
+			}
+
+			$react_json  = $this->extractReactJson( $detail_html );
+			$coordinates = $this->extractCoordinates( $detail_html );
+			$event       = $this->normalizeEvent( $jsonld, $react_json, $coordinates, $event_url );
+
+			if ( ! empty( $event['title'] ) ) {
+				$events[] = $event;
+			}
+		}
+
+		return $events;
+    }
+
+    public function canExtract( string $html ): bool {
+		return strpos( $html, 'confirm-card' ) !== false
+			|| strpos( $html, 'ODEmbed' ) !== false;
+    }
 }

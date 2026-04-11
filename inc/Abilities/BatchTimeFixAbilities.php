@@ -19,6 +19,7 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
+use DataMachineEvents\Abilities\EncodingFixAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -379,28 +380,6 @@ class BatchTimeFixAbilities {
 		}
 
 		return $events;
-	}
-
-	/**
-	 * Extract Event Details block attributes.
-	 *
-	 * @param int $post_id Post ID
-	 * @return array Block attributes
-	 */
-	private function extractBlockAttributes( int $post_id ): array {
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return array();
-		}
-
-		$blocks = parse_blocks( $post->post_content );
-		foreach ( $blocks as $block ) {
-			if ( self::BLOCK_NAME === $block['blockName'] ) {
-				return $block['attrs'] ?? array();
-			}
-		}
-
-		return array();
 	}
 
 	/**

@@ -8,6 +8,7 @@
  * @package DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors
  */
 
+use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\FreshtixExtractor;
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -157,13 +158,6 @@ class RedRocksExtractor extends BaseExtractor {
 				$event['startTime'] = $this->normalizeTime( $time );
 			}
 		}
-	}
-
-	/**
-	 * @deprecated Use BaseExtractor::parseTimeString() instead.
-	 */
-	private function normalizeTime( string $time ): string {
-		return $this->parseTimeString( $time );
 	}
 
 	private function parseImage( array &$event, \DOMXPath $xpath, \DOMElement $node ): void {

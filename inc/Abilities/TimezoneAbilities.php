@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use DataMachineEvents\Abilities\MetaSyncAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -284,13 +285,6 @@ class TimezoneAbilities {
 			} elseif ( empty( $venue_coordinates ) ) {
 				$broken_events[] = array(
 					'id'                => $event->ID,
-					'title'             => $event->post_title,
-					'startDate'         => $block_attrs['startDate'] ?? '',
-					'startTime'         => $block_attrs['startTime'] ?? '',
-					'venue'             => $venue_term->name,
-					'venue_id'          => $venue_id,
-					'venue_timezone'    => $venue_timezone ? $venue_timezone : '',
-					'venue_coordinates' => $venue_coordinates ? $venue_coordinates : '',
 					'reason'            => 'no_coordinates',
 				);
 			}
@@ -450,23 +444,6 @@ class TimezoneAbilities {
 			'timezone'        => $timezone,
 			'timezone_source' => $timezone_source,
 		);
-	}
-
-	private function extractBlockAttributes( int $post_id ): array {
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return array();
-		}
-
-		$blocks = parse_blocks( $post->post_content );
-
-		foreach ( $blocks as $block ) {
-			if ( 'data-machine-events/event-details' === $block['blockName'] ) {
-				return $block['attrs'] ?? array();
-			}
-		}
-
-		return array();
 	}
 
 	private function normalizeFixInput( array $parameters ): array {

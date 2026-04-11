@@ -13,6 +13,7 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use DataMachineEvents\Abilities\VenueAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -236,27 +237,6 @@ class EventQueryAbilities {
 				count( $events )
 			),
 		);
-	}
-
-	private function resolveVenue( string $identifier ): ?\WP_Term {
-		if ( is_numeric( $identifier ) ) {
-			$term = get_term( (int) $identifier, 'venue' );
-			if ( $term && ! is_wp_error( $term ) ) {
-				return $term;
-			}
-		}
-
-		$term = get_term_by( 'name', $identifier, 'venue' );
-		if ( $term ) {
-			return $term;
-		}
-
-		$term = get_term_by( 'slug', $identifier, 'venue' );
-		if ( $term ) {
-			return $term;
-		}
-
-		return null;
 	}
 
 	/**

@@ -15,6 +15,8 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
+use DataMachineEvents\Abilities\EncodingFixAbilities;
+use DataMachineEvents\Abilities\MetaSyncAbilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -372,29 +374,6 @@ class EventHealthAbilities {
 	}
 
 	/**
-	 * Extract Event Details block attributes from post content.
-	 *
-	 * @param int $post_id Event post ID
-	 * @return array Block attributes or empty array
-	 */
-	private function extractBlockAttributes( int $post_id ): array {
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return array();
-		}
-
-		$blocks = parse_blocks( $post->post_content );
-
-		foreach ( $blocks as $block ) {
-			if ( 'data-machine-events/event-details' === $block['blockName'] ) {
-				return $block['attrs'] ?? array();
-			}
-		}
-
-		return array();
-	}
-
-	/**
 	 * Extract description content from InnerBlocks (paragraph blocks).
 	 *
 	 * Descriptions are stored as core/paragraph InnerBlocks inside the
@@ -468,28 +447,4 @@ class EventHealthAbilities {
 		return '23:59' === $time || '23:59:00' === $time;
 	}
 
-	/**
-	 * Check for Unicode encoding issues in block attributes.
-	 *
-	 * Detects escaped unicode sequences like \u00a3 that should be
-	 * rendered as actual characters (£).
-	 *
-	 * @param array $attrs Block attributes to check
-	 * @return array List of affected field names, empty if none
-	 */
-	private function checkEncodingIssues( array $attrs ): array {
-		$fields_to_check = array( 'price', 'venue', 'address' );
-		$affected_fields = array();
-
-		foreach ( $fields_to_check as $field ) {
-			if ( empty( $attrs[ $field ] ) ) {
-				continue;
-			}
-			if ( preg_match( '/\\\\u[0-9a-fA-F]{4}/', $attrs[ $field ] ) ) {
-				$affected_fields[] = $field;
-			}
-		}
-
-		return $affected_fields;
-	}
 }

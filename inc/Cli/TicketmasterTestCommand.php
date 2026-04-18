@@ -9,6 +9,7 @@
 namespace DataMachineEvents\Cli;
 
 use DataMachineEvents\Abilities\TicketmasterTest;
+use DataMachineEvents\Cli\DiceFmTestCommand;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -164,20 +165,4 @@ class TicketmasterTestCommand {
 		}
 	}
 
-	private function outputLogs( array $logs ): void {
-		if ( empty( $logs ) ) {
-			return;
-		}
-
-		\WP_CLI::log( '' );
-		\WP_CLI::log( '=== Logs (tail 20) ===' );
-
-		foreach ( array_slice( $logs, -20 ) as $entry ) {
-			$message = strtoupper( $entry['level'] ) . ': ' . $entry['message'];
-			if ( ! empty( $entry['context'] ) ) {
-				$message .= ' ' . wp_json_encode( $entry['context'] );
-			}
-			\WP_CLI::log( $message );
-		}
-	}
 }

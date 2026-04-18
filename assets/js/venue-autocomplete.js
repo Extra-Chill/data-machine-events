@@ -8,6 +8,7 @@
  * @since 1.0.0
  */
 
+import { venue-map.js } from 'assets::js::venue-map.js';
 (function() {
     'use strict';
 
@@ -458,16 +459,6 @@
 
         // Stop checking after 5 seconds
         setTimeout(() => clearInterval(checkModal), 5000);
-    }
-
-    /**
-     * Escape HTML to prevent XSS
-     * @param text
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
 
     // Initialize when DOM is ready

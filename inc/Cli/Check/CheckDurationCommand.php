@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CheckDurationCommand {
+class CheckDurationCommand implements EventQueryTrait {
 
 	private const DEFAULT_MAX_DAYS = 14;
 

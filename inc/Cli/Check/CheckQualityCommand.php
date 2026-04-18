@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CheckQualityCommand {
+class CheckQualityCommand implements EventQueryTrait {
 
 	/**
 	 * Run unified event quality audit.

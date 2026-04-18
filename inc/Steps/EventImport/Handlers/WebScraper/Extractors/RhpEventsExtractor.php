@@ -11,6 +11,7 @@
 namespace DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors;
 
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\PageVenueExtractor;
+use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\FreshtixExtractor;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -180,13 +181,6 @@ class RhpEventsExtractor extends BaseExtractor {
 			// If no show time, use doors time as start
 			$event['startTime'] = $event['doorsTime'];
 		}
-	}
-
-	/**
-	 * @deprecated Use BaseExtractor::parseTimeString() instead.
-	 */
-	private function normalizeTime( string $time ): string {
-		return $this->parseTimeString( $time );
 	}
 
 	/**

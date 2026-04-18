@@ -206,4 +206,45 @@ class SettingsCommand extends WP_CLI_Command {
 		}
 		return (string) $value;
 	}
+
+    public function __invoke( array $args, array $assoc_args ): void {
+		if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
+			return;
+		}
+
+		$event_ids_raw = $args[0] ?? '';
+
+		if ( empty( $event_ids_raw ) ) {
+			\WP_CLI::error( 'Missing required event ID(s). Usage: wp data-machine-events update-event <event_ids> [--startTime=<time>]' );
+		}
+
+		$event_ids = $this->parseEventIds( $event_ids_raw );
+
+		if ( empty( $event_ids ) ) {
+			\WP_CLI::error( 'No valid event IDs provided.' );
+		}
+
+		$format = $assoc_args['format'] ?? 'table';
+		unset( $assoc_args['format'] );
+
+		$fields = $this->extractUpdateFields( $assoc_args );
+
+		if ( empty( $fields ) ) {
+			\WP_CLI::error( 'No fields to update. Provide at least one of: --startDate, --startTime, --endDate, --endTime, --occurrenceDates, --venue, --price, --ticketUrl, --performer, --performerType, --eventStatus, --eventType, --description' );
+		}
+
+		$abilities = new EventUpdateAbilities();
+		$result    = $this->executeUpdate( $abilities, $event_ids, $fields );
+
+		if ( isset( $result['error'] ) ) {
+			\WP_CLI::error( $result['error'] );
+		}
+
+		if ( 'json' === $format ) {
+			$this->outputJson( $result );
+			return;
+		}
+
+		$this->outputTable( $result );
+    }
 }

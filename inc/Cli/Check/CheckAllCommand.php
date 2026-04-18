@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CheckAllCommand {
+class CheckAllCommand implements EventQueryTrait {
 
 	/**
 	 * Run all data quality checks.

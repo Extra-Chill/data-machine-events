@@ -276,6 +276,16 @@ class DATAMACHINE_Events {
 		// Notify submitters when their submitted events are published.
 		\DataMachineEvents\Core\SubmissionNotification::register();
 
+		// Register OG image generation for event posts (registers GD template +
+		// hooks the extrachill_seo_singular_og_image_url filter).
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Templates/EventOgCardTemplate.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Templates/EventOgCardTemplate.php';
+		}
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventOgImage.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventOgImage.php';
+			\DataMachineEvents\Core\EventOgImage::register();
+		}
+
 		// Register ability categories first — must happen before any ability registration.
 		require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/AbilityCategories.php';
 		\DataMachineEvents\Abilities\AbilityCategories::ensure_registered();

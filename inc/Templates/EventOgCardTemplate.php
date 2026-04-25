@@ -27,6 +27,7 @@ namespace DataMachineEvents\Templates;
 
 use DataMachine\Abilities\Media\TemplateInterface;
 use DataMachine\Abilities\Media\GDRenderer;
+use DataMachine\Abilities\Media\BrandTokens;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -76,8 +77,8 @@ class EventOgCardTemplate implements TemplateInterface {
 	}
 
 	public function render( array $data, GDRenderer $renderer, array $options = array() ): array {
-		$preset = $options['preset'] ?? $this->get_default_preset();
-		$format = $options['format'] ?? 'png';
+		$preset  = $options['preset'] ?? $this->get_default_preset();
+		$format  = $options['format'] ?? 'png';
 		$context = $options['context'] ?? array();
 
 		$renderer->create_canvas( $preset );
@@ -85,120 +86,151 @@ class EventOgCardTemplate implements TemplateInterface {
 		$width  = $renderer->get_width();
 		$height = $renderer->get_height();
 
-		// Brand palette — Extra Chill orange + dark backgrounds.
-		$bg_dark    = $renderer->color_hex( 'bg_dark', '#0f0f0f' );
-		$bg_band    = $renderer->color_hex( 'bg_band', '#1a1a1a' );
-		$accent     = $renderer->color_hex( 'accent', '#ff6b35' );
-		$text_white = $renderer->color_hex( 'text_white', '#ffffff' );
-		$text_muted = $renderer->color_hex( 'text_muted', '#b8b8b8' );
-		$pill_bg    = $renderer->color_hex( 'pill_bg', '#ff6b35' );
+		// Resolve brand tokens (colors, fonts, labels). Themes hook
+		// `datamachine/image_template/brand_tokens` to supply these. When
+		// nothing is registered, the defaults from BrandTokens::DEFAULTS apply.
+		$tokens    = BrandTokens::get( $this->get_id(), $data );
+		$colors    = $tokens['colors'];
+		$fonts     = $tokens['fonts'];
+		$site_label = (string) ( $tokens['site_label'] ?? '' );
+		$brand_text = (string) ( $tokens['brand_text'] ?? '' );
 
-		// Backgrounds.
-		$renderer->fill( $bg_dark );
+		// Surface colors for the card.
+		$bg        = $renderer->color_hex( 'bg', $colors['background'] );
+		$surface   = $renderer->color_hex( 'surface', $colors['surface'] );
+		$accent    = $renderer->color_hex( 'accent', $colors['accent'] );
+		$text_pri  = $renderer->color_hex( 'text_pri', $colors['text_primary'] );
+		$text_mute = $renderer->color_hex( 'text_mute', $colors['text_muted'] );
+		$text_inv  = $renderer->color_hex( 'text_inv', $colors['text_inverse'] );
+		$header_bg = $renderer->color_hex( 'header_bg', $colors['header_bg'] );
 
-		// Top accent band (subtle).
+		// Layout sections.
+		$renderer->fill( $bg );
+
+		// Top accent band.
 		$renderer->filled_rect( 0, 0, $width, 8, $accent );
 
-		// Footer band where venue/city sits.
-		$footer_band_y = (int) ( $height * 0.78 );
-		$renderer->filled_rect( 0, $footer_band_y, $width, $height, $bg_band );
+		// Footer band (surface) where venue/city sit.
+		$footer_band_y = (int) ( $height * 0.72 );
+		$renderer->filled_rect( 0, $footer_band_y, $width, $height, $surface );
 
-		// Bottom branding strip.
-		$brand_strip_y = $height - 56;
-		$renderer->filled_rect( 0, $brand_strip_y, $width, $height, $accent );
+		// Bottom branding strip (header_bg = deep black by default for
+		// brand text contrast).
+		$brand_strip_h = 64;
+		$brand_strip_y = $height - $brand_strip_h;
+		$renderer->filled_rect( 0, $brand_strip_y, $width, $height, $header_bg );
 
-		// Fonts — try theme fonts, fallback to system.
-		$renderer->register_font( 'header', 'Oswald-Bold.ttf' );
-		$renderer->register_font( 'body', 'Inter-Medium.ttf' );
-		$renderer->register_font( 'mono', 'Inter-Bold.ttf' );
+		// Register fonts from brand tokens. GDRenderer handles fallback
+		// to system DejaVu when a path is missing or null.
+		$heading_path = $fonts['heading'] ?? '';
+		$body_path    = $fonts['body'] ?? '';
+		$brand_path   = $fonts['brand'] ?? '';
 
-		$padding      = 64;
-		$content_max  = $width - ( $padding * 2 );
+		$renderer->register_font( 'header', is_string( $heading_path ) && $heading_path ? $heading_path : 'Heading.ttf' );
+		$renderer->register_font( 'body',   is_string( $body_path )    && $body_path    ? $body_path    : 'Body.ttf' );
+		$renderer->register_font( 'brand',  is_string( $brand_path )   && $brand_path   ? $brand_path   : ( is_string( $heading_path ) && $heading_path ? $heading_path : 'Brand.ttf' ) );
+
+		$padding     = 64;
+		$content_max = $width - ( $padding * 2 );
 
 		// Date pill (top-left).
 		$date_label = $this->normalize_text( $data['date_label'] ?? '' );
-		if ( $date_label ) {
+		if ( '' !== $date_label ) {
 			$pill_padding_x = 24;
 			$pill_padding_y = 14;
 			$pill_font_size = 28;
-			$pill_text_w    = $renderer->measure_text_width( strtoupper( $date_label ), $pill_font_size, 'mono' );
+			$pill_label     = strtoupper( $date_label );
+			$pill_text_w    = $renderer->measure_text_width( $pill_label, $pill_font_size, 'header' );
 			$pill_w         = $pill_text_w + ( $pill_padding_x * 2 );
 			$pill_h         = $pill_font_size + ( $pill_padding_y * 2 );
 			$pill_x         = $padding;
 			$pill_y         = $padding;
 
-			$renderer->filled_rect( $pill_x, $pill_y, $pill_x + $pill_w, $pill_y + $pill_h, $pill_bg );
+			$renderer->filled_rect( $pill_x, $pill_y, $pill_x + $pill_w, $pill_y + $pill_h, $accent );
 			$renderer->draw_text(
-				strtoupper( $date_label ),
+				$pill_label,
 				$pill_font_size,
 				$pill_x + $pill_padding_x,
 				$pill_y + $pill_padding_y + $pill_font_size,
-				$text_white,
-				'mono'
+				$text_inv,
+				'header'
 			);
 		}
 
-		// Event title — large, wrapped, vertically positioned in upper-mid area.
+		// Event title — large, wrapped, positioned in upper-mid area.
 		$event_name = $this->normalize_text( $data['event_name'] ?? '' );
-		if ( $event_name ) {
+		if ( '' !== $event_name ) {
 			$title_font_size = $this->fit_title_size( $event_name );
-			$title_y         = (int) ( $height * 0.28 );
+			$title_y         = (int) ( $height * 0.26 );
 			$renderer->draw_text_wrapped(
 				$event_name,
 				$title_font_size,
 				$padding,
 				$title_y,
-				$text_white,
+				$text_pri,
 				'header',
 				$content_max,
-				1.2,
+				1.15,
 				'left'
 			);
 		}
 
-		// Venue + city in footer band.
+		// Venue + city in surface footer band.
 		$venue = $this->normalize_text( $data['venue'] ?? '' );
 		$city  = $this->normalize_text( $data['city'] ?? '' );
 
-		$venue_font_size = 36;
-		$city_font_size  = 28;
-		$venue_y         = $footer_band_y + 36;
+		$venue_font_size = 34;
+		$city_font_size  = 26;
+		$venue_y         = $footer_band_y + 40;
 
-		if ( $venue ) {
+		if ( '' !== $venue ) {
 			$renderer->draw_text(
 				$venue,
 				$venue_font_size,
 				$padding,
 				$venue_y + $venue_font_size,
-				$text_white,
+				$text_pri,
 				'header'
 			);
 		}
 
-		if ( $city ) {
-			$city_y = $venue ? $venue_y + $venue_font_size + 18 : $venue_y;
+		if ( '' !== $city ) {
+			$city_y = '' !== $venue ? $venue_y + $venue_font_size + 18 : $venue_y;
 			$renderer->draw_text(
 				$city,
 				$city_font_size,
 				$padding,
 				$city_y + $city_font_size,
-				$text_muted,
+				$text_mute,
 				'body'
 			);
 		}
 
-		// Branding text on bottom strip.
-		$brand_text      = 'EXTRA CHILL EVENTS';
-		$brand_font_size = 22;
-		$brand_text_y    = $brand_strip_y + ( ( $height - $brand_strip_y ) / 2 ) + ( $brand_font_size / 3 );
-		$renderer->draw_text(
-			$brand_text,
-			$brand_font_size,
-			$padding,
-			(int) $brand_text_y,
-			$text_white,
-			'mono'
-		);
+		// Brand strip at the bottom — "<brand_text> · <site_label>".
+		if ( '' === $brand_text && '' === $site_label ) {
+			// No brand info at all — skip strip text.
+			$combined_brand = '';
+		} else {
+			$combined_brand = $brand_text;
+			if ( '' !== $brand_text && '' !== $site_label ) {
+				$combined_brand .= '  ·  ' . $site_label;
+			} elseif ( '' === $brand_text ) {
+				$combined_brand = $site_label;
+			}
+		}
+
+		if ( '' !== $combined_brand ) {
+			$brand_font_size = 24;
+			$brand_text_y    = $brand_strip_y + (int) ( ( $brand_strip_h + $brand_font_size ) / 2 ) - 4;
+			$renderer->draw_text(
+				$combined_brand,
+				$brand_font_size,
+				$padding,
+				$brand_text_y,
+				$text_inv,
+				'brand'
+			);
+		}
 
 		// Save.
 		$filename = sprintf( 'event-og-%d.%s', time(), 'jpeg' === $format ? 'jpg' : 'png' );

@@ -68,50 +68,44 @@ class Promoter_Taxonomy {
 	/**
 	 * Find or create a promoter with given name and metadata
 	 *
-	 * @param string $promoter_name Promoter name
-	 * @param array $promoter_data Promoter metadata (url, type)
+	 * Thin wrapper over DM core's ResolveTermAbility::resolve(). The resolver
+	 * handles term lookup (by ID, name, or slug) and creation in one call;
+	 * this function adds the promoter-specific meta handling on top.
+	 *
+	 * @param string $promoter_name Promoter name (or numeric ID / slug — resolver matches all three)
+	 * @param array  $promoter_data Promoter metadata (url, type, description)
 	 * @return array Array with keys: term_id, was_created
 	 */
 	public static function find_or_create_promoter( $promoter_name, $promoter_data = array() ) {
-		$promoter_name = trim( $promoter_name );
+		$promoter_name = trim( (string) $promoter_name );
 
-		if ( empty( $promoter_name ) ) {
+		if ( '' === $promoter_name ) {
 			return array(
 				'term_id'     => null,
 				'was_created' => false,
 			);
 		}
 
-		$existing = get_term_by( 'name', $promoter_name, 'promoter' );
-
-		if ( $existing ) {
-			$term_id = $existing->term_id;
-
-			if ( ! empty( $promoter_data ) ) {
-				self::smart_merge_promoter_meta( $term_id, $promoter_data );
-			}
-
-			return array(
-				'term_id'     => $term_id,
-				'was_created' => false,
-			);
-		}
-
 		$term_args = array();
 		if ( ! empty( $promoter_data['description'] ) ) {
-			$term_args['description'] = sanitize_textarea_field( $promoter_data['description'] );
+			$term_args['description'] = $promoter_data['description'];
 		}
 
-		$result = wp_insert_term( $promoter_name, 'promoter', $term_args );
+		$result = \DataMachine\Abilities\Taxonomy\ResolveTermAbility::resolve(
+			$promoter_name,
+			'promoter',
+			true,
+			$term_args
+		);
 
-		if ( is_wp_error( $result ) ) {
+		if ( empty( $result['success'] ) ) {
 			do_action(
 				'datamachine_log',
 				'error',
-				'Failed to create promoter term',
+				'Failed to resolve promoter term',
 				array(
 					'promoter_name' => $promoter_name,
-					'error'         => $result->get_error_message(),
+					'error'         => $result['error'] ?? 'unknown',
 				)
 			);
 			return array(
@@ -120,13 +114,18 @@ class Promoter_Taxonomy {
 			);
 		}
 
-		$term_id = $result['term_id'];
+		$term_id     = (int) $result['term_id'];
+		$was_created = ! empty( $result['created'] );
 
-		self::update_promoter_meta( $term_id, $promoter_data );
+		if ( $was_created ) {
+			self::update_promoter_meta( $term_id, $promoter_data );
+		} elseif ( ! empty( $promoter_data ) ) {
+			self::smart_merge_promoter_meta( $term_id, $promoter_data );
+		}
 
 		return array(
 			'term_id'     => $term_id,
-			'was_created' => true,
+			'was_created' => $was_created,
 		);
 	}
 

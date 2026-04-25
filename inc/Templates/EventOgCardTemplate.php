@@ -89,11 +89,22 @@ class EventOgCardTemplate implements TemplateInterface {
 		// Resolve brand tokens (colors, fonts, labels). Themes hook
 		// `datamachine/image_template/brand_tokens` to supply these. When
 		// nothing is registered, the defaults from BrandTokens::DEFAULTS apply.
-		$tokens    = BrandTokens::get( $this->get_id(), $data );
-		$colors    = $tokens['colors'];
-		$fonts     = $tokens['fonts'];
+		$tokens     = BrandTokens::get( $this->get_id(), $data );
+		$colors     = $tokens['colors'];
+		$fonts      = $tokens['fonts'];
 		$site_label = (string) ( $tokens['site_label'] ?? '' );
 		$brand_text = (string) ( $tokens['brand_text'] ?? '' );
+
+		// Per-render overrides (passed through the data payload, typically
+		// injected by a plugin that knows context-specific branding — e.g.
+		// the theme hooks datamachine_events_og_card_data to supply
+		// per-location colors from the badge token system).
+		$override = (array) ( $data['_brand_override'] ?? array() );
+		if ( ! empty( $override['colors'] ) && is_array( $override['colors'] ) ) {
+			$colors = array_merge( $colors, $override['colors'] );
+		}
+		$location_label = isset( $override['location_label'] ) ? $this->normalize_text( (string) $override['location_label'] ) : '';
+		$accent_text    = (string) ( $colors['accent_text'] ?? $colors['text_inverse'] );
 
 		// Surface colors for the card.
 		$bg        = $renderer->color_hex( 'bg', $colors['background'] );
@@ -102,6 +113,7 @@ class EventOgCardTemplate implements TemplateInterface {
 		$text_pri  = $renderer->color_hex( 'text_pri', $colors['text_primary'] );
 		$text_mute = $renderer->color_hex( 'text_mute', $colors['text_muted'] );
 		$text_inv  = $renderer->color_hex( 'text_inv', $colors['text_inverse'] );
+		$text_on_accent = $renderer->color_hex( 'text_on_accent', $accent_text );
 		$header_bg = $renderer->color_hex( 'header_bg', $colors['header_bg'] );
 
 		// Layout sections.
@@ -152,7 +164,32 @@ class EventOgCardTemplate implements TemplateInterface {
 				$pill_font_size,
 				$pill_x + $pill_padding_x,
 				$pill_y + $pill_padding_y + $pill_font_size,
-				$text_inv,
+				$text_on_accent,
+				'header'
+			);
+		}
+
+		// Location pill (top-right), when provided via _brand_override.
+		// Uses the same accent color as the date pill — the theme's
+		// location badge palette is already in play.
+		if ( '' !== $location_label ) {
+			$loc_padding_x = 24;
+			$loc_padding_y = 14;
+			$loc_font_size = 28;
+			$loc_text      = strtoupper( $location_label );
+			$loc_text_w    = $renderer->measure_text_width( $loc_text, $loc_font_size, 'header' );
+			$loc_w         = $loc_text_w + ( $loc_padding_x * 2 );
+			$loc_h         = $loc_font_size + ( $loc_padding_y * 2 );
+			$loc_x         = $width - $padding - $loc_w;
+			$loc_y         = $padding;
+
+			$renderer->filled_rect( $loc_x, $loc_y, $loc_x + $loc_w, $loc_y + $loc_h, $accent );
+			$renderer->draw_text(
+				$loc_text,
+				$loc_font_size,
+				$loc_x + $loc_padding_x,
+				$loc_y + $loc_padding_y + $loc_font_size,
+				$text_on_accent,
 				'header'
 			);
 		}
@@ -207,8 +244,9 @@ class EventOgCardTemplate implements TemplateInterface {
 		}
 
 		// Brand strip at the bottom — "<brand_text> · <site_label>".
+		// Uses the `body` font (typically Helvetica) instead of `brand`/`heading`
+		// because display fonts like Wilco Loft Sans lack punctuation glyphs.
 		if ( '' === $brand_text && '' === $site_label ) {
-			// No brand info at all — skip strip text.
 			$combined_brand = '';
 		} else {
 			$combined_brand = $brand_text;
@@ -228,7 +266,7 @@ class EventOgCardTemplate implements TemplateInterface {
 				$padding,
 				$brand_text_y,
 				$text_inv,
-				'brand'
+				'body'
 			);
 		}
 

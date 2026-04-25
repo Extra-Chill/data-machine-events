@@ -200,6 +200,21 @@ class EventOgImage {
 			return '';
 		}
 
+		/**
+		 * Filter the data passed to the event OG card template.
+		 *
+		 * Lets themes and other plugins augment the data payload before render —
+		 * e.g. the Extra Chill theme hooks this to inject per-location brand
+		 * colors (`_brand_override`) based on the core `location` taxonomy.
+		 *
+		 * The events plugin itself deliberately knows nothing about the
+		 * `location` taxonomy — it's defined at the platform/theme level.
+		 *
+		 * @param array    $data Event data (event_name, date_label, venue, city).
+		 * @param \WP_Post $post Event post.
+		 */
+		$data = (array) apply_filters( 'datamachine_events_og_card_data', $data, $post );
+
 		$result = $ability->execute(
 			array(
 				'template_id' => self::TEMPLATE_ID,

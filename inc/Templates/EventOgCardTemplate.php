@@ -2,22 +2,27 @@
 /**
  * Event OG Card Template
  *
- * Renders a 1200x630 Open Graph card for event posts. Uses the Data Machine
- * GDRenderer + TemplateInterface contract so the card is produced by the
- * core `datamachine/render-image-template` ability.
+ * Renders a 1200x630 Open Graph card for event posts via the Data Machine
+ * GDRenderer + TemplateInterface contract. Brand identity (colors, fonts)
+ * comes from BrandTokens which themes/plugins populate via filter — the
+ * template is intentionally brand-agnostic.
  *
  * Layout:
- *   - Branded background (Extra Chill orange/red gradient feel via solid blocks)
- *   - Date pill (top-left)
- *   - Event title (centered, wrapped)
- *   - Venue + city footer
- *   - "Extra Chill Events" branding strip
+ *   - Top accent stripe
+ *   - Date pill (top-left), location pill (top-right, optional)
+ *   - Event title (left-aligned, wrapped)
+ *   - Venue + city in footer surface band
+ *   - Brand strip with brand_text · site_label
  *
  * Required data fields:
  *   - event_name (string)
  *   - date_label (string)  e.g. "May 16, 2026"
+ *
+ * Optional data fields:
  *   - venue (string)       e.g. "Charleston Pour House"
  *   - city (string)        e.g. "Charleston, SC"
+ *   - _brand_override.colors (array) — per-render color overrides
+ *   - _brand_override.location_label (string) — top-right pill text
  *
  * @package DataMachineEvents\Templates
  * @since 0.30.0

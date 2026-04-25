@@ -276,14 +276,19 @@ class DATAMACHINE_Events {
 		// Notify submitters when their submitted events are published.
 		\DataMachineEvents\Core\SubmissionNotification::register();
 
-		// Register OG image generation for event posts (registers GD template +
-		// hooks the extrachill_seo_singular_og_image_url filter).
+		// Register the event OG card template with Data Machine's image
+		// template registry. Consumers (e.g. extrachill-multisite) trigger
+		// the actual rendering via datamachine/render-image-template — this
+		// plugin only owns the layout, not the orchestration.
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Templates/EventOgCardTemplate.php' ) ) {
 			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Templates/EventOgCardTemplate.php';
-		}
-		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventOgImage.php' ) ) {
-			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventOgImage.php';
-			\DataMachineEvents\Core\EventOgImage::register();
+			add_filter(
+				'datamachine/image_generation/templates',
+				function ( array $templates ): array {
+					$templates['event_og_card'] = \DataMachineEvents\Templates\EventOgCardTemplate::class;
+					return $templates;
+				}
+			);
 		}
 
 		// Register ability categories first — must happen before any ability registration.

@@ -106,7 +106,7 @@ class EventDuplicateStrategy {
 		}
 
 		// Strategy 3: Exact title + date (with venue confirmation).
-		$match = self::findByExactTitle( $title, $venue, $date_only, $identity_confidence, $venue_term );
+		$match = self::findByExactTitle( $title, $venue, $date_only, $identity_confidence, $venue_term, $startDate );
 		if ( $match ) {
 			return $match;
 		}
@@ -253,9 +253,21 @@ class EventDuplicateStrategy {
 	 *                                           fires when the incoming venue
 	 *                                           string differs from the canonical
 	 *                                           term name.
+	 * @param string        $startDate           Full datetime (YYYY-MM-DDTHH:MM or
+	 *                                           similar) used to enforce a 2-hour
+	 *                                           window when the term_id bypass
+	 *                                           fires. Without this guard, two
+	 *                                           genuinely distinct shows that
+	 *                                           share a title hash and venue term
+	 *                                           on the same date but at very
+	 *                                           different times (e.g. an early
+	 *                                           and a late show at a multi-room
+	 *                                           venue) could be falsely merged.
+	 *                                           When empty, the time window is
+	 *                                           skipped (matches legacy behavior).
 	 * @return array|null Duplicate result or null.
 	 */
-	private static function findByExactTitle( string $title, string $venue, string $date_only, string $identity_confidence, ?\WP_Term $venue_term = null ): ?array {
+	private static function findByExactTitle( string $title, string $venue, string $date_only, string $identity_confidence, ?\WP_Term $venue_term = null, string $startDate = '' ): ?array {
 		if ( empty( $date_only ) ) {
 			return null;
 		}
@@ -286,12 +298,34 @@ class EventDuplicateStrategy {
 		// venue term_ids. This catches dupes where the incoming venue string
 		// differs from the stored term name (e.g. "Monks Jazz" → term "Monks"),
 		// which the name-string compare below would miss.
+		//
+		// Time-window guard: Strategies 2 and 4 enforce a 2-hour window when
+		// matching by title fuzziness; Strategy 3 historically did not,
+		// because exact-title-hash + venue-name compare is highly specific.
+		// The term_id bypass widens that specificity in one direction (the
+		// incoming venue can now differ from the candidate's stored venue
+		// name), so we add the same 2-hour guard here to avoid falsely
+		// merging early/late shows at multi-room venues that share a title
+		// hash on the same date. When the guard fails, fall through to the
+		// existing venue-name compare path (legacy behavior).
 		if ( $venue_term ) {
 			$candidate_term_ids = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
-			if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids ) ) {
-				if ( in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
+			if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids )
+				&& in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
+
+				$within_window = true;
+				if ( '' !== $startDate ) {
+					$candidate_dates   = \DataMachineEvents\Core\EventDatesTable::get( $post_id );
+					$existing_datetime = $candidate_dates ? $candidate_dates->start_datetime : '';
+					$within_window     = self::isWithinTimeWindow( $startDate, $existing_datetime );
+				}
+
+				if ( $within_window ) {
 					return self::duplicateResult( $post_id, 'exact_title_venue_term_id_match' );
 				}
+				// Outside time window: skip the bypass and fall through to
+				// the existing venue-name compare. If that also fails to
+				// confirm, we return null (treat as distinct event).
 			}
 		}
 

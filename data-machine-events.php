@@ -454,7 +454,10 @@ class DATAMACHINE_Events {
 			new \DataMachineEvents\Abilities\MergedBillDecideAbilities();
 		}
 
-		// Chat tool for the merged-bill agent decision step (issue #256).
+		// Chat tools for the merged-bill agent decision step (issue #256).
+		if ( class_exists( 'DataMachineEvents\\Api\\Chat\\Tools\\MergedBillInspect' ) ) {
+			new \DataMachineEvents\Api\Chat\Tools\MergedBillInspect();
+		}
 		if ( class_exists( 'DataMachineEvents\\Api\\Chat\\Tools\\MergedBillDecide' ) ) {
 			new \DataMachineEvents\Api\Chat\Tools\MergedBillDecide();
 		}

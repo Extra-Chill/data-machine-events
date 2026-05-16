@@ -5,6 +5,27 @@
  * Tests universal web scraper compatibility with a target URL.
  * Provides structured JSON output via WordPress Abilities API and Chat Tools.
  *
+ * Qualify-path divergence (issue #265, fixed in #266):
+ * -----------------------------------------------------
+ * UniversalWebScraper::executeFetch() returns `{ items: [...] }` when an
+ * extractor yields multiple events on a calendar page. FetchHandler::get_fetch_data()
+ * normalizes that into one DataPacket per event — so for a Bandzoogle calendar with
+ * 19 events, `$handler->get_fetch_data()` returns an array of 19 DataPackets.
+ *
+ * Prior to the #265 fix, this ability read only `$results[0]` — the first packet —
+ * and returned its single event as `event_data`. The qualify path
+ * (extrachill-events/QualifyFingerprinter::count_events()) then saw a single-event
+ * payload and recorded `extractor_attempts[i].events: 1` regardless of how many
+ * events the extractor actually found. That undercount caused every Bandzoogle /
+ * multi-event JSON-LD venue to be flagged `extraction_gap` on its first qualify run.
+ *
+ * Fix shape (Shape A from the issue): walk all packets, build an `event_data.events[]`
+ * summary array (compatible with `QualifyFingerprinter::count_events()`'s existing
+ * `items[]` check), and surface `event_count` in both `event_data` and
+ * `extraction_info`. The first event's full record stays at `event_data` top-level
+ * for backwards compatibility with the chat tool and the CLI command, which only
+ * read a single event's fields.
+ *
  * @package DataMachineEvents\Abilities
  */
 

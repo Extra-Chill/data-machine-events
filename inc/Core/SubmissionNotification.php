@@ -81,12 +81,14 @@ class SubmissionNotification {
 			// Plugin header declares `Requires Plugins: data-machine` so this
 			// should not happen in practice; log and bail rather than fall
 			// back to wp_mail() (which would defeat the migration).
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional fallback log when DM dependency missing.
 			error_log( '[data-machine-events] SubmissionNotification: wp_get_ability() unavailable; skipping notification for event ' . $post->ID );
 			return;
 		}
 
 		$ability = wp_get_ability( 'datamachine/send-email' );
 		if ( null === $ability ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional fallback log when DM ability missing.
 			error_log( '[data-machine-events] SubmissionNotification: datamachine/send-email ability not registered; skipping notification for event ' . $post->ID );
 			return;
 		}
@@ -181,6 +183,7 @@ class SubmissionNotification {
 
 		if ( is_array( $result ) && empty( $result['success'] ) ) {
 			$error = isset( $result['error'] ) ? (string) $result['error'] : 'unknown error';
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional failure log; ability returned structured error.
 			error_log( '[data-machine-events] SubmissionNotification: send-email ability failed for event ' . $post->ID . ': ' . $error );
 		}
 	}

@@ -412,6 +412,11 @@ class DATAMACHINE_Events {
 			new \DataMachineEvents\Abilities\GeocodingAbilities();
 		}
 
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/VenueStatsAbilities.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/VenueStatsAbilities.php';
+			new \DataMachineEvents\Abilities\VenueStatsAbilities();
+		}
+
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/FilterAbilities.php' ) ) {
 			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/FilterAbilities.php';
 			new \DataMachineEvents\Abilities\FilterAbilities();

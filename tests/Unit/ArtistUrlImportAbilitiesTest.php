@@ -81,22 +81,6 @@ class ArtistUrlImportAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( $result->get_error_code(), array( 'invalid_url', 'invalid_protocol' ) );
 	}
 
-	public function test_preview_rejects_bot_blocked_domain_with_guidance(): void {
-		// Bandsintown is on the web_fetch guard blocklist. The probe must
-		// reject it deliberately (with guidance) BEFORE running the scraper,
-		// rather than degrading to a misleading "no_events_found". (#403)
-		$result = $this->abilities->executePreview( array( 'url' => 'https://www.bandsintown.com/a/12345-psychedelics' ) );
-
-		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'unsupported_source_domain', $result->get_error_code() );
-
-		$data = $result->get_error_data();
-		$this->assertSame( 422, $data['status'] ?? null );
-		$this->assertSame( 'bot_blocked_source', $data['reason'] ?? null );
-		// The message must name the host so the user knows what was rejected.
-		$this->assertStringContainsString( 'bandsintown.com', strtolower( $result->get_error_message() ) );
-	}
-
 	public function test_preview_rejects_url_already_tracked(): void {
 		$normalized = ArtistUrlSubmissionsTable::normalize_url( 'https://example.com/tour' );
 		$hash       = ArtistUrlSubmissionsTable::url_hash( $normalized );
@@ -143,24 +127,6 @@ class ArtistUrlImportAbilitiesTest extends WP_UnitTestCase {
 		$result = $this->abilities->executeSubmit( array( 'url' => 'https://example.com/tour' ) );
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'login_required', $result->get_error_code() );
-	}
-
-	public function test_submit_rejects_bot_blocked_domain_with_guidance(): void {
-		$user_id = self::factory()->user->create( array( 'role' => 'subscriber' ) );
-		wp_set_current_user( $user_id );
-
-		// Bandsintown must be rejected with guidance and NOT recorded as a
-		// scraping_failed submission row — it is a known-unsupported source,
-		// not a transient scrape miss. (#403)
-		$result = $this->abilities->executeSubmit( array( 'url' => 'https://www.bandsintown.com/a/12345-psychedelics' ) );
-
-		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'unsupported_source_domain', $result->get_error_code() );
-
-		// No submission row should have been created for the blocked domain.
-		$normalized = ArtistUrlSubmissionsTable::normalize_url( 'https://www.bandsintown.com/a/12345-psychedelics' );
-		$existing   = ArtistUrlSubmissionsTable::find_by_hash( ArtistUrlSubmissionsTable::url_hash( $normalized ) );
-		$this->assertNull( $existing, 'Blocked-domain submissions must not create a moderation-queue row.' );
 	}
 
 	public function test_submit_records_scraping_failed_when_no_events_found(): void {

@@ -32,6 +32,12 @@
  * All four abilities use `SelectionMode` constants from Data Machine
  * core (issue #320 hard requirement — no bare strings).
  *
+ * The preview/submit abilities reject bot-blocked ticketing/aggregator
+ * domains (Bandsintown, Ticketmaster, etc.) with a deliberate, guidance-rich
+ * message before scraping — reusing the web_fetch guard's blocklist — so a
+ * user who pastes such a URL learns why it won't work and what to do instead,
+ * rather than seeing a misleading "couldn't extract events" failure (#403).
+ *
  * @package DataMachineEvents\Abilities
  * @since   0.40.0
  */
@@ -276,6 +282,15 @@ class ArtistUrlImportAbilities {
 			return new \WP_Error( 'invalid_url', __( 'URL could not be parsed.', 'data-machine-events' ), array( 'status' => 400 ) );
 		}
 
+		// Reject bot-blocked ticketing/aggregator domains (Bandsintown, etc.)
+		// deliberately, with guidance — before the scraper runs and trips the
+		// web_fetch guard, which would otherwise surface a misleading
+		// "couldn't extract events" message. See blockedDomainError().
+		$blocked = $this->blockedDomainError( $normalized );
+		if ( null !== $blocked ) {
+			return $blocked;
+		}
+
 		$hash     = ArtistUrlSubmissionsTable::url_hash( $normalized );
 		$existing = ArtistUrlSubmissionsTable::find_by_hash( $hash );
 		if ( $existing && in_array( $existing['status'], array(
@@ -338,6 +353,13 @@ class ArtistUrlImportAbilities {
 		$normalized = ArtistUrlSubmissionsTable::normalize_url( $url );
 		if ( '' === $normalized ) {
 			return new \WP_Error( 'invalid_url', __( 'URL could not be parsed.', 'data-machine-events' ), array( 'status' => 400 ) );
+		}
+
+		// Reject bot-blocked ticketing/aggregator domains (Bandsintown, etc.)
+		// deliberately, with guidance — see blockedDomainError().
+		$blocked = $this->blockedDomainError( $normalized );
+		if ( null !== $blocked ) {
+			return $blocked;
 		}
 
 		$hash     = ArtistUrlSubmissionsTable::url_hash( $normalized );
@@ -641,6 +663,62 @@ class ArtistUrlImportAbilities {
 	// ────────────────────────────────────────────────────────────────────
 	// Shared helpers
 	// ────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Return a deliberate, guidance-rich WP_Error when a submitted URL points
+	 * at a bot-blocked ticketing/aggregator domain (Bandsintown, Ticketmaster,
+	 * AXS, etc.), or null when the host is fine to scrape.
+	 *
+	 * These domains are short-circuited by the plugin's web_fetch guard
+	 * (inc/Core/web-fetch-guard.php) because they structurally block
+	 * server-side bots with HTTP 403. When a user pastes such a URL into the
+	 * tour-import form, the scraper's own browser-mode fetch trips that guard,
+	 * the fetch returns empty, and the probe degrades to a generic
+	 * "We couldn't extract events from that page" 422 — which reads as a broken
+	 * feature rather than an unsupported source. qrisg hit exactly this with a
+	 * Bandsintown tour URL (extrachill-events#403).
+	 *
+	 * Catching it here, against the SAME blocklist the guard uses, lets us tell
+	 * the user precisely why it won't work and what to do instead (paste the
+	 * artist's own tour page), instead of a misleading scrape failure.
+	 *
+	 * @param string $url Already-normalized http/https URL.
+	 * @return \WP_Error|null WP_Error to reject with guidance, null to proceed.
+	 */
+	private function blockedDomainError( string $url ): ?\WP_Error {
+		// Reuse the web_fetch guard's blocklist + host matcher so there is a
+		// single source of truth for "domains that block automated imports".
+		if (
+			! function_exists( '\\DataMachineEvents\\Core\\blocked_web_fetch_hosts' )
+			|| ! function_exists( '\\DataMachineEvents\\Core\\host_matches_blocklist' )
+		) {
+			return null;
+		}
+
+		$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		if ( '' === $host ) {
+			return null;
+		}
+
+		$blocklist = \DataMachineEvents\Core\blocked_web_fetch_hosts();
+		if ( ! \DataMachineEvents\Core\host_matches_blocklist( $host, $blocklist ) ) {
+			return null;
+		}
+
+		return new \WP_Error(
+			'unsupported_source_domain',
+			sprintf(
+				/* translators: %s: the host name that was submitted, e.g. www.bandsintown.com */
+				__( '%s blocks automated tour imports, so we can\'t read tour dates from it. Paste the artist\'s own tour/events page instead (for example their official website\'s "Tour" page) and we\'ll try again.', 'data-machine-events' ),
+				$host
+			),
+			array(
+				'status' => 422,
+				'host'   => $host,
+				'reason' => 'bot_blocked_source',
+			)
+		);
+	}
 
 	/**
 	 * Probe a URL through UniversalWebScraper and normalize the result.

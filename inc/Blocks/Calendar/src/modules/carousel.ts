@@ -2,6 +2,14 @@
  * Carousel overflow detection, indicators, and chevron navigation.
  */
 
+/**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
 import type { CarouselObserverEntry } from '../types';
 
 const observers = new Map< HTMLElement, CarouselObserverEntry[] >();
@@ -68,7 +76,9 @@ export function initCarousel( calendar: HTMLElement ): void {
 		): void {
 			chevron.addEventListener( 'click', function ( event ) {
 				event.preventDefault();
-				if ( ! holdInterval ) {
+				// Pointer/touch already moved one card on press. Native keyboard
+				// and assistive clicks have detail 0 and need activation here.
+				if ( event.detail === 0 ) {
 					scrollByCard( direction );
 				}
 			} );
@@ -328,7 +338,10 @@ export function initCarousel( calendar: HTMLElement ): void {
 				chevronLeft.type = 'button';
 				chevronLeft.className =
 					'data-machine-carousel-chevron data-machine-carousel-chevron-left';
-				chevronLeft.setAttribute( 'aria-label', 'Show previous events' );
+				chevronLeft.setAttribute(
+					'aria-label',
+					__( 'Show previous events', 'data-machine-events' )
+				);
 				chevronLeft.textContent = '\u2039';
 				group.appendChild( chevronLeft );
 				bindChevron( chevronLeft, -1 );
@@ -339,7 +352,10 @@ export function initCarousel( calendar: HTMLElement ): void {
 				chevronRight.type = 'button';
 				chevronRight.className =
 					'data-machine-carousel-chevron data-machine-carousel-chevron-right';
-				chevronRight.setAttribute( 'aria-label', 'Show next events' );
+				chevronRight.setAttribute(
+					'aria-label',
+					__( 'Show next events', 'data-machine-events' )
+				);
 				chevronRight.textContent = '\u203A';
 				group.appendChild( chevronRight );
 				bindChevron( chevronRight, 1 );

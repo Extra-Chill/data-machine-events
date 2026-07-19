@@ -67,6 +67,36 @@ describe( 'stored calendar filters', () => {
 		}
 	);
 
+	it.each( [
+		[ 'disabled filter UI', '0', '' ],
+		[ 'consumer-scoped embed', '1', 'signed-scope' ],
+	] )(
+		'does not save or clear shared preferences for a %s',
+		( _context, persistence, scopeToken ) => {
+			calendar.dataset.filterPersistence = persistence;
+			if ( scopeToken ) {
+				calendar.dataset.scopeToken = scopeToken;
+			}
+			const existing = JSON.stringify( {
+				'tax_filter[festival][]': [ '7' ],
+			} );
+			window.localStorage.setItem( STORAGE_KEY, existing );
+			const params = new URLSearchParams();
+			params.append( 'tax_filter[venue][]', '42' );
+			const filterState = getFilterState( calendar );
+
+			filterState.saveToStorage( params );
+			expect( window.localStorage.getItem( STORAGE_KEY ) ).toBe(
+				existing
+			);
+
+			filterState.clearStorage();
+			expect( window.localStorage.getItem( STORAGE_KEY ) ).toBe(
+				existing
+			);
+		}
+	);
+
 	it( 'preserves explicit URL filters instead of restoring stored ones', () => {
 		window.history.replaceState(
 			{},

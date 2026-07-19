@@ -293,6 +293,10 @@ class FilterStateManager {
 	 * Save taxonomy filters to localStorage (not dates or geo — geo has its own storage).
 	 */
 	saveToStorage( params: URLSearchParams ): void {
+		if ( ! this.isPersistenceEnabled() ) {
+			return;
+		}
+
 		try {
 			const taxFilters: Record< string, string[] > = {};
 			for ( const [ key, value ] of params.entries() ) {
@@ -375,11 +379,7 @@ class FilterStateManager {
 		navigate: ( url: string ) => void = ( url ) =>
 			window.location.replace( url )
 	): boolean {
-		if (
-			this.hasUrlFilters() ||
-			this.calendar.dataset.filterPersistence !== '1' ||
-			this.calendar.dataset.scopeToken
-		) {
+		if ( this.hasUrlFilters() || ! this.isPersistenceEnabled() ) {
 			return false;
 		}
 
@@ -425,7 +425,18 @@ class FilterStateManager {
 	 * Clear localStorage.
 	 */
 	clearStorage(): void {
+		if ( ! this.isPersistenceEnabled() ) {
+			return;
+		}
+
 		localStorage.removeItem( STORAGE_KEY );
+	}
+
+	private isPersistenceEnabled(): boolean {
+		return (
+			this.calendar.dataset.filterPersistence === '1' &&
+			! this.calendar.dataset.scopeToken
+		);
 	}
 
 	/**

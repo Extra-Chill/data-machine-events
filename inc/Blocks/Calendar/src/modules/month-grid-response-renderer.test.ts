@@ -25,7 +25,7 @@ function response(): CalendarDataResponse {
 		success: true,
 		schema: {
 			name: 'calendar-data',
-			version: 1,
+			version: 3,
 			phase: 1,
 			issue: 298,
 		},
@@ -62,6 +62,7 @@ function response(): CalendarDataResponse {
 			has_past: false,
 			has_future: true,
 		},
+		empty_html: '',
 	};
 }
 
@@ -108,5 +109,46 @@ describe( 'month-grid response rendering', () => {
 			calendar.querySelectorAll( '.data-machine-events-pagination a' )
 		).toHaveLength( 2 );
 		expect( updated ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'renders the canonical recovery state for empty mobile results', () => {
+		document.body.innerHTML = `
+				<div class="data-machine-events-calendar">
+					<div class="data-machine-month-grid" data-month="2026-07"></div>
+					<div class="data-machine-events-content"><p>Old events</p></div>
+				</div>`;
+		const calendar = document.querySelector< HTMLElement >(
+			'.data-machine-events-calendar'
+		)!;
+		const data = response();
+		data.events = [];
+		data.grouping.ordered_dates = [];
+		data.grouping.by_date = {};
+		data.counter.showing_count = 0;
+		data.counter.total_count = 0;
+		data.pagination.total_pages = 1;
+		data.empty_html = `
+				<div class="data-machine-events-no-events">
+					<p>No events found.</p>
+					<button type="button" class="data-machine-events-no-events-today-link">Show events from Today</button>
+				</div>`;
+
+		renderMonthGridResponse(
+			calendar,
+			'2026-08',
+			data,
+			'/events/',
+			new URLSearchParams( 'month=2026-08' )
+		);
+
+		expect(
+			calendar.querySelector( '.data-machine-events-no-events' )
+		).not.toBeNull();
+		expect(
+			calendar.querySelector< HTMLButtonElement >(
+				'.data-machine-events-no-events-today-link'
+			)!.type
+		).toBe( 'button' );
+		expect( calendar.textContent ).not.toContain( 'Old events' );
 	} );
 } );

@@ -45,6 +45,9 @@ export function renderMonthGridResponse(
 	);
 	if ( content ) {
 		content.replaceChildren();
+		if ( data.grouping.ordered_dates.length === 0 ) {
+			content.innerHTML = data.empty_html;
+		}
 		const eventsById = new Map< number, CalendarEventItem >();
 		data.events.forEach( ( event ) => eventsById.set( event.id, event ) );
 		data.grouping.ordered_dates.forEach( ( date ) => {

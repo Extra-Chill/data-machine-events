@@ -203,6 +203,11 @@ class FilterStateManager {
 			if ( scopeSlug && scopeSlug !== 'current' ) {
 				params.set( 'scope', scopeSlug );
 			}
+		} else {
+			const defaultScope = this.calendar.dataset.scope || '';
+			if ( defaultScope && defaultScope !== 'current' ) {
+				params.set( 'scope', defaultScope );
+			}
 		}
 
 		if ( datePicker?.selectedDates?.length && datePicker.selectedDates.length > 0 ) {

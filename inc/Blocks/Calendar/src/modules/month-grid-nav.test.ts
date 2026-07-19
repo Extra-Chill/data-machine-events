@@ -1,22 +1,26 @@
-jest.mock( './month-grid-renderer', () => ( {
-	renderMonthGrid: jest.fn( ( month: string, _data, baseUrl: string ) => {
-		const grid = global.document.createElement( 'div' );
-		grid.className = 'data-machine-month-grid';
-		grid.dataset.month = month;
-		grid.dataset.baseUrl = baseUrl;
-		grid.innerHTML = `<a class="data-machine-month-grid__nav-next" data-month="2026-09" href="#">Next</a>`;
-		return grid;
-	} ),
+jest.mock( './month-grid-response-renderer', () => ( {
+	renderMonthGridResponse: jest.fn(
+		( calendar: HTMLElement, month: string, _data, baseUrl: string ) => {
+			const grid = global.document.createElement( 'div' );
+			grid.className = 'data-machine-month-grid';
+			grid.dataset.month = month;
+			grid.dataset.baseUrl = baseUrl;
+			grid.innerHTML = `<a class="data-machine-month-grid__nav-next" data-month="2026-09" href="#">Next</a>`;
+			calendar
+				.querySelector( '.data-machine-month-grid' )
+				?.replaceWith( grid );
+		}
+	),
 } ) );
 
-import { renderMonthGrid } from './month-grid-renderer';
+import { renderMonthGridResponse } from './month-grid-response-renderer';
 import {
 	destroyMonthGridNav,
 	getMonthGridController,
 	initMonthGridNav,
 } from './month-grid-nav';
 
-const mockRenderMonthGrid = renderMonthGrid as jest.Mock;
+const mockRenderMonthGridResponse = renderMonthGridResponse as jest.Mock;
 const mockFetch = jest.fn();
 
 function successfulResponse(): Promise< Response > {
@@ -73,7 +77,7 @@ describe( 'month-grid state synchronization', () => {
 		mockFetch.mockReset();
 		mockFetch.mockImplementation( successfulResponse );
 		global.fetch = mockFetch;
-		mockRenderMonthGrid.mockClear();
+		mockRenderMonthGridResponse.mockClear();
 	} );
 
 	afterEach( () => {
@@ -113,7 +117,7 @@ describe( 'month-grid state synchronization', () => {
 		expect( window.location.search ).toContain( 'month=2026-08' );
 		expect( window.location.search ).not.toContain( 'event_search=old' );
 		expect( window.location.search ).not.toContain( 'archive_' );
-		expect( mockRenderMonthGrid.mock.calls[ 0 ][ 2 ] ).toContain(
+		expect( mockRenderMonthGridResponse.mock.calls[ 0 ][ 3 ] ).toContain(
 			'event_search=new+search'
 		);
 	} );
@@ -225,7 +229,7 @@ describe( 'month-grid state synchronization', () => {
 		stale.resolve();
 		await staleRequest;
 
-		expect( mockRenderMonthGrid ).toHaveBeenCalledTimes( 1 );
+		expect( mockRenderMonthGridResponse ).toHaveBeenCalledTimes( 1 );
 		expect( window.location.search ).toContain( 'event_search=latest' );
 		expect( window.location.search ).not.toContain( 'event_search=stale' );
 	} );

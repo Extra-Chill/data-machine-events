@@ -13,7 +13,7 @@
  */
 
 import { buildCalendarRequest } from './api-client';
-import { renderMonthGrid } from './month-grid-renderer';
+import { renderMonthGridResponse } from './month-grid-response-renderer';
 
 import type {
 	ArchiveContext,
@@ -110,8 +110,8 @@ class MonthGridController {
 	 * Public entry point called by frontend.ts when a filter changes
 	 * in grid mode.
 	 */
-	async handleFilterChange( params: URLSearchParams ): Promise< void > {
-		await this.navigateToMonth(
+	async handleFilterChange( params: URLSearchParams ): Promise< boolean > {
+		return this.navigateToMonth(
 			this.getCurrentMonth(),
 			params,
 			true,
@@ -128,7 +128,7 @@ class MonthGridController {
 		source: URLSearchParams = new URLSearchParams( window.location.search ),
 		pushHistory = true,
 		syncGeoState = false
-	): Promise< void > {
+	): Promise< boolean > {
 		const requestId = ++this.requestSequence;
 		const publicParams = this.buildPublicParams( source, month );
 		const archiveContext = this.readArchiveContext();
@@ -198,28 +198,17 @@ class MonthGridController {
 				throw new Error( 'Calendar response not successful' );
 			}
 			if ( requestId !== this.requestSequence ) {
-				return;
+				return false;
 			}
 
 			const baseUrl = this.buildBaseUrl( publicParams );
-			const newGrid = renderMonthGrid( month, data, baseUrl );
-
-			if ( grid ) {
-				grid.replaceWith( newGrid );
-			} else {
-				// First-time mount — append after the filter bar.
-				const filterBar = this.calendar.querySelector(
-					'.data-machine-events-filter-bar'
-				);
-				if ( filterBar?.parentElement ) {
-					filterBar.parentElement.insertBefore(
-						newGrid,
-						filterBar.nextSibling
-					);
-				} else {
-					this.calendar.prepend( newGrid );
-				}
-			}
+			renderMonthGridResponse(
+				this.calendar,
+				month,
+				data,
+				baseUrl,
+				publicParams
+			);
 
 			// Sync URL via pushState so prev/next history works and the
 			// month is shareable. Preserve all other query params.
@@ -236,10 +225,12 @@ class MonthGridController {
 					detail: { month },
 				} )
 			);
+			return true;
 		} catch ( error ) {
 			if ( requestId === this.requestSequence ) {
 				console.error( 'Month-grid fetch failed:', error );
 			}
+			return false;
 		} finally {
 			if ( requestId === this.requestSequence ) {
 				const refreshedGrid = this.calendar.querySelector(
@@ -255,6 +246,17 @@ class MonthGridController {
 		month: string
 	): URLSearchParams {
 		const params = new URLSearchParams( source );
+		const hasScopeControls = Boolean(
+			this.calendar.querySelector(
+				'.data-machine-events-scope-chip[data-scope]'
+			)
+		);
+		if ( ! params.has( 'scope' ) && ! hasScopeControls ) {
+			const defaultScope = this.calendar.dataset.scope || '';
+			if ( defaultScope && defaultScope !== 'current' ) {
+				params.set( 'scope', defaultScope );
+			}
+		}
 		[
 			'format',
 			'archive_taxonomy',

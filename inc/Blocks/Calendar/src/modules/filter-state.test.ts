@@ -168,4 +168,22 @@ describe( 'stored calendar filters', () => {
 			)!.value
 		).toBe( '50' );
 	} );
+
+	it( 'preserves the server default scope when no scope chips exist', () => {
+		calendar.dataset.scope = 'tonight';
+
+		expect( getFilterState( calendar ).buildParams().get( 'scope' ) ).toBe(
+			'tonight'
+		);
+	} );
+
+	it( 'allows an active All chip to clear the server default scope', () => {
+		calendar.dataset.scope = 'tonight';
+		calendar.innerHTML =
+			'<button class="data-machine-events-scope-chip data-machine-events-scope-chip-active" data-scope=""></button>';
+
+		expect( getFilterState( calendar ).buildParams().has( 'scope' ) ).toBe(
+			false
+		);
+	} );
 } );

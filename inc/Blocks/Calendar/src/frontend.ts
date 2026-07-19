@@ -66,7 +66,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		.forEach( initCalendarInstance );
 } );
 
-function initCalendarInstance( calendar: HTMLElement ): void {
+export function initCalendarInstance( calendar: HTMLElement ): void {
 	if ( calendarInstances.has( calendar ) ) {
 		return;
 	}
@@ -145,7 +145,27 @@ function initCalendarInstance( calendar: HTMLElement ): void {
 
 	// Auto-detect map block on page and enable geo sync.
 	if ( hasMapBlockOnPage() ) {
-		initGeoSync( calendar );
+		if ( gridMode ) {
+			initGeoSync( calendar, async function ( geo ) {
+				const params = getFilterState( calendar ).buildParams(
+					getDatePicker( calendar )
+				);
+				params.set( 'lat', geo.lat );
+				params.set( 'lng', geo.lng );
+				if ( geo.radius !== undefined ) {
+					params.set( 'radius', String( geo.radius ) );
+				}
+				if ( geo.radius_unit ) {
+					params.set( 'radius_unit', geo.radius_unit );
+				}
+				const controller = getMonthGridController( calendar );
+				return controller
+					? controller.handleFilterChange( params )
+					: false;
+			} );
+		} else {
+			initGeoSync( calendar );
+		}
 	}
 
 	// Replace numbered pagination with a "Load More Events" button on
@@ -293,8 +313,10 @@ function handleMonthGridChange(
 	if ( ! controller ) {
 		return false;
 	}
-	void controller.handleFilterChange( params ).then( function () {
-		getFilterState( calendar ).updateFilterCountBadge();
+	void controller.handleFilterChange( params ).then( function ( updated ) {
+		if ( updated ) {
+			getFilterState( calendar ).updateFilterCountBadge();
+		}
 	} );
 	return true;
 }

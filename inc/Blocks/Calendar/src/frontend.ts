@@ -93,7 +93,12 @@ function initCalendarInstance( calendar: HTMLElement ): void {
 		// the carousel which is list-specific UX.
 		initLazyRender( calendar );
 		initDayLoader( calendar );
-		initMonthGridNav( calendar );
+		initMonthGridNav( calendar, function ( params ) {
+			const currentFilterState = getFilterState( calendar );
+			currentFilterState.applyParams( params, getDatePicker( calendar ) );
+			currentFilterState.saveToStorage( params );
+			currentFilterState.updateFilterCountBadge();
+		} );
 	} else {
 		initLazyRender( calendar );
 		initDayLoader( calendar );
@@ -112,7 +117,16 @@ function initCalendarInstance( calendar: HTMLElement ): void {
 			handleFilterChange( calendar );
 		},
 		function ( params: URLSearchParams ) {
-			navigateToUrl( params );
+			if ( isMonthGridMode( calendar ) ) {
+				const currentFilterState = getFilterState( calendar );
+				currentFilterState.applyParams(
+					params,
+					getDatePicker( calendar )
+				);
+			}
+			if ( ! handleMonthGridChange( calendar, params ) ) {
+				navigateToUrl( params );
+			}
 		}
 	);
 
@@ -261,15 +275,28 @@ function handleFilterChange( calendar: HTMLElement ): void {
 
 	filterState.saveToStorage( params );
 
-	if ( isMonthGridMode( calendar ) ) {
-		const controller = getMonthGridController( calendar );
-		if ( controller ) {
-			void controller.handleFilterChange();
-			return;
-		}
+	if ( handleMonthGridChange( calendar, params ) ) {
+		return;
 	}
 
 	navigateToUrl( params );
+}
+
+function handleMonthGridChange(
+	calendar: HTMLElement,
+	params: URLSearchParams
+): boolean {
+	if ( ! isMonthGridMode( calendar ) ) {
+		return false;
+	}
+	const controller = getMonthGridController( calendar );
+	if ( ! controller ) {
+		return false;
+	}
+	void controller.handleFilterChange( params ).then( function () {
+		getFilterState( calendar ).updateFilterCountBadge();
+	} );
+	return true;
 }
 
 /**

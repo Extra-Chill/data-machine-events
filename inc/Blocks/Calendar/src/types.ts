@@ -342,6 +342,10 @@ export interface EventPlaceholderData {
 export interface FlatpickrInstance {
 	selectedDates: Date[];
 	clear: () => void;
+	setDate: (
+		date: string | string[] | Date | Date[],
+		triggerChange?: boolean
+	) => void;
 	destroy: () => void;
 }
 

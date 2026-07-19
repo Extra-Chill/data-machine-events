@@ -364,10 +364,22 @@ class FilterStateManager {
 	}
 
 	/**
-	 * Restore taxonomy filters from localStorage if URL has no filters.
+	 * Restore taxonomy filters with a replacement navigation.
+	 *
+	 * The initial HTML was rendered before stored filters were known, so changing
+	 * history in place would leave the URL and results contradictory. A replace
+	 * navigation gives the server one authoritative filtered request without
+	 * adding a duplicate history entry.
 	 */
-	restoreFromStorage(): boolean {
-		if ( this.hasUrlFilters() ) {
+	restoreFromStorage(
+		navigate: ( url: string ) => void = ( url ) =>
+			window.location.replace( url )
+	): boolean {
+		if (
+			this.hasUrlFilters() ||
+			this.calendar.dataset.filterPersistence !== '1' ||
+			this.calendar.dataset.scopeToken
+		) {
 			return false;
 		}
 
@@ -381,14 +393,25 @@ class FilterStateManager {
 			const params = new URLSearchParams( window.location.search );
 
 			Object.entries( taxFilters ).forEach( ( [ key, values ] ) => {
-				if ( Array.isArray( values ) ) {
-					values.forEach( ( v ) => params.append( key, v ) );
+				if (
+					/^tax_filter\[[^\]]+\]\[\]$/.test( key ) &&
+					Array.isArray( values )
+				) {
+					values.forEach( ( value ) => {
+						if ( /^\d+$/.test( value ) && Number( value ) > 0 ) {
+							params.append( key, value );
+						}
+					} );
 				}
 			} );
 
 			if ( params.toString() !== window.location.search.slice( 1 ) ) {
-				const newUrl = `${ window.location.pathname }?${ params.toString() }`;
-				window.history.replaceState( {}, '', newUrl );
+				params.delete( 'paged' );
+				const queryString = params.toString();
+				const newUrl = queryString
+					? `${ window.location.pathname }?${ queryString }${ window.location.hash }`
+					: `${ window.location.pathname }${ window.location.hash }`;
+				navigate( newUrl );
 				return true;
 			}
 		} catch {

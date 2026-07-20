@@ -328,4 +328,16 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		);
 		$this->assertStringNotContainsString( $token, $key );
 	}
+
+	public function test_scope_tokens_isolate_boundary_cache_keys_without_leaking_contents() {
+		$first_token = 'signed.private.boundary.scope.a';
+		$second_token = 'signed.private.boundary.scope.b';
+		$first_key = CalendarCache::generate_key( array( 'scope_token' => $first_token ), 'dates' );
+		$second_key = CalendarCache::generate_key( array( 'scope_token' => $second_token ), 'dates' );
+
+		$this->assertNotSame( $first_key, $second_key );
+		$this->assertNotSame( CalendarCache::generate_key( array(), 'dates' ), $first_key );
+		$this->assertStringNotContainsString( $first_token, $first_key );
+		$this->assertStringNotContainsString( $second_token, $second_key );
+	}
 }

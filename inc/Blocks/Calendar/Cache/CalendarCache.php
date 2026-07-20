@@ -86,6 +86,9 @@ class CalendarCache {
 			'geo_lng'         => $params['geo_lng'] ?? '',
 			'geo_radius'      => $params['geo_radius'] ?? 25,
 			'geo_radius_unit' => $params['geo_radius_unit'] ?? 'mi',
+			'scope_identity'  => ! empty( $params['scope_token'] )
+				? hash( 'sha256', (string) $params['scope_token'] )
+				: '',
 			// Bucketing depends on the cutoff hour; fold it into the key so
 			// switching the filter at runtime invalidates stale buckets.
 			'cutoff_hour'     => \DataMachineEvents\Blocks\Calendar\Grouping\LateNightCutoff::cutoff_hour(),

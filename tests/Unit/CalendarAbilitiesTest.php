@@ -336,4 +336,150 @@ class CalendarAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 4, $result['event_count'] );
 		$this->assertEqualsCanonicalizing( $last_date_ids, $this->result_post_ids( $result ) );
 	}
+
+	public function test_scope_tokens_isolate_warm_boundary_caches_and_rows(): void {
+		$first_date = new DateTimeImmutable( '+30 days' );
+		$second_date = $first_date->modify( '+1 day' );
+		$first_id = $this->seed_event( 'First scoped event', $first_date->format( 'Y-m-d 20:00:00' ), $first_date->format( 'Y-m-d 22:00:00' ) );
+		$second_id = $this->seed_event( 'Second scoped event', $second_date->format( 'Y-m-d 20:00:00' ), $second_date->format( 'Y-m-d 22:00:00' ) );
+
+		$filter = static function ( array $query_args, array $input ) use ( $first_id, $second_id ): array {
+			$allowed = array(
+				'calendar-scope-a' => $first_id,
+				'calendar-scope-b' => $second_id,
+			);
+			if ( isset( $allowed[ $input['scope_token'] ?? '' ] ) ) {
+				$query_args['post__in'] = array( $allowed[ $input['scope_token'] ] );
+			}
+			return $query_args;
+		};
+		add_filter( 'data_machine_events_calendar_query_args', $filter, 10, 2 );
+		try {
+			$first = $this->abilities->executeGetCalendarPage(
+				array( 'scope_token' => 'calendar-scope-a', 'include_html' => false )
+			);
+			$second = $this->abilities->executeGetCalendarPage(
+				array( 'scope_token' => 'calendar-scope-b', 'include_html' => false )
+			);
+			$first_warm = $this->abilities->executeGetCalendarPage(
+				array( 'scope_token' => 'calendar-scope-a', 'include_html' => false )
+			);
+		} finally {
+			remove_filter( 'data_machine_events_calendar_query_args', $filter, 10 );
+		}
+
+		$this->assertSame( 1, $first['total_event_count'] );
+		$this->assertSame( 1, $second['total_event_count'] );
+		$this->assertSame( $first_date->format( 'Y-m-d' ), $first['date_boundaries']['start_date'] );
+		$this->assertSame( $second_date->format( 'Y-m-d' ), $second['date_boundaries']['start_date'] );
+		$this->assertSame( array( $first_id ), $this->result_post_ids( $first ) );
+		$this->assertSame( array( $second_id ), $this->result_post_ids( $second ) );
+		$this->assertSame( $first['total_event_count'], $first_warm['total_event_count'] );
+		$this->assertSame( $first['date_boundaries'], $first_warm['date_boundaries'] );
+		$this->assertSame( $this->result_post_ids( $first ), $this->result_post_ids( $first_warm ) );
+	}
+
+	public function test_scope_token_keeps_pagination_counter_and_deferred_dates_aligned(): void {
+		$start       = new DateTimeImmutable( '+45 days' );
+		$allowed_ids = array();
+		for ( $day = 0; $day < 6; ++$day ) {
+			$date = $start->modify( "+{$day} days" );
+			for ( $event = 0; $event < 10; ++$event ) {
+				$allowed_ids[] = $this->seed_event( "Scoped {$day}-{$event}", $date->format( 'Y-m-d 20:00:00' ), $date->format( 'Y-m-d 22:00:00' ) );
+			}
+		}
+		$unscoped = $start->modify( '-1 day' );
+		$this->seed_event( 'Unscoped earlier event', $unscoped->format( 'Y-m-d 20:00:00' ), $unscoped->format( 'Y-m-d 22:00:00' ) );
+
+		$filter = static function ( array $query_args, array $input ) use ( $allowed_ids ): array {
+			if ( 'pagination-scope' === ( $input['scope_token'] ?? '' ) ) {
+				$query_args['post__in'] = $allowed_ids;
+			}
+			return $query_args;
+		};
+		add_filter( 'data_machine_events_calendar_query_args', $filter, 10, 2 );
+		try {
+			$result = $this->abilities->executeGetCalendarPage(
+				array(
+					'scope_token' => 'pagination-scope',
+					'progressive' => true,
+					'include_html' => true,
+				)
+			);
+		} finally {
+			remove_filter( 'data_machine_events_calendar_query_args', $filter, 10 );
+		}
+
+		$expected_deferred = array();
+		for ( $day = 1; $day < 5; ++$day ) {
+			$expected_deferred[] = $start->modify( "+{$day} days" )->format( 'Y-m-d' );
+		}
+		$this->assertSame( 60, $result['total_event_count'] );
+		$this->assertSame( 2, $result['max_pages'] );
+		$this->assertSame( $start->format( 'Y-m-d' ), $result['date_boundaries']['start_date'] );
+		$this->assertSame( $start->modify( '+4 days' )->format( 'Y-m-d' ), $result['date_boundaries']['end_date'] );
+		$this->assertSame( 10, $result['event_count'] );
+		$this->assertSame( $expected_deferred, $result['deferred_dates'] );
+		$this->assertStringContainsString( '10 of 60 Events', $result['html']['counter'] );
+	}
+
+	public function test_scope_token_preserves_multi_day_boundary_expansion(): void {
+		$start = new DateTimeImmutable( '+60 days' );
+		$end   = $start->modify( '+2 days' );
+		$allowed_id = $this->seed_event( 'Scoped multi-day event', $start->format( 'Y-m-d 20:00:00' ), $end->format( 'Y-m-d 22:00:00' ) );
+		$this->seed_event( 'Unscoped middle event', $start->modify( '+1 day' )->format( 'Y-m-d 20:00:00' ), $start->modify( '+1 day' )->format( 'Y-m-d 22:00:00' ) );
+
+		$filter = static function ( array $query_args, array $input ) use ( $allowed_id ): array {
+			if ( 'multi-day-scope' === ( $input['scope_token'] ?? '' ) ) {
+				$query_args['post__in'] = array( $allowed_id );
+			}
+			return $query_args;
+		};
+		add_filter( 'data_machine_events_calendar_query_args', $filter, 10, 2 );
+		try {
+			$result = $this->abilities->executeGetCalendarPage(
+				array( 'scope_token' => 'multi-day-scope', 'include_html' => false )
+			);
+		} finally {
+			remove_filter( 'data_machine_events_calendar_query_args', $filter, 10 );
+		}
+
+		$this->assertSame( 1, $result['total_event_count'] );
+		$this->assertSame( $start->format( 'Y-m-d' ), $result['date_boundaries']['start_date'] );
+		$this->assertSame( $end->format( 'Y-m-d' ), $result['date_boundaries']['end_date'] );
+		$this->assertSame( array( $allowed_id ), $this->result_post_ids( $result ) );
+	}
+
+	public function test_search_geo_and_consumer_scope_constraints_stay_aligned(): void {
+		$venue  = $this->seed_venue( 'Scoped search venue', '32.7765,-79.9311' );
+		$date   = new DateTimeImmutable( '+70 days' );
+		$target = $this->seed_event( 'Scoped needle target', $date->format( 'Y-m-d 20:00:00' ), $date->format( 'Y-m-d 22:00:00' ), $venue );
+		$this->seed_event( 'Scoped needle excluded', $date->format( 'Y-m-d 21:00:00' ), $date->format( 'Y-m-d 23:00:00' ), $venue );
+
+		$filter = static function ( array $query_args, array $input ) use ( $target ): array {
+			if ( 'search-geo-scope' === ( $input['scope_token'] ?? '' ) ) {
+				$query_args['post__in'] = array( $target );
+			}
+			return $query_args;
+		};
+		add_filter( 'data_machine_events_calendar_query_args', $filter, 10, 2 );
+		try {
+			$result = $this->abilities->executeGetCalendarPage(
+				array(
+					'event_search' => 'Scoped needle',
+					'geo_lat' => '32.7765',
+					'geo_lng' => '-79.9311',
+					'geo_radius' => 10,
+					'scope_token' => 'search-geo-scope',
+					'include_html' => false,
+				)
+			);
+		} finally {
+			remove_filter( 'data_machine_events_calendar_query_args', $filter, 10 );
+		}
+
+		$this->assertSame( 1, $result['total_event_count'] );
+		$this->assertSame( 1, $result['event_count'] );
+		$this->assertSame( array( $target ), $this->result_post_ids( $result ) );
+	}
 }

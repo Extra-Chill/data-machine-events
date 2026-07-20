@@ -634,38 +634,27 @@ class CalendarAbilities {
 		// LateNightCutoff::display_date_from_strings() at the PHP layer.
 		$start_bucket_sql = LateNightCutoff::sql_display_date_expression( 'ed.start_datetime' );
 
-		// Search and geo are already implemented canonically by the event query
-		// ability (including WordPress search semantics, geo validation, venue
-		// fallback, taxonomy composition, and consumer query-args filters). Reuse
-		// that path to select IDs, then aggregate only their indexed date rows.
-		// The broad unfiltered calendar remains on the single-table fast path.
+		// Search, geo, and consumer scopes are implemented canonically by the
+		// event query ability. Capture its matching-ID SQL and aggregate it as a
+		// derived table so arbitrary WP_Query constraints remain authoritative
+		// without materializing every ID or generating placeholder-heavy IN lists.
 		if ( self::requires_canonical_boundary_query( $params ) ) {
-			$ability_input             = self::build_event_query_input( $params );
-			$ability_input['fields']   = 'ids';
-			$ability_input['per_page'] = -1;
+			$event_query  = new EventDateQueryAbilities();
+			$matching_sql = $event_query->buildMatchingPostIdsSql( self::build_event_query_input( $params ) );
 
-			$event_query = new EventDateQueryAbilities();
-			$event_ids   = array_map(
-				static function ( $event ): int {
-					return absint( is_object( $event ) ? $event->ID : $event );
-				},
-				$event_query->executeQueryEvents( $ability_input )['posts']
-			);
-			$event_ids   = array_values( array_unique( array_filter( $event_ids ) ) );
-
-			if ( empty( $event_ids ) ) {
+			if ( '' === $matching_sql ) {
 				return self::expand_date_buckets( array(), $show_past_param, $current_date );
 			}
 
-			$placeholders = implode( ', ', array_fill( 0, count( $event_ids ), '%d' ) );
-			$sql          = "SELECT {$start_bucket_sql} AS start_date, DATE(ed.end_datetime) AS end_date, COUNT(*) AS bucket_count
-					FROM {$ed_table} ed
-					WHERE ed.post_id IN ({$placeholders})
-					GROUP BY {$start_bucket_sql}, DATE(ed.end_datetime)
+			$boundary_start_bucket_sql = LateNightCutoff::sql_display_date_expression( 'boundary_ed.start_datetime' );
+			$sql                       = "SELECT STRAIGHT_JOIN {$boundary_start_bucket_sql} AS start_date, DATE(boundary_ed.end_datetime) AS end_date, COUNT(DISTINCT matching.ID) AS bucket_count
+					FROM ({$matching_sql}) matching
+					INNER JOIN {$ed_table} boundary_ed ON matching.ID = boundary_ed.post_id
+					GROUP BY {$boundary_start_bucket_sql}, DATE(boundary_ed.end_datetime)
 					ORDER BY start_date ASC";
 
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
-			$rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$event_ids ) );
+			$rows = $wpdb->get_results( $sql );
 
 			return self::expand_date_buckets( $rows, $show_past_param, $current_date );
 		}
@@ -835,13 +824,13 @@ class CalendarAbilities {
 	}
 
 	/**
-	 * Determine whether boundary buckets need canonical search/geo selection.
+	 * Determine whether boundary buckets need canonical query selection.
 	 *
 	 * @param array $params Calendar query parameters.
 	 * @return bool
 	 */
 	private static function requires_canonical_boundary_query( array $params ): bool {
-		if ( ! empty( $params['search_query'] ) ) {
+		if ( ! empty( $params['search_query'] ) || ! empty( $params['scope_token'] ) ) {
 			return true;
 		}
 
@@ -849,7 +838,9 @@ class CalendarAbilities {
 			&& 'venue' === $params['archive_taxonomy']
 			&& ! empty( $params['archive_term_id'] );
 
-		return ! $skip_geo && ! empty( $params['geo_lat'] ) && ! empty( $params['geo_lng'] );
+		$has_geo = ! $skip_geo && ! empty( $params['geo_lat'] ) && ! empty( $params['geo_lng'] );
+
+		return $has_geo || false !== has_filter( 'data_machine_events_calendar_query_args' );
 	}
 
 	/**

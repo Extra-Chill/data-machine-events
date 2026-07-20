@@ -448,6 +448,67 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->operation_state( 'added_terms' ) );
 	}
 
+	public function test_same_relationship_key_nested_removals_use_lifo_state(): void {
+		$post_id = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
+		$first   = wp_insert_term( 'Cache Nested Removal First ' . uniqid(), 'venue' );
+		$second  = wp_insert_term( 'Cache Nested Removal Second ' . uniqid(), 'venue' );
+		$this->assertNotWPError( $first );
+		$this->assertNotWPError( $second );
+		wp_set_object_terms( $post_id, array( $first['term_id'], $second['term_id'] ), 'venue' );
+
+		$nested       = false;
+		$invalidations = 0;
+		$snapshots     = array();
+		$query_filter  = static function ( string $query ) use ( &$invalidations ): string {
+			if ( str_starts_with( ltrim( $query ), 'DELETE FROM' ) && str_contains( $query, '_transient_' . CalendarCache::PREFIX ) ) {
+				++$invalidations;
+			}
+			return $query;
+		};
+		$nested_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, $first, &$nested ): void {
+			if ( ! $nested && $post_id === (int) $object_id && 'venue' === $taxonomy ) {
+				$nested = true;
+				wp_remove_object_terms( $post_id, array( $first['term_id'] ), 'venue' );
+			}
+		};
+		$observe_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, &$invalidations, &$snapshots ): void {
+			if ( $post_id === (int) $object_id && 'venue' === $taxonomy ) {
+				$remaining   = wp_get_object_terms( $post_id, 'venue', array( 'fields' => 'tt_ids' ) );
+				$snapshots[] = array(
+					'invalidations' => $invalidations,
+					'remaining'     => is_wp_error( $remaining ) ? -1 : count( $remaining ),
+				);
+			}
+		};
+
+		add_filter( 'query', $query_filter );
+		add_action( 'delete_term_relationships', $nested_removal, 20, 3 );
+		add_action( 'deleted_term_relationships', $observe_removal, 20, 3 );
+		try {
+			wp_remove_object_terms( $post_id, array( $first['term_id'], $second['term_id'] ), 'venue' );
+		} finally {
+			remove_filter( 'query', $query_filter );
+			remove_action( 'delete_term_relationships', $nested_removal, 20 );
+			remove_action( 'deleted_term_relationships', $observe_removal, 20 );
+		}
+
+		$this->assertSame( 2, $invalidations );
+		$this->assertSame(
+			array(
+				array(
+					'invalidations' => 1,
+					'remaining'     => 1,
+				),
+				array(
+					'invalidations' => 2,
+					'remaining'     => 0,
+				),
+			),
+			$snapshots
+		);
+		$this->assertSame( array(), $this->pending_removed_terms() );
+	}
+
 	public function test_bulk_venue_removal_invalidates_once_and_clears_pending_state(): void {
 		$post_id = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
 		$first   = wp_insert_term( 'Cache Bulk Removal One ' . uniqid(), 'venue' );

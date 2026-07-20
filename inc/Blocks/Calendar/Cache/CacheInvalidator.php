@@ -21,7 +21,7 @@ class CacheInvalidator {
 
 	private static bool $initialized = false;
 
-	/** @var array<string,array<int>> Actual removals scoped to the current delete hook sequence. */
+	/** @var array<string,array<array<int>>> LIFO removal frames scoped by object and taxonomy. */
 	private static array $pending_removed_terms = array();
 
 	/** @var array<string,array<int>> Relationships actually inserted by the current set operation. */
@@ -158,18 +158,12 @@ class CacheInvalidator {
 		);
 		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
 
-		if ( is_wp_error( $current_ids ) ) {
-			unset( self::$pending_removed_terms[ $key ] );
-			return;
-		}
+		$removed_ids = is_wp_error( $current_ids )
+			? array()
+			: self::normalize_term_ids( array_intersect( self::normalize_term_ids( $current_ids ), self::normalize_term_ids( $tt_ids ) ) );
 
-		$removed_ids = self::normalize_term_ids( array_intersect( self::normalize_term_ids( $current_ids ), self::normalize_term_ids( $tt_ids ) ) );
-		if ( empty( $removed_ids ) ) {
-			unset( self::$pending_removed_terms[ $key ] );
-			return;
-		}
-
-		self::$pending_removed_terms[ $key ] = $removed_ids;
+		self::$pending_removed_terms[ $key ]   = self::$pending_removed_terms[ $key ] ?? array();
+		self::$pending_removed_terms[ $key ][] = $removed_ids;
 	}
 
 	/**
@@ -181,8 +175,14 @@ class CacheInvalidator {
 	 */
 	public static function on_event_terms_removed( $post_id, $tt_ids, $taxonomy ): void {
 		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
-		$removed_ids = self::$pending_removed_terms[ $key ] ?? array();
-		unset( self::$pending_removed_terms[ $key ] );
+		$stack       = self::$pending_removed_terms[ $key ] ?? array();
+		$removed_ids = array_pop( $stack ) ?? array();
+
+		if ( empty( $stack ) ) {
+			unset( self::$pending_removed_terms[ $key ] );
+		} else {
+			self::$pending_removed_terms[ $key ] = $stack;
+		}
 
 		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( $removed_ids ) ) {
 			self::invalidate_all();

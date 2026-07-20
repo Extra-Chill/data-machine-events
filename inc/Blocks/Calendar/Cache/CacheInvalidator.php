@@ -21,7 +21,7 @@ class CacheInvalidator {
 
 	private static bool $initialized = false;
 
-	/** @var array<string,array<int>> Actual removals awaiting a paired set hook. */
+	/** @var array<string,array<int>> Actual removals scoped to the current delete hook sequence. */
 	private static array $pending_removed_terms = array();
 
 	/** @var array<string,array<int>> Relationships actually inserted by the current set operation. */
@@ -107,6 +107,10 @@ class CacheInvalidator {
 		if ( $old_tt_ids === $new_tt_ids ) {
 			return;
 		}
+		if ( array_diff( $old_tt_ids, $new_tt_ids ) ) {
+			// The relationship deletion hook already invalidated this replacement.
+			return;
+		}
 
 		self::invalidate_all();
 	}
@@ -180,22 +184,9 @@ class CacheInvalidator {
 		$removed_ids = self::$pending_removed_terms[ $key ] ?? array();
 		unset( self::$pending_removed_terms[ $key ] );
 
-		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( $removed_ids ) && ! self::inside_set_object_terms() ) {
+		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( $removed_ids ) ) {
 			self::invalidate_all();
 		}
-	}
-
-	/**
-	 * Whether a removal is the nested replacement phase of wp_set_object_terms().
-	 */
-	private static function inside_set_object_terms(): bool {
-		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
-			if ( 'wp_set_object_terms' === ( $frame['function'] ?? '' ) ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/**

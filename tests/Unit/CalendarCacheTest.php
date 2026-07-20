@@ -415,6 +415,39 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->pending_removed_terms() );
 	}
 
+	public function test_reentrant_removal_for_another_event_invalidates_independently(): void {
+		$first_post  = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
+		$second_post = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
+		$first_old   = wp_insert_term( 'Cache Reentrant First Old ' . uniqid(), 'venue' );
+		$first_new   = wp_insert_term( 'Cache Reentrant First New ' . uniqid(), 'venue' );
+		$second_term = wp_insert_term( 'Cache Reentrant Second ' . uniqid(), 'venue' );
+		$this->assertNotWPError( $first_old );
+		$this->assertNotWPError( $first_new );
+		$this->assertNotWPError( $second_term );
+		wp_set_object_terms( $first_post, array( $first_old['term_id'] ), 'venue' );
+		wp_set_object_terms( $second_post, array( $second_term['term_id'] ), 'venue' );
+
+		$reentrant_removal = static function ( $post_id, $terms, $tt_ids, $taxonomy ) use ( $first_post, $second_post, $second_term ): void {
+			if ( $first_post === (int) $post_id && 'venue' === $taxonomy ) {
+				wp_remove_object_terms( $second_post, array( $second_term['term_id'] ), 'venue' );
+			}
+		};
+		add_action( 'set_object_terms', $reentrant_removal, 20, 4 );
+		try {
+			$invalidations = $this->count_calendar_invalidations(
+				static function () use ( $first_post, $first_new ): void {
+					wp_set_object_terms( $first_post, array( $first_new['term_id'] ), 'venue' );
+				}
+			);
+		} finally {
+			remove_action( 'set_object_terms', $reentrant_removal, 20 );
+		}
+
+		$this->assertSame( 2, $invalidations );
+		$this->assertSame( array(), $this->pending_removed_terms() );
+		$this->assertSame( array(), $this->operation_state( 'added_terms' ) );
+	}
+
 	public function test_bulk_venue_removal_invalidates_once_and_clears_pending_state(): void {
 		$post_id = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
 		$first   = wp_insert_term( 'Cache Bulk Removal One ' . uniqid(), 'venue' );
@@ -483,7 +516,11 @@ class CalendarCacheTest extends WP_UnitTestCase {
 	}
 
 	private function pending_removed_terms(): array {
-		$property = new \ReflectionProperty( CacheInvalidator::class, 'pending_removed_terms' );
+		return $this->operation_state( 'pending_removed_terms' );
+	}
+
+	private function operation_state( string $name ): array {
+		$property = new \ReflectionProperty( CacheInvalidator::class, $name );
 		$property->setAccessible( true );
 		return $property->getValue();
 	}

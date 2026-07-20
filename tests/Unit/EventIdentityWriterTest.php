@@ -12,6 +12,7 @@ use DataMachineEvents\Core\DuplicateDetection\EventIdentityWriter;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use const DataMachineEvents\Core\EVENT_TICKET_URL_META_KEY;
 use WP_UnitTestCase;
 
 class EventIdentityWriterTest extends WP_UnitTestCase {
@@ -96,13 +97,30 @@ class EventIdentityWriterTest extends WP_UnitTestCase {
 		$this->assertNull( $this->index->get( $post_id ) );
 	}
 
-	private function make_event(): int {
+	public function test_removing_ticket_url_clears_identity_ticket(): void {
+		$post_id = $this->make_event( 'https://tickets.example.com/event/123' );
+		$this->assertSame( 'https://tickets.example.com/event/123', $this->index->get( $post_id )['ticket_url'] );
+
+		wp_update_post(
+			array(
+				'ID'           => $post_id,
+				'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-09-20","startTime":"20:00"} --><div class="wp-block-data-machine-events-event-details"></div><!-- /wp:data-machine-events/event-details -->',
+			)
+		);
+
+		$this->assertSame( '', get_post_meta( $post_id, EVENT_TICKET_URL_META_KEY, true ) );
+		$this->assertNull( $this->index->get( $post_id )['ticket_url'], 'Deleting ticket meta must clear the identity ticket URL after date sync runs.' );
+	}
+
+	private function make_event( string $ticket_url = '' ): int {
+		$ticket_attribute = $ticket_url ? ',"ticketUrl":"' . $ticket_url . '"' : '';
+
 		return wp_insert_post(
 			array(
 				'post_title'   => 'Identity Event ' . uniqid(),
 				'post_type'    => Event_Post_Type::POST_TYPE,
 				'post_status'  => 'publish',
-				'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-09-20","startTime":"20:00"} --><div class="wp-block-data-machine-events-event-details"></div><!-- /wp:data-machine-events/event-details -->',
+				'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-09-20","startTime":"20:00"' . $ticket_attribute . '} --><div class="wp-block-data-machine-events-event-details"></div><!-- /wp:data-machine-events/event-details -->',
 			)
 		);
 	}

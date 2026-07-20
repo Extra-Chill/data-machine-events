@@ -34,6 +34,8 @@ class CacheInvalidator {
 		add_action( 'delete_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'trashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'untrashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
+		add_action( 'set_object_terms', array( __CLASS__, 'on_event_terms_changed' ), 10, 1 );
+		add_action( 'deleted_term_relationships', array( __CLASS__, 'on_event_terms_changed' ), 10, 1 );
 
 		add_action( 'edited_venue', array( __CLASS__, 'invalidate_all' ), 10, 0 );
 		add_action( 'created_venue', array( __CLASS__, 'invalidate_all' ), 10, 0 );
@@ -56,6 +58,17 @@ class CacheInvalidator {
 	public static function on_delete_post( int $post_id ): void {
 		$post_type = get_post_type( $post_id );
 		if ( Event_Post_Type::POST_TYPE === $post_type ) {
+			self::invalidate_all();
+		}
+	}
+
+	/**
+	 * Invalidate caches when event taxonomy relationships change without a save.
+	 *
+	 * @param int $post_id Post ID whose term relationships changed.
+	 */
+	public static function on_event_terms_changed( int $post_id ): void {
+		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) ) {
 			self::invalidate_all();
 		}
 	}

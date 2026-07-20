@@ -15,6 +15,7 @@ use WP_UnitTestCase;
 use WP_REST_Request;
 use WP_REST_Server;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
+use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\Venue_Taxonomy;
 
@@ -35,6 +36,7 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		if ( ! taxonomy_exists( 'venue' ) ) {
 			Venue_Taxonomy::register();
 		}
+		CacheInvalidator::init();
 	}
 
 	public function tearDown(): void {
@@ -327,6 +329,41 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			$key
 		);
 		$this->assertStringNotContainsString( $token, $key );
+	}
+
+	public function test_venue_assignment_invalidates_calendar_bucket_cache(): void {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => Event_Post_Type::POST_TYPE,
+				'post_status' => 'publish',
+			)
+		);
+		$venue   = wp_insert_term( 'Cache Assignment Venue ' . uniqid(), 'venue' );
+		$key     = CalendarCache::PREFIX . 'taxonomy_assignment_' . uniqid();
+		$this->assertNotWPError( $venue );
+		set_transient( $key, 'cached', HOUR_IN_SECONDS );
+
+		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+
+		$this->assertFalse( get_transient( $key ) );
+	}
+
+	public function test_venue_removal_invalidates_calendar_bucket_cache(): void {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => Event_Post_Type::POST_TYPE,
+				'post_status' => 'publish',
+			)
+		);
+		$venue   = wp_insert_term( 'Cache Removal Venue ' . uniqid(), 'venue' );
+		$key     = CalendarCache::PREFIX . 'taxonomy_removal_' . uniqid();
+		$this->assertNotWPError( $venue );
+		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+		set_transient( $key, 'cached', HOUR_IN_SECONDS );
+
+		wp_remove_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+
+		$this->assertFalse( get_transient( $key ) );
 	}
 
 	public function test_scope_tokens_isolate_boundary_cache_keys_without_leaking_contents() {

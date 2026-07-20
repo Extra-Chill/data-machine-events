@@ -30,6 +30,7 @@ class EventIdentityWriter {
 		// Keep ticket URL meta hook for identity sync.
 		add_action( 'updated_post_meta', array( static::class, 'onTicketUrlMetaChange' ), 10, 4 );
 		add_action( 'added_post_meta', array( static::class, 'onTicketUrlMetaChange' ), 10, 4 );
+		add_action( 'deleted_post_meta', array( static::class, 'onTicketUrlMetaChange' ), 10, 4 );
 		add_action( 'set_object_terms', array( static::class, 'onVenueTermsChanged' ), 10, 6 );
 		add_action( 'deleted_term_relationships', array( static::class, 'onVenueTermsRemoved' ), 10, 3 );
 	}

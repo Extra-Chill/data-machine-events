@@ -16,11 +16,10 @@
  * time) pre-resolved while still in events-blog context — because the caller
  * renders on a DIFFERENT blog and cannot resolve those afterward.
  *
- * Layer purity: this ability is generic "events for term X in taxonomy Y on
- * this events site". It carries no consumer-specific identity and returns data,
- * not markup — presentation is the consumer's job. The taxonomy is supplied by
- * the caller, so the generic plugin never hardcodes a consumer taxonomy such as
- * "artist".
+ * The general path remains "events for term X in taxonomy Y on this events
+ * site" and returns data rather than consumer markup. Artist terms additionally
+ * support the bounded main-site mapping owned by this plugin; no generic
+ * cross-site identity framework is introduced.
  *
  * @package DataMachineEvents\Abilities
  */
@@ -42,9 +41,20 @@ class EventsByTermAbilities {
 	 */
 	private const DEFAULT_LIMIT = 12;
 
+	/**
+	 * Events-site artist term meta containing the canonical main-site term ID.
+	 */
+	private const MAIN_ARTIST_TERM_ID_META = '_data_machine_events_main_artist_term_id';
+
+	/**
+	 * One-time backfill gate and report option.
+	 */
+	private const ARTIST_MAPPING_BACKFILL_OPTION = 'data_machine_events_artist_term_mapping_backfill_1';
+
 	public function __construct() {
 		if ( ! self::$registered ) {
 			$this->registerAbilities();
+			add_action( 'admin_init', array( $this, 'maybeBackfillArtistTermMappings' ) );
 			self::$registered = true;
 		}
 	}
@@ -59,7 +69,7 @@ class EventsByTermAbilities {
 					'category'            => 'datamachine-events-events',
 					'input_schema'        => array(
 						'type'       => 'object',
-						'required'   => array( 'taxonomy', 'term_slug' ),
+						'required'   => array( 'taxonomy' ),
 						'properties' => array(
 							'taxonomy'  => array(
 								'type'        => 'string',
@@ -67,7 +77,15 @@ class EventsByTermAbilities {
 							),
 							'term_slug' => array(
 								'type'        => 'string',
-								'description' => __( 'Term slug (the canonical cross-blog join key) to look up on the events site.', 'data-machine-events' ),
+								'description' => __( 'Legacy term slug to look up on the events site. Retained for compatibility while stable mappings are populated.', 'data-machine-events' ),
+							),
+							'term_id'      => array(
+								'type'        => 'integer',
+								'description' => __( 'Stable term ID on the events site. Takes precedence over term_slug.', 'data-machine-events' ),
+							),
+							'main_term_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Canonical main-site artist term ID. Resolved through the validated Events-site artist mapping and takes precedence over term_slug.', 'data-machine-events' ),
 							),
 							'scope'     => array(
 								'type'        => 'string',
@@ -83,8 +101,10 @@ class EventsByTermAbilities {
 					'output_schema'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'taxonomy'  => array( 'type' => 'string' ),
-							'term_slug' => array( 'type' => 'string' ),
+							'taxonomy'     => array( 'type' => 'string' ),
+							'term_id'      => array( 'type' => 'integer' ),
+							'term_slug'    => array( 'type' => 'string' ),
+							'main_term_id' => array( 'type' => 'integer' ),
 							'found'     => array( 'type' => 'boolean' ),
 							'upcoming'  => array(
 								'type'  => 'array',
@@ -115,17 +135,19 @@ class EventsByTermAbilities {
 	/**
 	 * Execute the events-by-term ability.
 	 *
-	 * Switches to the events blog, resolves the term by slug in the requested
-	 * taxonomy, queries the event_dates table for that term split by now, and
-	 * returns a plain structured array with presentational strings pre-resolved.
+	 * Switches to the events blog, resolves the term by stable local ID, bounded
+	 * canonical artist mapping, or legacy slug, queries the event_dates table for
+	 * that term split by now, and returns pre-resolved presentational strings.
 	 *
 	 * @param array $input Input parameters.
 	 * @return array|\WP_Error { taxonomy, term_slug, found, upcoming: [...], past: [...] }
 	 */
 	public function executeEventsByTerm( array $input ): array|\WP_Error {
-		$taxonomy  = isset( $input['taxonomy'] ) ? sanitize_key( (string) $input['taxonomy'] ) : '';
-		$term_slug = isset( $input['term_slug'] ) ? sanitize_title( (string) $input['term_slug'] ) : '';
-		$scope     = $input['scope'] ?? 'all';
+		$taxonomy     = isset( $input['taxonomy'] ) ? sanitize_key( (string) $input['taxonomy'] ) : '';
+		$term_slug    = isset( $input['term_slug'] ) ? sanitize_title( (string) $input['term_slug'] ) : '';
+		$term_id      = isset( $input['term_id'] ) ? (int) $input['term_id'] : 0;
+		$main_term_id = isset( $input['main_term_id'] ) ? (int) $input['main_term_id'] : 0;
+		$scope        = $input['scope'] ?? 'all';
 		if ( ! in_array( $scope, array( 'upcoming', 'past', 'all' ), true ) ) {
 			$scope = 'all';
 		}
@@ -142,10 +164,26 @@ class EventsByTermAbilities {
 			);
 		}
 
-		if ( '' === $term_slug ) {
+		if ( isset( $input['term_id'] ) && $term_id <= 0 ) {
 			return new \WP_Error(
-				'invalid_term_slug',
-				__( 'A non-empty term_slug is required.', 'data-machine-events' ),
+				'invalid_term_id',
+				__( 'term_id must be a positive Events-site term ID.', 'data-machine-events' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( isset( $input['main_term_id'] ) && $main_term_id <= 0 ) {
+			return new \WP_Error(
+				'invalid_main_term_id',
+				__( 'main_term_id must be a positive canonical main-site artist term ID.', 'data-machine-events' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( $term_id <= 0 && $main_term_id <= 0 && '' === $term_slug ) {
+			return new \WP_Error(
+				'missing_term_identifier',
+				__( 'A positive term_id, positive main_term_id, or non-empty term_slug is required.', 'data-machine-events' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -161,7 +199,12 @@ class EventsByTermAbilities {
 
 		switch_to_blog( $events_blog_id );
 		try {
-			$result = $this->collectEventsForTerm( $taxonomy, $term_slug, $scope, $limit );
+			$term = $this->resolveTerm( $taxonomy, $term_id, $main_term_id, $term_slug );
+			if ( is_wp_error( $term ) ) {
+				return $term;
+			}
+
+			$result = $this->collectEventsForTerm( $taxonomy, $term, $main_term_id, $scope, $limit );
 
 			/**
 			 * Filter events-by-term results in the canonical events-site context.
@@ -178,6 +221,222 @@ class EventsByTermAbilities {
 		} finally {
 			restore_current_blog();
 		}
+	}
+
+	/**
+	 * Resolve an Events-site term without treating cross-site numeric IDs as portable.
+	 *
+	 * @param string $taxonomy     Events-site taxonomy.
+	 * @param int    $term_id      Events-site term ID.
+	 * @param int    $main_term_id Canonical main-site artist term ID.
+	 * @param string $term_slug    Legacy Events-site term slug.
+	 * @return \WP_Term|null|\WP_Error Resolved term, null for a missing safe mapping, or validation error.
+	 */
+	private function resolveTerm( string $taxonomy, int $term_id, int $main_term_id, string $term_slug ): \WP_Term|null|\WP_Error {
+		if ( ! taxonomy_exists( $taxonomy ) ) {
+			return new \WP_Error( 'invalid_taxonomy', __( 'The requested taxonomy is not registered on the events site.', 'data-machine-events' ), array( 'status' => 400 ) );
+		}
+
+		if ( $term_id > 0 ) {
+			$term = get_term( $term_id, $taxonomy );
+			if ( ! $term || is_wp_error( $term ) || $taxonomy !== $term->taxonomy ) {
+				return new \WP_Error( 'invalid_term_id', __( 'The requested term_id does not exist in that Events-site taxonomy.', 'data-machine-events' ), array( 'status' => 404 ) );
+			}
+
+			return $term;
+		}
+
+		if ( $main_term_id > 0 ) {
+			if ( 'artist' !== $taxonomy ) {
+				return new \WP_Error( 'invalid_main_term_taxonomy', __( 'main_term_id is supported only for the artist taxonomy.', 'data-machine-events' ), array( 'status' => 400 ) );
+			}
+
+			if ( ! $this->canonicalArtistTermExists( $main_term_id ) ) {
+				return new \WP_Error( 'invalid_main_term_id', __( 'The canonical main-site artist term does not exist.', 'data-machine-events' ), array( 'status' => 404 ) );
+			}
+
+			$matches = get_terms(
+				array(
+					'taxonomy'   => 'artist',
+					'hide_empty' => false,
+					'meta_key'   => self::MAIN_ARTIST_TERM_ID_META,
+					'meta_value' => $main_term_id,
+					'number'     => 2,
+				)
+			);
+			if ( is_wp_error( $matches ) ) {
+				return $matches;
+			}
+			if ( count( $matches ) > 1 ) {
+				return new \WP_Error( 'ambiguous_artist_term_mapping', __( 'More than one Events-site artist term claims this canonical main-site term.', 'data-machine-events' ), array( 'status' => 409 ) );
+			}
+
+			return $matches[0] ?? null;
+		}
+
+		$term = get_term_by( 'slug', $term_slug, $taxonomy );
+
+		return $term && ! is_wp_error( $term ) ? $term : null;
+	}
+
+	/**
+	 * Validate a canonical artist term while always restoring Events-site context.
+	 *
+	 * @param int $term_id Canonical main-site term ID.
+	 * @return bool Whether the term exists in the main-site artist taxonomy.
+	 */
+	private function canonicalArtistTermExists( int $term_id ): bool {
+		$main_blog_id = $this->resolveMainBlogId();
+		if ( $main_blog_id <= 0 ) {
+			return false;
+		}
+
+		switch_to_blog( $main_blog_id );
+		try {
+			$term = get_term( $term_id, 'artist' );
+
+			return $term && ! is_wp_error( $term ) && 'artist' === $term->taxonomy;
+		} finally {
+			restore_current_blog();
+		}
+	}
+
+	/**
+	 * Resolve the canonical main-site blog ID.
+	 *
+	 * @return int Main-site blog ID, or 0 when unavailable.
+	 */
+	private function resolveMainBlogId(): int {
+		$blog_id = is_multisite() ? (int) get_main_site_id() : get_current_blog_id();
+
+		return max( 0, (int) apply_filters( 'data_machine_events_main_blog_id', $blog_id ) );
+	}
+
+	/**
+	 * Run the bounded artist mapping backfill once and retain its audit report.
+	 *
+	 * Existing mappings are never replaced. Slugs are used only to seed a pair
+	 * when exactly one main-site term matches and neither side is already claimed.
+	 *
+	 * @return void
+	 */
+	public function maybeBackfillArtistTermMappings(): void {
+		if ( false !== get_option( self::ARTIST_MAPPING_BACKFILL_OPTION, false ) ) {
+			return;
+		}
+
+		update_option( self::ARTIST_MAPPING_BACKFILL_OPTION, $this->backfillArtistTermMappings(), false );
+	}
+
+	/**
+	 * Backfill unambiguous main-site artist term mappings onto Events terms.
+	 *
+	 * @return array{mapped:int,existing:int,missing:int[],unmatched_main:int[],ambiguous:int[],stale:int[],collisions:int[]}
+	 */
+	public function backfillArtistTermMappings(): array {
+		$report = array(
+			'mapped'         => 0,
+			'existing'       => 0,
+			'missing'        => array(),
+			'unmatched_main' => array(),
+			'ambiguous'      => array(),
+			'stale'          => array(),
+			'collisions'     => array(),
+		);
+		if ( ! taxonomy_exists( 'artist' ) ) {
+			return $report;
+		}
+
+		$main_blog_id = $this->resolveMainBlogId();
+		if ( $main_blog_id <= 0 || get_current_blog_id() === $main_blog_id ) {
+			return $report;
+		}
+
+		$main_terms = array();
+		switch_to_blog( $main_blog_id );
+		try {
+			$terms = get_terms(
+				array(
+					'taxonomy'   => 'artist',
+					'hide_empty' => false,
+				)
+			);
+			if ( ! is_wp_error( $terms ) ) {
+				foreach ( $terms as $term ) {
+					$main_terms[ (string) $term->slug ][] = (int) $term->term_id;
+				}
+			}
+		} finally {
+			restore_current_blog();
+		}
+
+		$events_terms = get_terms(
+			array(
+				'taxonomy'   => 'artist',
+				'hide_empty' => false,
+			)
+		);
+		if ( is_wp_error( $events_terms ) ) {
+			return $report;
+		}
+
+		$claims = array();
+		foreach ( $events_terms as $term ) {
+			$mapped_id = (int) get_term_meta( $term->term_id, self::MAIN_ARTIST_TERM_ID_META, true );
+			if ( $mapped_id > 0 ) {
+				$claims[ $mapped_id ][] = (int) $term->term_id;
+			}
+		}
+
+		$valid_main_ids = array();
+		foreach ( $main_terms as $ids ) {
+			foreach ( $ids as $id ) {
+				$valid_main_ids[ $id ] = true;
+			}
+		}
+
+		foreach ( $events_terms as $term ) {
+			$events_term_id = (int) $term->term_id;
+			$mapped_id      = (int) get_term_meta( $events_term_id, self::MAIN_ARTIST_TERM_ID_META, true );
+			if ( $mapped_id > 0 ) {
+				if ( ! isset( $valid_main_ids[ $mapped_id ] ) ) {
+					$report['stale'][] = $events_term_id;
+				} elseif ( count( $claims[ $mapped_id ] ) > 1 ) {
+					$report['collisions'][] = $events_term_id;
+				} else {
+					++$report['existing'];
+				}
+				continue;
+			}
+
+			$candidates = $main_terms[ (string) $term->slug ] ?? array();
+			if ( empty( $candidates ) ) {
+				$report['missing'][] = $events_term_id;
+				continue;
+			}
+			if ( 1 !== count( $candidates ) ) {
+				$report['ambiguous'][] = $events_term_id;
+				continue;
+			}
+
+			$canonical_id = $candidates[0];
+			if ( ! empty( $claims[ $canonical_id ] ) ) {
+				$report['collisions'][] = $events_term_id;
+				continue;
+			}
+
+			update_term_meta( $events_term_id, self::MAIN_ARTIST_TERM_ID_META, $canonical_id );
+			$claims[ $canonical_id ] = array( $events_term_id );
+			++$report['mapped'];
+		}
+
+		foreach ( array_keys( $valid_main_ids ) as $main_term_id ) {
+			if ( empty( $claims[ $main_term_id ] ) ) {
+				$report['unmatched_main'][] = $main_term_id;
+			}
+		}
+
+		return $report;
 	}
 
 	/**
@@ -213,36 +472,36 @@ class EventsByTermAbilities {
 	 * comes straight from start_datetime vs now, then pre-resolves every
 	 * presentational string per event.
 	 *
-	 * @param string $taxonomy  Taxonomy name on the events site.
-	 * @param string $term_slug Term slug to look up.
-	 * @param string $scope     upcoming|past|all.
-	 * @param int    $limit     Per-scope result limit.
+	 * @param string        $taxonomy     Taxonomy name on the events site.
+	 * @param \WP_Term|null $term         Resolved Events-site term.
+	 * @param int           $main_term_id Requested canonical main-site term ID.
+	 * @param string        $scope        upcoming|past|all.
+	 * @param int           $limit        Per-scope result limit.
 	 * @return array Structured result.
 	 */
-	private function collectEventsForTerm( string $taxonomy, string $term_slug, string $scope, int $limit ): array {
+	private function collectEventsForTerm( string $taxonomy, ?\WP_Term $term, int $main_term_id, string $scope, int $limit ): array {
 		$empty = array(
-			'taxonomy'  => $taxonomy,
-			'term_slug' => $term_slug,
-			'found'     => false,
-			'upcoming'  => array(),
-			'past'      => array(),
+			'taxonomy'     => $taxonomy,
+			'term_id'      => 0,
+			'term_slug'    => '',
+			'main_term_id' => $main_term_id,
+			'found'        => false,
+			'upcoming'     => array(),
+			'past'         => array(),
 		);
 
-		if ( ! taxonomy_exists( $taxonomy ) ) {
-			return $empty;
-		}
-
-		$term = get_term_by( 'slug', $term_slug, $taxonomy );
-		if ( ! $term || is_wp_error( $term ) ) {
+		if ( ! $term ) {
 			return $empty;
 		}
 
 		$result = array(
-			'taxonomy'  => $taxonomy,
-			'term_slug' => $term_slug,
-			'found'     => true,
-			'upcoming'  => array(),
-			'past'      => array(),
+			'taxonomy'     => $taxonomy,
+			'term_id'      => (int) $term->term_id,
+			'term_slug'    => (string) $term->slug,
+			'main_term_id' => $main_term_id,
+			'found'        => true,
+			'upcoming'     => array(),
+			'past'         => array(),
 		);
 
 		if ( 'past' !== $scope ) {

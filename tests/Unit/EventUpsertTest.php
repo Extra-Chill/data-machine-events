@@ -154,6 +154,28 @@ class EventUpsertTest extends WP_UnitTestCase {
 		wp_delete_post( $post_id, true );
 	}
 
+	public function test_save_post_deletes_indexed_dates_when_event_details_block_is_removed(): void {
+		$post_id = wp_insert_post(
+			array(
+				'post_title'   => 'Block Removal Sync Test ' . uniqid(),
+				'post_type'    => 'data_machine_events',
+				'post_status'  => 'publish',
+				'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-08-15","startTime":"20:00"} --><div class="wp-block-data-machine-events-event-details"></div><!-- /wp:data-machine-events/event-details -->',
+			)
+		);
+
+		$this->assertNotNull( EventDatesTable::get( $post_id ) );
+
+		wp_update_post(
+			array(
+				'ID'           => $post_id,
+				'post_content' => '<!-- wp:paragraph --><p>Event details removed.</p><!-- /wp:paragraph -->',
+			)
+		);
+
+		$this->assertNull( EventDatesTable::get( $post_id ), 'Removing the source block must delete the stale date index row.' );
+	}
+
 	public function test_save_post_normalizes_implicit_overnight_end_time(): void {
 		$post_id = wp_insert_post(
 			array(

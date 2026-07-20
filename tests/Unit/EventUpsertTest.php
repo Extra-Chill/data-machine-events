@@ -233,10 +233,19 @@ class EventUpsertTest extends WP_UnitTestCase {
 			}
 		};
 		add_action( 'datamachine_log', $log_listener, 10, 2 );
+		$cache_invalidations = 0;
+		$query_listener      = static function ( string $query ) use ( &$cache_invalidations ): string {
+			if ( str_starts_with( ltrim( $query ), 'DELETE FROM' ) && str_contains( $query, '_transient_' . CalendarCache::PREFIX ) ) {
+				++$cache_invalidations;
+			}
+			return $query;
+		};
+		add_filter( 'query', $query_listener );
 
 		$repaired = $execute->invoke( $this->handler, $parameters, $config );
 
 		remove_action( 'datamachine_log', $log_listener, 10 );
+		remove_filter( 'query', $query_listener );
 		$this->assertTrue( $repaired['success'] ?? false );
 		$this->assertSame( 'no_change', $repaired['data']['action'] ?? '' );
 		$this->assertSame( $content_before, get_post_field( 'post_content', $post_id ) );
@@ -244,6 +253,7 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertSame( $attachments_before, (int) wp_count_posts( 'attachment' )->inherit );
 		$this->assertSame( array( $venue->term_id ), wp_get_object_terms( $post_id, 'venue', array( 'fields' => 'ids' ) ) );
 		$this->assertSame( (string) $venue->term_id, (string) ( new PostIdentityIndex() )->get( $post_id )['venue_term_id'] );
+		$this->assertSame( 1, $cache_invalidations, 'A no_change taxonomy repair must invalidate canonical caches exactly once.' );
 		$this->assertFalse( get_transient( $cache_key ), 'Taxonomy-only repair must invalidate calendar caches.' );
 	}
 

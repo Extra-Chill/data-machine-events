@@ -21,6 +21,9 @@ class CacheInvalidator {
 
 	private static bool $initialized = false;
 
+	/** @var array<string,array<int>> Actual removals awaiting a paired set hook. */
+	private static array $pending_removed_terms = array();
+
 	/**
 	 * Initialize cache invalidation hooks
 	 */
@@ -34,8 +37,9 @@ class CacheInvalidator {
 		add_action( 'delete_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'trashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'untrashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
-		add_action( 'set_object_terms', array( __CLASS__, 'on_event_terms_changed' ), 10, 1 );
-		add_action( 'deleted_term_relationships', array( __CLASS__, 'on_event_terms_changed' ), 10, 1 );
+		add_action( 'set_object_terms', array( __CLASS__, 'on_event_terms_set' ), 10, 6 );
+		add_action( 'delete_term_relationships', array( __CLASS__, 'on_event_terms_removing' ), 10, 3 );
+		add_action( 'deleted_term_relationships', array( __CLASS__, 'on_event_terms_removed' ), 10, 3 );
 
 		add_action( 'edited_venue', array( __CLASS__, 'invalidate_all' ), 10, 0 );
 		add_action( 'created_venue', array( __CLASS__, 'invalidate_all' ), 10, 0 );
@@ -63,14 +67,111 @@ class CacheInvalidator {
 	}
 
 	/**
-	 * Invalidate caches when event taxonomy relationships change without a save.
+	 * Invalidate caches when an event's final taxonomy relationships changed.
 	 *
-	 * @param int $post_id Post ID whose term relationships changed.
+	 * Replacements call wp_remove_object_terms() internally before this hook.
+	 * When that removal already invalidated caches, suppress the duplicate flush.
+	 *
+	 * @param int          $post_id   Post ID whose terms were set.
+	 * @param array|string $terms     Requested terms.
+	 * @param array        $tt_ids    Requested term-taxonomy IDs.
+	 * @param string       $taxonomy  Taxonomy slug.
+	 * @param bool         $append    Whether terms were appended.
+	 * @param array        $old_tt_ids Previous term-taxonomy IDs.
 	 */
-	public static function on_event_terms_changed( int $post_id ): void {
-		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) ) {
+	public static function on_event_terms_set( $post_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids ): void {
+		if ( Event_Post_Type::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$old_tt_ids = self::normalize_term_ids( $old_tt_ids );
+		$new_tt_ids = self::normalize_term_ids( $tt_ids );
+		$final_ids  = $append ? self::normalize_term_ids( array_merge( $old_tt_ids, $new_tt_ids ) ) : $new_tt_ids;
+
+		if ( $old_tt_ids === $final_ids ) {
+			return;
+		}
+
+		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
+		$removed_ids = self::normalize_term_ids( array_diff( $old_tt_ids, $final_ids ) );
+		if ( isset( self::$pending_removed_terms[ $key ] ) ) {
+			$pending_ids = self::$pending_removed_terms[ $key ];
+			unset( self::$pending_removed_terms[ $key ] );
+			if ( $pending_ids === $removed_ids ) {
+				return;
+			}
+		}
+
+		self::invalidate_all();
+	}
+
+	/**
+	 * Capture only relationships that exist before WordPress removes them.
+	 *
+	 * @param int    $post_id  Post ID.
+	 * @param array  $tt_ids   Requested term-taxonomy IDs.
+	 * @param string $taxonomy Taxonomy slug.
+	 */
+	public static function on_event_terms_removing( $post_id, $tt_ids, $taxonomy ): void {
+		if ( Event_Post_Type::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$current_ids = wp_get_object_terms(
+			$post_id,
+			$taxonomy,
+			array(
+				'fields'                 => 'tt_ids',
+				'update_term_meta_cache' => false,
+			)
+		);
+		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
+
+		if ( is_wp_error( $current_ids ) ) {
+			unset( self::$pending_removed_terms[ $key ] );
+			return;
+		}
+
+		$removed_ids = self::normalize_term_ids( array_intersect( self::normalize_term_ids( $current_ids ), self::normalize_term_ids( $tt_ids ) ) );
+		if ( empty( $removed_ids ) ) {
+			unset( self::$pending_removed_terms[ $key ] );
+			return;
+		}
+
+		self::$pending_removed_terms[ $key ] = $removed_ids;
+	}
+
+	/**
+	 * Invalidate once after a real standalone or replacement removal.
+	 *
+	 * @param int    $post_id  Post ID.
+	 * @param array  $tt_ids   Removed term-taxonomy IDs.
+	 * @param string $taxonomy Taxonomy slug.
+	 */
+	public static function on_event_terms_removed( $post_id, $tt_ids, $taxonomy ): void {
+		$key = self::relationship_key( (int) $post_id, (string) $taxonomy );
+		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( self::$pending_removed_terms[ $key ] ) ) {
 			self::invalidate_all();
 		}
+	}
+
+	/**
+	 * Build a request-local key for one post/taxonomy relationship operation.
+	 */
+	private static function relationship_key( int $post_id, string $taxonomy ): string {
+		return $post_id . ':' . $taxonomy;
+	}
+
+	/**
+	 * Normalize term-taxonomy IDs for order-independent comparisons.
+	 *
+	 * @param array $term_ids Term-taxonomy IDs.
+	 * @return array<int>
+	 */
+	private static function normalize_term_ids( array $term_ids ): array {
+		$term_ids = array_values( array_unique( array_map( 'intval', $term_ids ) ) );
+		sort( $term_ids, SORT_NUMERIC );
+		return $term_ids;
 	}
 
 	/**

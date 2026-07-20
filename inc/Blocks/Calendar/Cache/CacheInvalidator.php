@@ -24,6 +24,9 @@ class CacheInvalidator {
 	/** @var array<string,array<int>> Actual removals awaiting a paired set hook. */
 	private static array $pending_removed_terms = array();
 
+	/** @var array<string,array<int>> Relationships actually inserted by the current set operation. */
+	private static array $added_terms = array();
+
 	/**
 	 * Initialize cache invalidation hooks
 	 */
@@ -38,6 +41,7 @@ class CacheInvalidator {
 		add_action( 'trashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'untrashed_post', array( __CLASS__, 'on_delete_post' ), 10, 1 );
 		add_action( 'set_object_terms', array( __CLASS__, 'on_event_terms_set' ), 10, 6 );
+		add_action( 'added_term_relationship', array( __CLASS__, 'on_event_term_added' ), 10, 3 );
 		add_action( 'delete_term_relationships', array( __CLASS__, 'on_event_terms_removing' ), 10, 3 );
 		add_action( 'deleted_term_relationships', array( __CLASS__, 'on_event_terms_removed' ), 10, 3 );
 
@@ -84,25 +88,48 @@ class CacheInvalidator {
 			return;
 		}
 
-		$old_tt_ids = self::normalize_term_ids( $old_tt_ids );
-		$new_tt_ids = self::normalize_term_ids( $tt_ids );
-		$final_ids  = $append ? self::normalize_term_ids( array_merge( $old_tt_ids, $new_tt_ids ) ) : $new_tt_ids;
+		$key = self::relationship_key( (int) $post_id, (string) $taxonomy );
+		if ( $append ) {
+			$added_ids = self::$added_terms[ $key ] ?? array();
+			unset( self::$added_terms[ $key ] );
+			if ( empty( $added_ids ) ) {
+				return;
+			}
 
-		if ( $old_tt_ids === $final_ids ) {
+			self::invalidate_all();
 			return;
 		}
 
-		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
-		$removed_ids = self::normalize_term_ids( array_diff( $old_tt_ids, $final_ids ) );
-		if ( isset( self::$pending_removed_terms[ $key ] ) ) {
-			$pending_ids = self::$pending_removed_terms[ $key ];
-			unset( self::$pending_removed_terms[ $key ] );
-			if ( $pending_ids === $removed_ids ) {
-				return;
-			}
+		unset( self::$added_terms[ $key ] );
+		$old_tt_ids = self::normalize_term_ids( $old_tt_ids );
+		$new_tt_ids = self::normalize_term_ids( $tt_ids );
+
+		if ( $old_tt_ids === $new_tt_ids ) {
+			return;
 		}
 
 		self::invalidate_all();
+	}
+
+	/**
+	 * Record relationships WordPress actually inserted during a set operation.
+	 *
+	 * Identical appends do not fire this hook, which makes it the authoritative
+	 * change signal when set_object_terms provides no old IDs in append mode.
+	 *
+	 * @param int    $post_id  Post ID.
+	 * @param int    $tt_id    Inserted term-taxonomy ID.
+	 * @param string $taxonomy Taxonomy slug.
+	 */
+	public static function on_event_term_added( $post_id, $tt_id, $taxonomy ): void {
+		if ( Event_Post_Type::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$key = self::relationship_key( (int) $post_id, (string) $taxonomy );
+		self::$added_terms[ $key ]   = self::$added_terms[ $key ] ?? array();
+		self::$added_terms[ $key ][] = (int) $tt_id;
+		self::$added_terms[ $key ]   = self::normalize_term_ids( self::$added_terms[ $key ] );
 	}
 
 	/**
@@ -149,10 +176,26 @@ class CacheInvalidator {
 	 * @param string $taxonomy Taxonomy slug.
 	 */
 	public static function on_event_terms_removed( $post_id, $tt_ids, $taxonomy ): void {
-		$key = self::relationship_key( (int) $post_id, (string) $taxonomy );
-		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( self::$pending_removed_terms[ $key ] ) ) {
+		$key         = self::relationship_key( (int) $post_id, (string) $taxonomy );
+		$removed_ids = self::$pending_removed_terms[ $key ] ?? array();
+		unset( self::$pending_removed_terms[ $key ] );
+
+		if ( Event_Post_Type::POST_TYPE === get_post_type( $post_id ) && ! empty( $removed_ids ) && ! self::inside_set_object_terms() ) {
 			self::invalidate_all();
 		}
+	}
+
+	/**
+	 * Whether a removal is the nested replacement phase of wp_set_object_terms().
+	 */
+	private static function inside_set_object_terms(): bool {
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
+			if ( 'wp_set_object_terms' === ( $frame['function'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

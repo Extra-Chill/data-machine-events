@@ -31,6 +31,7 @@
 
 namespace DataMachineEvents\Abilities;
 
+use DataMachine\Core\Database\ProcessedItems\ProcessedItems;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\UniversalWebScraper;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -58,6 +59,14 @@ class EventScraperTest {
 									'type'        => 'string',
 									'format'      => 'uri',
 									'description' => 'Target URL to test scraper against',
+								),
+								'handler_config' => array(
+									'type'        => 'object',
+									'description' => 'Optional persisted universal web scraper config to apply during qualification.',
+								),
+								'flow_step_id'   => array(
+									'type'        => 'string',
+									'description' => 'Optional persisted flow step ID used for read-only processed-item diagnostics.',
 								),
 							),
 						),
@@ -99,10 +108,13 @@ class EventScraperTest {
 			return new \WP_Error( 'missing_target_url', 'Missing required target_url parameter.', array( 'status' => 400 ) );
 		}
 
-		return $this->test( $target_url );
+		$handler_config = is_array( $input['handler_config'] ?? null ) ? $input['handler_config'] : array();
+		$flow_step_id   = sanitize_text_field( (string) ( $input['flow_step_id'] ?? '' ) );
+
+		return $this->test( $target_url, $handler_config, $flow_step_id );
 	}
 
-	public function test( string $target_url ): array|\WP_Error {
+	public function test( string $target_url, array $handler_config = array(), string $flow_step_id = '' ): array|\WP_Error {
 		$logs = array();
 		add_action(
 			'datamachine_log',
@@ -117,11 +129,13 @@ class EventScraperTest {
 			3
 		);
 
-		$config = array(
-			'source_url'   => $target_url,
-			'flow_step_id' => 'test_' . wp_generate_uuid4(),
-			'flow_id'      => 'direct',
-			'search'       => '',
+		$config = array_merge(
+			$handler_config,
+			array(
+				'source_url'   => $target_url,
+				'flow_step_id' => 'test_' . wp_generate_uuid4(),
+				'flow_id'      => 'direct',
+			)
 		);
 
 		$handler = new UniversalWebScraper();
@@ -154,6 +168,11 @@ class EventScraperTest {
 			}
 		}
 
+		$extracted_packet_count = count( $packet_entries );
+		$packet_entries         = $this->uniquePacketEntries( $packet_entries );
+		$source_event_count     = count( $packet_entries );
+		$processed_event_count  = $this->countProcessedPacketEntries( $packet_entries, $flow_step_id );
+
 		$packet_entry = $packet_entries[0] ?? array();
 		$packet_data  = $packet_entry['data'] ?? array();
 		$packet_meta  = $packet_entry['metadata'] ?? array();
@@ -172,10 +191,15 @@ class EventScraperTest {
 		$all_events = $this->summarizeEventsFromPackets( $packet_entries );
 
 		$extraction_info = array(
-			'packet_title'      => $packet_data['title'] ?? '',
-			'source_type'       => $packet_meta['source_type'] ?? '',
-			'extraction_method' => $packet_meta['extraction_method'] ?? '',
-			'event_count'       => count( $packet_entries ),
+			'packet_title'           => $packet_data['title'] ?? '',
+			'source_type'            => $packet_meta['source_type'] ?? '',
+			'extraction_method'      => $packet_meta['extraction_method'] ?? '',
+			'event_count'            => $source_event_count,
+			'extracted_packet_count' => $extracted_packet_count,
+			'source_event_count'     => $source_event_count,
+			'duplicate_packet_count' => $extracted_packet_count - $source_event_count,
+			'processed_event_count'  => $processed_event_count,
+			'eligible_event_count'   => $source_event_count - $processed_event_count,
 		);
 
 		if ( is_array( $payload ) && isset( $payload['raw_html'] ) && is_string( $payload['raw_html'] ) ) {
@@ -387,5 +411,57 @@ class EventScraperTest {
 		}
 
 		return $summary;
+	}
+
+	/**
+	 * Mirror production's claim-time duplicate collapse without creating claims.
+	 *
+	 * @param array $packet_entries Packet entries from DataPacket::addTo().
+	 * @return array Unique packet entries.
+	 */
+	private function uniquePacketEntries( array $packet_entries ): array {
+		$unique = array();
+		$seen   = array();
+
+		foreach ( $packet_entries as $entry ) {
+			$identifier = (string) ( $entry['metadata']['item_identifier'] ?? '' );
+			if ( '' !== $identifier ) {
+				if ( isset( $seen[ $identifier ] ) ) {
+					continue;
+				}
+				$seen[ $identifier ] = true;
+			}
+			$unique[] = $entry;
+		}
+
+		return $unique;
+	}
+
+	/**
+	 * Count unique source events already completed by a persisted flow step.
+	 *
+	 * This deliberately reads only final processed rows. It neither creates
+	 * claims nor clears processed history, so operators can use it as a dry-run
+	 * explanation for a production fetch that correctly emits no new packets.
+	 *
+	 * @param array  $packet_entries Unique packet entries.
+	 * @param string $flow_step_id   Persisted flow step ID.
+	 */
+	private function countProcessedPacketEntries( array $packet_entries, string $flow_step_id ): int {
+		if ( '' === $flow_step_id ) {
+			return 0;
+		}
+
+		$processed_items = new ProcessedItems();
+		$count           = 0;
+		foreach ( $packet_entries as $entry ) {
+			$identifier  = (string) ( $entry['metadata']['item_identifier'] ?? '' );
+			$source_type = (string) ( $entry['metadata']['source_type'] ?? 'universal_web_scraper' );
+			if ( '' !== $identifier && $processed_items->has_item_been_processed( $flow_step_id, $source_type, $identifier ) ) {
+				++$count;
+			}
+		}
+
+		return $count;
 	}
 }

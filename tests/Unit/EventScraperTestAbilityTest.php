@@ -29,7 +29,9 @@ namespace DataMachineEvents\Tests\Unit;
 
 use WP_UnitTestCase;
 use ReflectionClass;
+use DataMachine\Core\Database\ProcessedItems\ProcessedItems;
 use DataMachineEvents\Abilities\EventScraperTest;
+use DataMachineEvents\Utilities\EventIdentifierGenerator;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\BandzoogleExtractor;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\JsonLdExtractor;
 
@@ -104,6 +106,60 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $summary, 'Only the one decodable event packet should be summarized.' );
 		$this->assertSame( 'Real Event', $summary[0]['title'] );
+	}
+
+	/**
+	 * Regression for #511: qualification must apply the production config,
+	 * collapse repeated source records by stable identifier, and explain when
+	 * all unique records are already processed without mutating lifecycle state.
+	 */
+	public function test_qualification_matches_production_config_and_processed_identity() {
+		$html = '<script type="application/ld+json">' . wp_json_encode(
+			array(
+				array(
+					'@context'  => 'https://schema.org',
+					'@type'     => 'MusicEvent',
+					'name'      => 'Repeated Concert',
+					'startDate' => '2030-08-01T20:00:00-04:00',
+				),
+				array(
+					'@context'  => 'https://schema.org',
+					'@type'     => 'MusicEvent',
+					'name'      => 'Repeated Concert',
+					'startDate' => '2030-08-01T20:00:00-04:00',
+				),
+				array(
+					'@context'  => 'https://schema.org',
+					'@type'     => 'MusicEvent',
+					'name'      => 'Trivia Club',
+					'startDate' => '2030-08-02T20:00:00-04:00',
+				),
+			)
+		) . '</script>';
+
+		$this->mockHttpResponse( $html );
+
+		$flow_step_id = 'qualify-production-' . wp_generate_uuid4();
+		$config       = array(
+			'exclude_keywords' => 'Trivia Club',
+			'venue_name'        => 'Test Venue',
+		);
+		$identifier   = EventIdentifierGenerator::generate( 'Repeated Concert', '2030-08-01', 'Test Venue' );
+
+		$processed_items = new ProcessedItems();
+		$processed_items->create_table();
+		$processed_items->add_processed_item( $flow_step_id, 'universal_web_scraper', $identifier, 123 );
+
+		$result = ( new EventScraperTest() )->test( 'https://example.com/events', $config, $flow_step_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 2, $result['extraction_info']['extracted_packet_count'] );
+		$this->assertSame( 1, $result['extraction_info']['source_event_count'] );
+		$this->assertSame( 1, $result['extraction_info']['duplicate_packet_count'] );
+		$this->assertSame( 1, $result['extraction_info']['processed_event_count'] );
+		$this->assertSame( 0, $result['extraction_info']['eligible_event_count'] );
+		$this->assertSame( 1, $result['event_data']['event_count'] );
+		$this->assertCount( 1, $result['event_data']['items'] );
 	}
 
 	// ────────────────────────────────────────────────────────────────────

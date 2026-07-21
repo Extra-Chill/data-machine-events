@@ -52,6 +52,9 @@ final class CalendarOccurrenceContractTest extends TestCase {
 		$this->assertSame( 'Seeded Productions', $event['organizer']['name'] );
 		$this->assertSame( 'Organization', $event['organizer']['type'] );
 		$this->assertSame( 'EventRescheduled', $event['status'] );
+		$this->assertSame( 507101, $event['venue']['term_id'] );
+		$this->assertSame( 'Seeded Hall', $event['venue']['name'] );
+		$this->assertSame( 'seeded-hall', $event['venue']['slug'] );
 
 		foreach ( array( 'artist', 'location', 'promoter' ) as $taxonomy ) {
 			$this->assertNotEmpty( $event['taxonomies'][ $taxonomy ] );

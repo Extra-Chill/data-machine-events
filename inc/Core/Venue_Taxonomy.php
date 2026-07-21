@@ -116,6 +116,74 @@ class Venue_Taxonomy {
 		'MP',
 	);
 
+	/**
+	 * US state / DC / territory names keyed by postal abbreviation.
+	 *
+	 * Import sources provide both full region names and postal abbreviations.
+	 * This bounded map keeps those generic representations equivalent during
+	 * venue identity comparison.
+	 *
+	 * @var array<string, string>
+	 */
+	private static $us_state_names = array(
+		'AL' => 'Alabama',
+		'AK' => 'Alaska',
+		'AZ' => 'Arizona',
+		'AR' => 'Arkansas',
+		'CA' => 'California',
+		'CO' => 'Colorado',
+		'CT' => 'Connecticut',
+		'DE' => 'Delaware',
+		'FL' => 'Florida',
+		'GA' => 'Georgia',
+		'HI' => 'Hawaii',
+		'ID' => 'Idaho',
+		'IL' => 'Illinois',
+		'IN' => 'Indiana',
+		'IA' => 'Iowa',
+		'KS' => 'Kansas',
+		'KY' => 'Kentucky',
+		'LA' => 'Louisiana',
+		'ME' => 'Maine',
+		'MD' => 'Maryland',
+		'MA' => 'Massachusetts',
+		'MI' => 'Michigan',
+		'MN' => 'Minnesota',
+		'MS' => 'Mississippi',
+		'MO' => 'Missouri',
+		'MT' => 'Montana',
+		'NE' => 'Nebraska',
+		'NV' => 'Nevada',
+		'NH' => 'New Hampshire',
+		'NJ' => 'New Jersey',
+		'NM' => 'New Mexico',
+		'NY' => 'New York',
+		'NC' => 'North Carolina',
+		'ND' => 'North Dakota',
+		'OH' => 'Ohio',
+		'OK' => 'Oklahoma',
+		'OR' => 'Oregon',
+		'PA' => 'Pennsylvania',
+		'RI' => 'Rhode Island',
+		'SC' => 'South Carolina',
+		'SD' => 'South Dakota',
+		'TN' => 'Tennessee',
+		'TX' => 'Texas',
+		'UT' => 'Utah',
+		'VT' => 'Vermont',
+		'VA' => 'Virginia',
+		'WA' => 'Washington',
+		'WV' => 'West Virginia',
+		'WI' => 'Wisconsin',
+		'WY' => 'Wyoming',
+		'DC' => 'District of Columbia',
+		'PR' => 'Puerto Rico',
+		'VI' => 'U.S. Virgin Islands',
+		'GU' => 'Guam',
+		'AS' => 'American Samoa',
+		'MP' => 'Northern Mariana Islands',
+	);
+
 	public static function register() {
 		self::register_venue_taxonomy();
 
@@ -193,35 +261,12 @@ class Venue_Taxonomy {
 			}
 		}
 
-		// Address-based matching (source of truth)
-		$address = $venue_data['address'] ?? '';
-		$city    = $venue_data['city'] ?? '';
-		$state   = $venue_data['state'] ?? '';
-		$country = $venue_data['country'] ?? '';
+		$identity   = self::resolve_venue_identity( $venue_name, $venue_data );
+		$venue_name = $identity['venue_name'];
 
-		$address_match = self::find_venue_by_address( $address, $city, $state, $country );
-		if ( $address_match ) {
-			if ( ! empty( $venue_data ) ) {
-				self::smart_merge_venue_meta( $address_match, $venue_data );
-			}
+		if ( $identity['term'] ) {
+			$term_id = $identity['term_id'];
 
-			return array(
-				'term_id'      => $address_match,
-				'was_created'  => false,
-				'match_status' => 'matched',
-			);
-		}
-
-		// Allow normalization of venue name (e.g. aliases, corrections)
-		$venue_name = apply_filters( 'data_machine_events_normalize_venue_name', $venue_name );
-
-		$name_match = self::find_venue_by_qualified_name( $venue_name, $venue_data );
-		$existing   = $name_match['term'];
-
-		if ( $existing ) {
-			$term_id = $existing->term_id;
-
-			// Smart Merge: Fill in any missing metadata fields
 			if ( ! empty( $venue_data ) ) {
 				self::smart_merge_venue_meta( $term_id, $venue_data );
 			}
@@ -233,7 +278,7 @@ class Venue_Taxonomy {
 			);
 		}
 
-		if ( $name_match['ambiguous'] ) {
+		if ( 'ambiguous' === $identity['match_status'] ) {
 			do_action(
 				'datamachine_log',
 				'warning',
@@ -280,6 +325,59 @@ class Venue_Taxonomy {
 			'term_id'      => $term_id,
 			'was_created'  => true,
 			'match_status' => 'created',
+		);
+	}
+
+	/**
+	 * Resolve an existing venue without creating a term or merging metadata.
+	 *
+	 * This exposes the same address-first and geographically qualified name
+	 * rules to duplicate detection without introducing a separate identity
+	 * service or mutating the venue taxonomy during a read.
+	 *
+	 * @param string $venue_name Venue name.
+	 * @param array  $venue_data Venue metadata.
+	 * @return array{term: \WP_Term|null, term_id: int|null, match_status: string, venue_name: string}
+	 */
+	public static function resolve_venue_identity( string $venue_name, array $venue_data = array() ): array {
+		$extracted_address = self::extract_address_from_name( $venue_name );
+		if ( ! empty( $extracted_address ) ) {
+			$venue_name = $extracted_address['name'];
+			foreach ( array( 'address', 'city', 'state', 'zip' ) as $field ) {
+				if ( ! empty( $extracted_address[ $field ] ) && empty( $venue_data[ $field ] ) ) {
+					$venue_data[ $field ] = $extracted_address[ $field ];
+				}
+			}
+		}
+
+		$address_match = self::find_venue_by_address(
+			$venue_data['address'] ?? '',
+			$venue_data['city'] ?? '',
+			$venue_data['state'] ?? '',
+			$venue_data['country'] ?? ''
+		);
+
+		if ( $address_match ) {
+			$term = get_term( $address_match, 'venue' );
+			if ( $term instanceof \WP_Term ) {
+				return array(
+					'term'         => $term,
+					'term_id'      => (int) $term->term_id,
+					'match_status' => 'matched',
+					'venue_name'   => $venue_name,
+				);
+			}
+		}
+
+		$venue_name = apply_filters( 'data_machine_events_normalize_venue_name', $venue_name );
+		$name_match = self::find_venue_by_qualified_name( $venue_name, $venue_data );
+		$term       = $name_match['term'];
+
+		return array(
+			'term'         => $term,
+			'term_id'      => $term ? (int) $term->term_id : null,
+			'match_status' => $name_match['ambiguous'] ? 'ambiguous' : ( $term ? 'matched' : 'no_match' ),
+			'venue_name'   => $venue_name,
 		);
 	}
 
@@ -385,10 +483,10 @@ class Venue_Taxonomy {
 
 			$incoming = 'address' === $field
 				? self::normalize_address_for_matching( (string) $incoming )
-				: self::normalize_geographic_value( (string) $incoming );
+				: self::normalize_geographic_value( (string) $incoming, $field );
 			$stored   = 'address' === $field
 				? self::normalize_address_for_matching( (string) $stored )
-				: self::normalize_geographic_value( (string) $stored );
+				: self::normalize_geographic_value( (string) $stored, $field );
 
 			if ( $incoming !== $stored ) {
 				return true;
@@ -402,14 +500,30 @@ class Venue_Taxonomy {
 	 * Normalize a city, state, or country value for identity comparison.
 	 *
 	 * @param string $value Geographic value.
+	 * @param string $field Geographic field name.
 	 * @return string
 	 */
-	private static function normalize_geographic_value( string $value ): string {
+	private static function normalize_geographic_value( string $value, string $field ): string {
 		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$value = strtolower( remove_accents( $value ) );
 		$value = preg_replace( '/[^a-z0-9]+/', ' ', $value );
+		$value = trim( preg_replace( '/\s+/', ' ', $value ) );
 
-		return trim( preg_replace( '/\s+/', ' ', $value ) );
+		$us_country_aliases = array( 'us', 'u s', 'usa', 'u s a', 'united states', 'united states of america' );
+		if ( 'country' === $field && in_array( $value, $us_country_aliases, true ) ) {
+			return 'us';
+		}
+
+		if ( 'state' === $field ) {
+			foreach ( self::$us_state_names as $abbreviation => $state_name ) {
+				$normalized_state_name = self::normalize_geographic_value( $state_name, '' );
+				if ( strtolower( $abbreviation ) === $value || $normalized_state_name === $value ) {
+					return strtolower( $abbreviation );
+				}
+			}
+		}
+
+		return $value;
 	}
 
 	/**

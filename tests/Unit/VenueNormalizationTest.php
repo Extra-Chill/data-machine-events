@@ -289,6 +289,41 @@ class VenueNormalizationTest extends WP_UnitTestCase {
 		$this->assertSame( 'ambiguous', $country_conflict['match_status'] );
 	}
 
+	public function test_equivalent_state_and_country_forms_preserve_identity(): void {
+		$name  = 'Geography Alias Venue ' . uniqid();
+		$first = Venue_Taxonomy::find_or_create_venue(
+			$name,
+			array(
+				'address' => '600 Meeting Street',
+				'city'    => 'Charleston',
+				'state'   => 'SC',
+				'country' => 'US',
+			)
+		);
+		$full_names = Venue_Taxonomy::find_or_create_venue(
+			$name,
+			array(
+				'address' => '600 Meeting St.',
+				'city'    => 'Charleston',
+				'state'   => 'South Carolina',
+				'country' => 'United States',
+			)
+		);
+		$country_code = Venue_Taxonomy::find_or_create_venue(
+			$name,
+			array(
+				'city'    => 'Charleston',
+				'state'   => 'SC',
+				'country' => 'USA',
+			)
+		);
+
+		$this->assertSame( $first['term_id'], $full_names['term_id'] );
+		$this->assertSame( $first['term_id'], $country_code['term_id'] );
+		$this->assertSame( 'matched', $full_names['match_status'] );
+		$this->assertSame( 'matched', $country_code['match_status'] );
+	}
+
 	public function test_article_toggle_does_not_cross_city_boundaries(): void {
 		$base  = 'Article Collision ' . uniqid();
 		$first = Venue_Taxonomy::find_or_create_venue(

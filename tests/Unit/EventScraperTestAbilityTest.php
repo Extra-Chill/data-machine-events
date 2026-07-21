@@ -29,9 +29,7 @@ namespace DataMachineEvents\Tests\Unit;
 
 use WP_UnitTestCase;
 use ReflectionClass;
-use DataMachine\Core\Database\ProcessedItems\ProcessedItems;
 use DataMachineEvents\Abilities\EventScraperTest;
-use DataMachineEvents\Utilities\EventIdentifierGenerator;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\BandzoogleExtractor;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\Extractors\JsonLdExtractor;
 
@@ -46,7 +44,58 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 	public function tearDown(): void {
 		remove_all_filters( 'pre_http_request' );
+		wp_set_current_user( 0 );
 		parent::tearDown();
+	}
+
+	public function test_ability_is_registered_with_complete_context_schema(): void {
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+
+		$this->assertNotNull( $ability );
+		$this->assertSame( 'data-machine-events/test-event-scraper', $ability->get_name() );
+
+		$input = $ability->get_input_schema();
+		$this->assertSame( array( 'target_url' ), $input['required'] );
+		$this->assertArrayHasKey( 'handler_config', $input['properties'] );
+		$this->assertArrayHasKey( 'exclude_keywords', $input['properties']['handler_config']['properties'] );
+		$this->assertArrayNotHasKey( 'flow_step_id', $input['properties'] );
+
+		$output = $ability->get_output_schema();
+		$this->assertArrayHasKey( 'event_data', $output['properties'] );
+		$this->assertArrayHasKey( 'items', $output['properties']['event_data']['properties'] );
+		$this->assertArrayHasKey( 'extraction_info', $output['properties'] );
+		$this->assertArrayHasKey( 'context_supplied', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'duplicate_packet_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayNotHasKey( 'processed_event_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayNotHasKey( 'eligible_event_count', $output['properties']['extraction_info']['properties'] );
+	}
+
+	public function test_ability_permission_requires_manage_options(): void {
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+		$this->assertNotNull( $ability );
+
+		$subscriber_id = self::factory()->user->create( array( 'role' => 'subscriber' ) );
+		wp_set_current_user( $subscriber_id );
+		$this->assertFalse( $ability->check_permissions( array( 'target_url' => 'https://example.com/events' ) ) );
+		$denied = $ability->execute( array( 'target_url' => 'https://example.com/events' ) );
+		$this->assertInstanceOf( \WP_Error::class, $denied );
+		$this->assertSame( 'ability_invalid_permissions', $denied->get_error_code() );
+
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+		$this->assertTrue( $ability->check_permissions( array( 'target_url' => 'https://example.com/events' ) ) );
+	}
+
+	public function test_ability_rejects_missing_target_url_from_schema(): void {
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+		$this->assertNotNull( $ability );
+
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+		$result = $ability->execute( array() );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ability_invalid_input', $result->get_error_code() );
 	}
 
 	// ────────────────────────────────────────────────────────────────────
@@ -110,10 +159,10 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 	/**
 	 * Regression for #511: qualification must apply the production config,
-	 * collapse repeated source records by stable identifier, and explain when
-	 * all unique records are already processed without mutating lifecycle state.
+	 * collapse repeated source records by stable identifier, and explicitly
+	 * report that handler context was supplied.
 	 */
-	public function test_qualification_matches_production_config_and_processed_identity() {
+	public function test_qualification_matches_production_config_and_stable_identity() {
 		$html = '<script type="application/ld+json">' . wp_json_encode(
 			array(
 				array(
@@ -139,25 +188,28 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 		$this->mockHttpResponse( $html );
 
-		$flow_step_id = 'qualify-production-' . wp_generate_uuid4();
-		$config       = array(
+		$config = array(
 			'exclude_keywords' => 'Trivia Club',
 			'venue_name'        => 'Test Venue',
 		);
-		$identifier   = EventIdentifierGenerator::generate( 'Repeated Concert', '2030-08-01', 'Test Venue' );
 
-		$processed_items = new ProcessedItems();
-		$processed_items->create_table();
-		$processed_items->add_processed_item( $flow_step_id, 'universal_web_scraper', $identifier, 123 );
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
 
-		$result = ( new EventScraperTest() )->test( 'https://example.com/events', $config, $flow_step_id );
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+		$this->assertNotNull( $ability );
+		$result = $ability->execute(
+			array(
+				'target_url'     => 'https://example.com/events',
+				'handler_config' => $config,
+			)
+		);
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 2, $result['extraction_info']['extracted_packet_count'] );
-		$this->assertSame( 1, $result['extraction_info']['source_event_count'] );
+		$this->assertSame( 1, $result['extraction_info']['unique_source_event_count'] );
 		$this->assertSame( 1, $result['extraction_info']['duplicate_packet_count'] );
-		$this->assertSame( 1, $result['extraction_info']['processed_event_count'] );
-		$this->assertSame( 0, $result['extraction_info']['eligible_event_count'] );
+		$this->assertTrue( $result['extraction_info']['context_supplied'] );
 		$this->assertSame( 1, $result['event_data']['event_count'] );
 		$this->assertCount( 1, $result['event_data']['items'] );
 	}
@@ -195,8 +247,12 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 		$this->mockHttpResponse( $html );
 
-		$ability = new EventScraperTest();
-		$result  = $ability->test( $target_url );
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+		$this->assertNotNull( $ability );
+		$result = $ability->execute( array( 'target_url' => $target_url ) );
 
 		$this->assertIsArray( $result, 'Ability must succeed against the Bandzoogle fixture.' );
 		$this->assertTrue( $result['success'] ?? false, 'Ability must report success.' );
@@ -302,6 +358,7 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 			$result['event_data']['items'] ?? array(),
 			'Single-event JSON-LD page must produce items[] with exactly one entry.'
 		);
+		$this->assertFalse( $result['extraction_info']['context_supplied'] );
 	}
 
 	// ────────────────────────────────────────────────────────────────────

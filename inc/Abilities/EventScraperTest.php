@@ -26,12 +26,16 @@
  * for backwards compatibility with the chat tool and the CLI command, which only
  * read a single event's fields.
  *
+ * Issue #511 adds config-aware source diagnostics only. Stable unique source
+ * counts collapse repeated packet identifiers, but do not represent production
+ * eligibility. Processed state, claims, reprocess policy, and max-items selection
+ * remain owned by Data Machine's production lifecycle.
+ *
  * @package DataMachineEvents\Abilities
  */
 
 namespace DataMachineEvents\Abilities;
 
-use DataMachine\Core\Database\ProcessedItems\ProcessedItems;
 use DataMachineEvents\Steps\EventImport\Handlers\WebScraper\UniversalWebScraper;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -52,38 +56,136 @@ class EventScraperTest {
 						'description'         => __( 'Test universal web scraper compatibility with a target URL', 'data-machine-events' ),
 						'category'            => 'datamachine-events-testing',
 						'input_schema'        => array(
-							'type'       => 'object',
-							'required'   => array( 'target_url' ),
-							'properties' => array(
+							'type'                 => 'object',
+							'required'             => array( 'target_url' ),
+							'additionalProperties' => false,
+							'properties'           => array(
 								'target_url' => array(
 									'type'        => 'string',
 									'format'      => 'uri',
-									'description' => 'Target URL to test scraper against',
+									'description' => 'Target URL to test. Overrides handler_config.source_url.',
 								),
 								'handler_config' => array(
-									'type'        => 'object',
-									'description' => 'Optional persisted universal web scraper config to apply during qualification.',
-								),
-								'flow_step_id'   => array(
-									'type'        => 'string',
-									'description' => 'Optional persisted flow step ID used for read-only processed-item diagnostics.',
+									'type'                 => 'object',
+									'description'          => 'Optional persisted universal web scraper config to apply during source extraction.',
+									'additionalProperties' => false,
+									'properties'           => array(
+										'source_url'       => array( 'type' => 'string', 'format' => 'uri' ),
+										'search'           => array( 'type' => 'string' ),
+										'exclude_keywords' => array( 'type' => 'string' ),
+										'venue'            => array( 'type' => array( 'integer', 'string' ) ),
+										'venue_name'       => array( 'type' => 'string' ),
+										'venue_address'    => array( 'type' => 'string' ),
+										'venue_city'       => array( 'type' => 'string' ),
+										'venue_state'      => array( 'type' => 'string' ),
+										'venue_zip'        => array( 'type' => 'string' ),
+										'venue_country'    => array( 'type' => 'string' ),
+										'venue_phone'      => array( 'type' => 'string' ),
+										'venue_website'    => array( 'type' => 'string' ),
+										'venue_capacity'   => array( 'type' => array( 'integer', 'string' ) ),
+										'max_items'        => array( 'type' => array( 'integer', 'string' ) ),
+									),
 								),
 							),
 						),
 						'output_schema'       => array(
-							'type'       => 'object',
-							'properties' => array(
+							'type'                 => 'object',
+							'additionalProperties' => false,
+							'required'             => array( 'success', 'status', 'target_url', 'event_data', 'extraction_info', 'coverage_issues', 'warnings', 'logs' ),
+							'properties'           => array(
 								'success'         => array( 'type' => 'boolean' ),
 								'status'          => array(
 									'type' => 'string',
 									'enum' => array( 'ok', 'warning', 'error' ),
 								),
-								'target_url'      => array( 'type' => 'string' ),
-								'event_data'      => array( 'type' => 'object' ),
-								'extraction_info' => array( 'type' => 'object' ),
-								'coverage_issues' => array( 'type' => 'object' ),
-								'warnings'        => array( 'type' => 'array' ),
-								'logs'            => array( 'type' => 'array' ),
+								'target_url'      => array( 'type' => 'string', 'format' => 'uri' ),
+								'event_data'      => array(
+									'type'                 => 'object',
+									'additionalProperties' => false,
+									'properties'           => array(
+										'title'        => array( 'type' => 'string' ),
+										'startDate'    => array( 'type' => 'string' ),
+										'startTime'    => array( 'type' => 'string' ),
+										'endDate'      => array( 'type' => 'string' ),
+										'endTime'      => array( 'type' => 'string' ),
+										'timezone'     => array( 'type' => 'string' ),
+										'ticketUrl'    => array( 'type' => 'string' ),
+										'venue'        => array( 'type' => 'string' ),
+										'venueAddress' => array( 'type' => 'string' ),
+										'venueCity'    => array( 'type' => 'string' ),
+										'venueState'   => array( 'type' => 'string' ),
+										'venueZip'     => array( 'type' => 'string' ),
+										'event_count'  => array( 'type' => 'integer', 'minimum' => 0 ),
+										'items'        => array(
+											'type'  => 'array',
+											'items' => array(
+												'type'                 => 'object',
+												'additionalProperties' => false,
+												'properties'           => array(
+													'title'     => array( 'type' => 'string' ),
+													'startDate' => array( 'type' => 'string' ),
+													'startTime' => array( 'type' => 'string' ),
+													'ticketUrl' => array( 'type' => 'string' ),
+												),
+											),
+										),
+										'raw_html'     => array( 'type' => 'string' ),
+										'image_url'    => array( 'type' => 'string' ),
+										'page_url'     => array( 'type' => 'string' ),
+									),
+								),
+								'extraction_info' => array(
+									'type'                 => 'object',
+									'additionalProperties' => false,
+									'required'             => array(
+										'packet_title',
+										'source_type',
+										'extraction_method',
+										'payload_type',
+										'event_count',
+										'extracted_packet_count',
+										'unique_source_event_count',
+										'duplicate_packet_count',
+										'context_supplied',
+									),
+									'properties'           => array(
+										'packet_title'              => array( 'type' => 'string' ),
+										'source_type'               => array( 'type' => 'string' ),
+										'extraction_method'         => array( 'type' => 'string' ),
+										'payload_type'              => array( 'type' => 'string', 'enum' => array( 'event', 'raw_html', 'vision_flyer' ) ),
+										'event_count'               => array( 'type' => 'integer', 'minimum' => 0 ),
+										'extracted_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
+										'unique_source_event_count' => array( 'type' => 'integer', 'minimum' => 0 ),
+										'duplicate_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
+										'context_supplied'          => array( 'type' => 'boolean' ),
+										'requires_ai_step'          => array( 'type' => 'boolean' ),
+										'image_file_stored'         => array( 'type' => 'boolean' ),
+									),
+								),
+								'coverage_issues' => array(
+									'type'                 => 'object',
+									'additionalProperties' => false,
+									'properties'           => array(
+										'missing_time'       => array( 'type' => 'boolean' ),
+										'missing_venue'      => array( 'type' => 'boolean' ),
+										'incomplete_address' => array( 'type' => 'boolean' ),
+										'time_data_warning'  => array( 'type' => 'boolean' ),
+										'raw_html_fallback'  => array( 'type' => 'boolean' ),
+										'vision_flyer'       => array( 'type' => 'boolean' ),
+									),
+								),
+								'warnings'        => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+								'logs'            => array(
+									'type'  => 'array',
+									'items' => array(
+										'type'       => 'object',
+										'properties' => array(
+											'level'   => array( 'type' => 'string' ),
+											'message' => array( 'type' => 'string' ),
+											'context' => array( 'type' => 'object' ),
+										),
+									),
+								),
 							),
 						),
 						'execute_callback'    => array( $this, 'executeAbility' ),
@@ -108,13 +210,14 @@ class EventScraperTest {
 			return new \WP_Error( 'missing_target_url', 'Missing required target_url parameter.', array( 'status' => 400 ) );
 		}
 
-		$handler_config = is_array( $input['handler_config'] ?? null ) ? $input['handler_config'] : array();
-		$flow_step_id   = sanitize_text_field( (string) ( $input['flow_step_id'] ?? '' ) );
+		$handler_config = array_key_exists( 'handler_config', $input ) && is_array( $input['handler_config'] )
+			? $input['handler_config']
+			: null;
 
-		return $this->test( $target_url, $handler_config, $flow_step_id );
+		return $this->test( $target_url, $handler_config );
 	}
 
-	public function test( string $target_url, array $handler_config = array(), string $flow_step_id = '' ): array|\WP_Error {
+	public function test( string $target_url, ?array $handler_config = null ): array|\WP_Error {
 		$logs = array();
 		add_action(
 			'datamachine_log',
@@ -130,7 +233,7 @@ class EventScraperTest {
 		);
 
 		$config = array_merge(
-			$handler_config,
+			$handler_config ?? array(),
 			array(
 				'source_url'   => $target_url,
 				'flow_step_id' => 'test_' . wp_generate_uuid4(),
@@ -168,10 +271,9 @@ class EventScraperTest {
 			}
 		}
 
-		$extracted_packet_count = count( $packet_entries );
-		$packet_entries         = $this->uniquePacketEntries( $packet_entries );
-		$source_event_count     = count( $packet_entries );
-		$processed_event_count  = $this->countProcessedPacketEntries( $packet_entries, $flow_step_id );
+		$extracted_packet_count    = count( $packet_entries );
+		$packet_entries            = $this->uniquePacketEntries( $packet_entries );
+		$unique_source_event_count = count( $packet_entries );
 
 		$packet_entry = $packet_entries[0] ?? array();
 		$packet_data  = $packet_entry['data'] ?? array();
@@ -191,15 +293,14 @@ class EventScraperTest {
 		$all_events = $this->summarizeEventsFromPackets( $packet_entries );
 
 		$extraction_info = array(
-			'packet_title'           => $packet_data['title'] ?? '',
-			'source_type'            => $packet_meta['source_type'] ?? '',
-			'extraction_method'      => $packet_meta['extraction_method'] ?? '',
-			'event_count'            => $source_event_count,
-			'extracted_packet_count' => $extracted_packet_count,
-			'source_event_count'     => $source_event_count,
-			'duplicate_packet_count' => $extracted_packet_count - $source_event_count,
-			'processed_event_count'  => $processed_event_count,
-			'eligible_event_count'   => $source_event_count - $processed_event_count,
+			'packet_title'              => $packet_data['title'] ?? '',
+			'source_type'               => $packet_meta['source_type'] ?? '',
+			'extraction_method'         => $packet_meta['extraction_method'] ?? '',
+			'event_count'               => $unique_source_event_count,
+			'extracted_packet_count'    => $extracted_packet_count,
+			'unique_source_event_count' => $unique_source_event_count,
+			'duplicate_packet_count'    => $extracted_packet_count - $unique_source_event_count,
+			'context_supplied'          => null !== $handler_config,
 		);
 
 		if ( is_array( $payload ) && isset( $payload['raw_html'] ) && is_string( $payload['raw_html'] ) ) {
@@ -414,7 +515,9 @@ class EventScraperTest {
 	}
 
 	/**
-	 * Mirror production's claim-time duplicate collapse without creating claims.
+	 * Collapse repeated packets into stable unique source identities.
+	 *
+	 * This is an extraction diagnostic, not a production eligibility result.
 	 *
 	 * @param array $packet_entries Packet entries from DataPacket::addTo().
 	 * @return array Unique packet entries.
@@ -437,31 +540,4 @@ class EventScraperTest {
 		return $unique;
 	}
 
-	/**
-	 * Count unique source events already completed by a persisted flow step.
-	 *
-	 * This deliberately reads only final processed rows. It neither creates
-	 * claims nor clears processed history, so operators can use it as a dry-run
-	 * explanation for a production fetch that correctly emits no new packets.
-	 *
-	 * @param array  $packet_entries Unique packet entries.
-	 * @param string $flow_step_id   Persisted flow step ID.
-	 */
-	private function countProcessedPacketEntries( array $packet_entries, string $flow_step_id ): int {
-		if ( '' === $flow_step_id ) {
-			return 0;
-		}
-
-		$processed_items = new ProcessedItems();
-		$count           = 0;
-		foreach ( $packet_entries as $entry ) {
-			$identifier  = (string) ( $entry['metadata']['item_identifier'] ?? '' );
-			$source_type = (string) ( $entry['metadata']['source_type'] ?? 'universal_web_scraper' );
-			if ( '' !== $identifier && $processed_items->has_item_been_processed( $flow_step_id, $source_type, $identifier ) ) {
-				++$count;
-			}
-		}
-
-		return $count;
-	}
 }

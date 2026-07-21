@@ -162,17 +162,20 @@ class Venue_Taxonomy {
 	 *    blob baked into the name — common with AI-extracted venue strings —
 	 *    and routes it into $venue_data BEFORE matching runs, so step 1 below
 	 *    can resolve it against the canonical venue by address)
-	 * 1. Address-based matching (normalized street + city comparison)
-	 * 2. Exact name match
-	 * 3. "The" prefix toggle ("The Royal American" ↔ "Royal American")
-	 * 4. Normalized name matching (strips punctuation, dashes, case, articles)
+	 * 1. Address-based matching (normalized street + city comparison, qualified
+	 *    by state/country when both the incoming and stored venue supply them)
+	 * 2. Exact name match, qualified by supplied geographic evidence
+	 * 3. "The" prefix toggle ("The Royal American" ↔ "Royal American"),
+	 *    qualified by supplied geographic evidence
+	 * 4. Normalized name matching (strips punctuation, dashes, case, articles),
+	 *    qualified by supplied geographic evidence
 	 *    Catches: "Saturn - Birmingham" = "Saturn Birmingham",
 	 *             "Reggie's Rock Club" = "Reggies Rock Club",
 	 *             "RADIO/EAST" = "Radio East"
 	 *
 	 * @param string $venue_name Venue name
 	 * @param array $venue_data Venue metadata (address, city, state, etc.)
-	 * @return array Array with keys: term_id, was_created
+	 * @return array Array with keys: term_id, was_created, and match_status.
 	 */
 	public static function find_or_create_venue( $venue_name, $venue_data = array() ) {
 		// Strip a trailing address blob baked into the venue name (AI
@@ -193,47 +196,27 @@ class Venue_Taxonomy {
 		// Address-based matching (source of truth)
 		$address = $venue_data['address'] ?? '';
 		$city    = $venue_data['city'] ?? '';
+		$state   = $venue_data['state'] ?? '';
+		$country = $venue_data['country'] ?? '';
 
-		$address_match = self::find_venue_by_address( $address, $city );
+		$address_match = self::find_venue_by_address( $address, $city, $state, $country );
 		if ( $address_match ) {
 			if ( ! empty( $venue_data ) ) {
 				self::smart_merge_venue_meta( $address_match, $venue_data );
 			}
 
 			return array(
-				'term_id'     => $address_match,
-				'was_created' => false,
+				'term_id'      => $address_match,
+				'was_created'  => false,
+				'match_status' => 'matched',
 			);
 		}
 
 		// Allow normalization of venue name (e.g. aliases, corrections)
 		$venue_name = apply_filters( 'data_machine_events_normalize_venue_name', $venue_name );
 
-		// Check if venue already exists by name
-		$existing = get_term_by( 'name', $venue_name, 'venue' );
-
-		// Smart Lookup: If exact match fails, try variations with/without "The"
-		if ( ! $existing ) {
-			$alt_name = '';
-			if ( stripos( $venue_name, 'The ' ) === 0 ) {
-				// Remove "The " prefix
-				$alt_name = substr( $venue_name, 4 );
-			} else {
-				// Add "The " prefix
-				$alt_name = 'The ' . $venue_name;
-			}
-
-			if ( ! empty( $alt_name ) ) {
-				$existing = get_term_by( 'name', $alt_name, 'venue' );
-			}
-		}
-
-		// Normalized name matching: catches punctuation, dash, and case variants.
-		// e.g. "Saturn - Birmingham" = "Saturn Birmingham",
-		//      "Reggie's Rock Club" = "Reggies Rock Club"
-		if ( ! $existing ) {
-			$existing = self::find_venue_by_normalized_name( $venue_name );
-		}
+		$name_match = self::find_venue_by_qualified_name( $venue_name, $venue_data );
+		$existing   = $name_match['term'];
 
 		if ( $existing ) {
 			$term_id = $existing->term_id;
@@ -244,8 +227,27 @@ class Venue_Taxonomy {
 			}
 
 			return array(
-				'term_id'     => $term_id,
-				'was_created' => false,
+				'term_id'      => $term_id,
+				'was_created'  => false,
+				'match_status' => 'matched',
+			);
+		}
+
+		if ( $name_match['ambiguous'] ) {
+			do_action(
+				'datamachine_log',
+				'warning',
+				'Venue name match rejected due to ambiguous or conflicting geographic evidence',
+				array(
+					'venue_name' => $venue_name,
+					'venue_data' => $venue_data,
+				)
+			);
+
+			return array(
+				'term_id'      => null,
+				'was_created'  => false,
+				'match_status' => 'ambiguous',
 			);
 		}
 
@@ -263,8 +265,9 @@ class Venue_Taxonomy {
 				)
 			);
 			return array(
-				'term_id'     => null,
-				'was_created' => false,
+				'term_id'      => null,
+				'was_created'  => false,
+				'match_status' => 'error',
 			);
 		}
 
@@ -274,9 +277,139 @@ class Venue_Taxonomy {
 		self::update_venue_meta( $term_id, $venue_data );
 
 		return array(
-			'term_id'     => $term_id,
-			'was_created' => true,
+			'term_id'      => $term_id,
+			'was_created'  => true,
+			'match_status' => 'created',
 		);
+	}
+
+	/**
+	 * Resolve name variants without crossing conflicting geographic evidence.
+	 *
+	 * Exact, article-toggle, and normalized matches retain their precedence. A
+	 * tier with one compatible candidate wins; multiple compatible candidates
+	 * or candidates rejected by supplied geography produce an ambiguous result.
+	 *
+	 * @param string $venue_name Venue name to resolve.
+	 * @param array  $venue_data Incoming venue metadata.
+	 * @return array{term: \WP_Term|null, ambiguous: bool}
+	 */
+	private static function find_venue_by_qualified_name( string $venue_name, array $venue_data ): array {
+		$venues = get_terms(
+			array(
+				'taxonomy'   => 'venue',
+				'hide_empty' => false,
+				'number'     => 0,
+			)
+		);
+
+		if ( is_wp_error( $venues ) || empty( $venues ) ) {
+			return array(
+				'term'      => null,
+				'ambiguous' => false,
+			);
+		}
+
+		$alt_name              = 0 === stripos( $venue_name, 'The ' ) ? substr( $venue_name, 4 ) : 'The ' . $venue_name;
+		$normalized_name       = self::normalize_venue_name_for_matching( $venue_name );
+		$normalized_candidates = strlen( $normalized_name ) < 3
+			? array()
+			: array_filter(
+				$venues,
+				static fn( $venue ) => $normalized_name === self::normalize_venue_name_for_matching( $venue->name )
+			);
+		$tiers = array(
+			array_filter(
+				$venues,
+				static fn( $venue ) => 0 === strcasecmp( trim( $venue->name ), trim( $venue_name ) )
+			),
+			array_filter(
+				$venues,
+				static fn( $venue ) => 0 === strcasecmp( trim( $venue->name ), trim( $alt_name ) )
+			),
+			$normalized_candidates,
+		);
+		$had_candidates = false;
+
+		foreach ( $tiers as $candidates ) {
+			if ( empty( $candidates ) ) {
+				continue;
+			}
+
+			$had_candidates = true;
+			$compatible     = array_values(
+				array_filter(
+					$candidates,
+					static fn( $venue ) => ! self::has_geographic_conflict( $venue->term_id, $venue_data )
+				)
+			);
+
+			if ( 1 === count( $compatible ) ) {
+				return array(
+					'term'      => $compatible[0],
+					'ambiguous' => false,
+				);
+			}
+
+			if ( count( $compatible ) > 1 ) {
+				return array(
+					'term'      => null,
+					'ambiguous' => true,
+				);
+			}
+		}
+
+		return array(
+			'term'      => null,
+			'ambiguous' => $had_candidates,
+		);
+	}
+
+	/**
+	 * Determine whether supplied geography contradicts stored venue evidence.
+	 *
+	 * Missing values on either side are incomplete evidence, not a conflict.
+	 *
+	 * @param int   $term_id    Venue term ID.
+	 * @param array $venue_data Incoming venue metadata.
+	 * @return bool
+	 */
+	private static function has_geographic_conflict( int $term_id, array $venue_data ): bool {
+		foreach ( array( 'address', 'city', 'state', 'country' ) as $field ) {
+			$incoming = $venue_data[ $field ] ?? '';
+			$stored   = get_term_meta( $term_id, self::$meta_fields[ $field ], true );
+
+			if ( '' === trim( (string) $incoming ) || '' === trim( (string) $stored ) ) {
+				continue;
+			}
+
+			$incoming = 'address' === $field
+				? self::normalize_address_for_matching( (string) $incoming )
+				: self::normalize_geographic_value( (string) $incoming );
+			$stored   = 'address' === $field
+				? self::normalize_address_for_matching( (string) $stored )
+				: self::normalize_geographic_value( (string) $stored );
+
+			if ( $incoming !== $stored ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Normalize a city, state, or country value for identity comparison.
+	 *
+	 * @param string $value Geographic value.
+	 * @return string
+	 */
+	private static function normalize_geographic_value( string $value ): string {
+		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$value = strtolower( remove_accents( $value ) );
+		$value = preg_replace( '/[^a-z0-9]+/', ' ', $value );
+
+		return trim( preg_replace( '/\s+/', ' ', $value ) );
 	}
 
 	/**
@@ -990,13 +1123,20 @@ class Venue_Taxonomy {
 	}
 
 	/**
-	 * Find existing venue by address and city
+	 * Find existing venue by address and geographic context.
 	 *
-	 * @param string $address Street address
-	 * @param string $city City name
+	 * @param string $address Street address.
+	 * @param string $city City name.
+	 * @param string $state State or region, when supplied.
+	 * @param string $country Country, when supplied.
 	 * @return int|null Term ID if found, null otherwise
 	 */
-	public static function find_venue_by_address( string $address, string $city ): ?int {
+	public static function find_venue_by_address(
+		string $address,
+		string $city,
+		string $state = '',
+		string $country = ''
+	): ?int {
 		if ( empty( $address ) || empty( $city ) ) {
 			return null;
 		}
@@ -1021,6 +1161,8 @@ class Venue_Taxonomy {
 			return null;
 		}
 
+		$matches = array();
+
 		foreach ( $venues as $venue ) {
 			$venue_address = get_term_meta( $venue->term_id, '_venue_address', true );
 			$venue_city    = get_term_meta( $venue->term_id, '_venue_city', true );
@@ -1033,12 +1175,21 @@ class Venue_Taxonomy {
 			$venue_normalized_city    = strtolower( trim( $venue_city ) );
 
 			if ( $venue_normalized_address === $normalized_address &&
-				$venue_normalized_city === $normalized_city ) {
-				return $venue->term_id;
+				$venue_normalized_city === $normalized_city &&
+				! self::has_geographic_conflict(
+					$venue->term_id,
+					array(
+						'address' => $address,
+						'city'    => $city,
+						'state'   => $state,
+						'country' => $country,
+					)
+				) ) {
+				$matches[] = $venue->term_id;
 			}
 		}
 
-		return null;
+		return 1 === count( $matches ) ? $matches[0] : null;
 	}
 
 	/**

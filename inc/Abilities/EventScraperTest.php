@@ -20,13 +20,12 @@
  * multi-event JSON-LD venue to be flagged `extraction_gap` on its first qualify run.
  *
  * Fix shape: walk all packets and surface the exact `event_count` in both
- * `event_data` and `extraction_info`. A bounded `event_data.items[]` sample and
- * the first event's full record remain available to diagnostic consumers.
+ * `event_data` and `extraction_info`. The full `event_data.items[]` list remains
+ * available for existing qualification consumers.
  *
- * Issue #511 adds config-aware source diagnostics only. Stable unique source
- * counts collapse repeated packet identifiers, but do not represent production
- * eligibility. Processed state, claims, reprocess policy, and max-items selection
- * remain owned by Data Machine's production lifecycle.
+ * Issue #511 adds config-aware source diagnostics only. Stable structured-event
+ * counts collapse repeated packet identifiers, while raw sections and flyer
+ * candidates have separate counters. None represent production eligibility.
  *
  * @package DataMachineEvents\Abilities
  */
@@ -40,8 +39,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class EventScraperTest {
-
-	private const EVENT_SUMMARY_LIMIT = 100;
 
 	private static bool $registered = false;
 
@@ -116,9 +113,8 @@ class EventScraperTest {
 										'venueZip'     => array( 'type' => 'string' ),
 										'event_count'  => array( 'type' => 'integer', 'minimum' => 0 ),
 										'items'        => array(
-											'type'     => 'array',
-											'maxItems' => self::EVENT_SUMMARY_LIMIT,
-											'items'    => array(
+											'type'  => 'array',
+											'items' => array(
 												'type'                 => 'object',
 												'additionalProperties' => false,
 												'properties'           => array(
@@ -147,8 +143,9 @@ class EventScraperTest {
 										'unique_source_event_count',
 										'duplicate_packet_count',
 										'production_max_items',
-										'summary_event_count',
-										'summary_truncated',
+										'candidate_packet_count',
+										'raw_section_count',
+										'flyer_candidate_count',
 										'context_supplied',
 									),
 									'properties'           => array(
@@ -156,13 +153,14 @@ class EventScraperTest {
 										'source_type'               => array( 'type' => 'string' ),
 										'extraction_method'         => array( 'type' => 'string' ),
 										'payload_type'              => array( 'type' => 'string', 'enum' => array( 'event', 'raw_html', 'vision_flyer' ) ),
-										'event_count'               => array( 'type' => 'integer', 'minimum' => 0 ),
-										'extracted_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
-										'unique_source_event_count' => array( 'type' => 'integer', 'minimum' => 0 ),
-										'duplicate_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
-										'production_max_items'      => array( 'type' => array( 'integer', 'null' ), 'minimum' => 0 ),
-										'summary_event_count'       => array( 'type' => 'integer', 'minimum' => 0 ),
-										'summary_truncated'         => array( 'type' => 'boolean' ),
+										'event_count'               => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Unique structured events extracted from the source.' ),
+										'extracted_packet_count'    => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'All packets returned by direct handler execution before stable-identifier deduplication.' ),
+										'unique_source_event_count' => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Unique structured events after stable-identifier deduplication.' ),
+										'duplicate_packet_count'    => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Packets removed because their stable identifier repeated.' ),
+										'production_max_items'      => array( 'type' => array( 'integer', 'null' ), 'minimum' => 0, 'description' => 'Configured production cap, reported but not applied to diagnostic extraction.' ),
+										'candidate_packet_count'    => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Non-structured raw-section and flyer candidate packets.' ),
+										'raw_section_count'         => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Raw HTML section candidates requiring downstream interpretation.' ),
+										'flyer_candidate_count'     => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Vision flyer candidates requiring downstream interpretation.' ),
 										'context_supplied'          => array( 'type' => 'boolean' ),
 										'requires_ai_step'          => array( 'type' => 'boolean' ),
 										'image_file_stored'         => array( 'type' => 'boolean' ),
@@ -298,8 +296,7 @@ class EventScraperTest {
 		$payload = json_decode( (string) $body, true );
 		$event   = is_array( $payload ) ? ( $payload['event'] ?? null ) : null;
 
-		// Build a bounded representative summary while retaining exact counts.
-		$all_events = array_slice( $this->summarizeEventsFromPackets( $packet_entries ), 0, self::EVENT_SUMMARY_LIMIT );
+		$all_events = $this->summarizeEventsFromPackets( $packet_entries );
 
 		$extraction_info['packet_title']      = $packet_data['title'] ?? '';
 		$extraction_info['source_type']       = $packet_meta['source_type'] ?? '';
@@ -398,9 +395,7 @@ class EventScraperTest {
 		$event_data['venueState']   = $venue_state;
 		$event_data['venueZip']     = $venue_zip;
 
-		// Keep the exact inventory count separate from the bounded event summaries.
-		// Consumers that need the full count must use event_count; items is only a
-		// representative diagnostic sample.
+		// Preserve the full list until every qualification consumer reads event_count.
 		$event_data['items']       = $all_events;
 		$event_data['event_count'] = $extraction_info['event_count'];
 
@@ -549,9 +544,24 @@ class EventScraperTest {
 	private function analyzePacketEntries( array $packet_entries, bool $context_supplied, ?int $production_max_items ): array {
 		$extracted_packet_count    = count( $packet_entries );
 		$packet_entries            = $this->uniquePacketEntries( $packet_entries );
-		$unique_source_event_count = count( $packet_entries );
-		$source_event_summaries    = count( $this->summarizeEventsFromPackets( $packet_entries ) );
-		$summary_event_count       = min( $source_event_summaries, self::EVENT_SUMMARY_LIMIT );
+		$structured_event_count    = 0;
+		$raw_section_count         = 0;
+		$flyer_candidate_count     = 0;
+		foreach ( $packet_entries as $entry ) {
+			$body    = (string) ( $entry['data']['body'] ?? '' );
+			$payload = json_decode( $body, true );
+			if ( ! is_array( $payload ) ) {
+				continue;
+			}
+			if ( is_array( $payload['event'] ?? null ) ) {
+				++$structured_event_count;
+			} elseif ( isset( $payload['raw_html'] ) && is_string( $payload['raw_html'] ) ) {
+				++$raw_section_count;
+			} elseif ( 'vision_flyer' === ( $payload['source_type'] ?? '' ) ) {
+				++$flyer_candidate_count;
+			}
+		}
+		$candidate_packet_count = $raw_section_count + $flyer_candidate_count;
 
 		return array(
 			'packet_entries'  => $packet_entries,
@@ -559,13 +569,14 @@ class EventScraperTest {
 				'packet_title'              => '',
 				'source_type'               => '',
 				'extraction_method'         => '',
-				'event_count'               => $unique_source_event_count,
+				'event_count'               => $structured_event_count,
 				'extracted_packet_count'    => $extracted_packet_count,
-				'unique_source_event_count' => $unique_source_event_count,
-				'duplicate_packet_count'    => $extracted_packet_count - $unique_source_event_count,
+				'unique_source_event_count' => $structured_event_count,
+				'duplicate_packet_count'    => $extracted_packet_count - count( $packet_entries ),
 				'production_max_items'      => $production_max_items,
-				'summary_event_count'       => $summary_event_count,
-				'summary_truncated'         => $summary_event_count < $source_event_summaries,
+				'candidate_packet_count'    => $candidate_packet_count,
+				'raw_section_count'         => $raw_section_count,
+				'flyer_candidate_count'     => $flyer_candidate_count,
 				'context_supplied'          => $context_supplied,
 			),
 		);

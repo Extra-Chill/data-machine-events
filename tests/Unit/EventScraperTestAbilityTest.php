@@ -67,7 +67,10 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'context_supplied', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayHasKey( 'duplicate_packet_count', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayHasKey( 'production_max_items', $output['properties']['extraction_info']['properties'] );
-		$this->assertArrayHasKey( 'summary_truncated', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'candidate_packet_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'raw_section_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'flyer_candidate_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayNotHasKey( 'summary_truncated', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayNotHasKey( 'processed_event_count', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayNotHasKey( 'eligible_event_count', $output['properties']['extraction_info']['properties'] );
 	}
@@ -216,7 +219,7 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $result['event_data']['items'] );
 	}
 
-	public function test_max_items_does_not_cap_source_inventory_and_summaries_are_bounded(): void {
+	public function test_max_items_does_not_cap_source_inventory_or_full_items_list(): void {
 		$events = array();
 		foreach ( range( 1, 105 ) as $index ) {
 			$events[] = array(
@@ -249,10 +252,9 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 105, $result['extraction_info']['extracted_packet_count'] );
 		$this->assertSame( 105, $result['extraction_info']['unique_source_event_count'] );
 		$this->assertSame( 1, $result['extraction_info']['production_max_items'] );
-		$this->assertSame( 100, $result['extraction_info']['summary_event_count'] );
-		$this->assertTrue( $result['extraction_info']['summary_truncated'] );
+		$this->assertSame( 0, $result['extraction_info']['candidate_packet_count'] );
 		$this->assertSame( 105, $result['event_data']['event_count'] );
-		$this->assertCount( 100, $result['event_data']['items'] );
+		$this->assertCount( 105, $result['event_data']['items'] );
 	}
 
 	public function test_raw_and_vision_packets_report_truthful_source_counts(): void {
@@ -283,13 +285,17 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 
 		foreach ( array( $raw, $vision ) as $inventory ) {
 			$this->assertSame( 1, $inventory['extraction_info']['extracted_packet_count'] );
-			$this->assertSame( 1, $inventory['extraction_info']['unique_source_event_count'] );
+			$this->assertSame( 0, $inventory['extraction_info']['event_count'] );
+			$this->assertSame( 0, $inventory['extraction_info']['unique_source_event_count'] );
 			$this->assertSame( 0, $inventory['extraction_info']['duplicate_packet_count'] );
-			$this->assertSame( 0, $inventory['extraction_info']['summary_event_count'] );
-			$this->assertFalse( $inventory['extraction_info']['summary_truncated'] );
+			$this->assertSame( 1, $inventory['extraction_info']['candidate_packet_count'] );
 		}
+		$this->assertSame( 1, $raw['extraction_info']['raw_section_count'] );
+		$this->assertSame( 0, $raw['extraction_info']['flyer_candidate_count'] );
 		$this->assertNull( $raw['extraction_info']['production_max_items'] );
 		$this->assertFalse( $raw['extraction_info']['context_supplied'] );
+		$this->assertSame( 0, $vision['extraction_info']['raw_section_count'] );
+		$this->assertSame( 1, $vision['extraction_info']['flyer_candidate_count'] );
 		$this->assertSame( 5, $vision['extraction_info']['production_max_items'] );
 		$this->assertTrue( $vision['extraction_info']['context_supplied'] );
 	}

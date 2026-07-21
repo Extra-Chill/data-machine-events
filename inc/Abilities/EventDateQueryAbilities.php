@@ -94,9 +94,26 @@ class EventDateQueryAbilities {
 							),
 							'geo'         => array(
 								'type'       => 'object',
+								'anyOf'      => array(
+									array( 'required' => array( 'lat', 'lng' ) ),
+									array(
+										'required'   => array( 'empty_result_behavior' ),
+										'properties' => array(
+											'empty_result_behavior' => array( 'enum' => array( 'ignore_geo' ) ),
+										),
+									),
+								),
 								'properties' => array(
-									'lat'    => array( 'type' => 'number' ),
-									'lng'    => array( 'type' => 'number' ),
+									'lat'    => array(
+										'type'    => 'number',
+										'minimum' => -90,
+										'maximum' => 90,
+									),
+									'lng'    => array(
+										'type'    => 'number',
+										'minimum' => -180,
+										'maximum' => 180,
+									),
 									'radius' => array( 'type' => 'number' ),
 									'unit'   => array(
 										'type' => 'string',
@@ -193,6 +210,23 @@ class EventDateQueryAbilities {
 	 */
 	public function executePublicQueryEvents( array $input ): array {
 		unset( $input['status'], $input['meta_query'] );
+
+		if ( array_key_exists( 'geo', $input ) ) {
+			$geo        = is_array( $input['geo'] ) ? $input['geo'] : array();
+			$ignore_geo = 'ignore_geo' === ( $geo['empty_result_behavior'] ?? 'empty' );
+			$valid_geo  = array_key_exists( 'lat', $geo )
+				&& array_key_exists( 'lng', $geo )
+				&& class_exists( 'DataMachineEvents\\Blocks\\Calendar\\Geo_Query' )
+				&& \DataMachineEvents\Blocks\Calendar\Geo_Query::validate_params( $geo['lat'], $geo['lng'], $geo['radius'] ?? 25 );
+
+			if ( ! $valid_geo && ! $ignore_geo ) {
+				return array(
+					'posts'      => array(),
+					'total'      => 0,
+					'post_count' => 0,
+				);
+			}
+		}
 
 		$input['status']   = 'publish';
 		$input['per_page'] = min(
@@ -315,36 +349,37 @@ class EventDateQueryAbilities {
 			$query_args['tax_query'] = $tax_query;
 		}
 
-		// Geo filter (venue proximity).
-		if ( array_key_exists( 'lat', $geo ) && array_key_exists( 'lng', $geo ) ) {
-			$geo_lat    = (float) $geo['lat'];
-			$geo_lng    = (float) $geo['lng'];
-			$geo_radius = (float) ( $geo['radius'] ?? 25 );
-			$geo_unit   = $geo['unit'] ?? 'mi';
+		// Geo filter (venue proximity). Any non-empty invalid geo envelope fails
+		// closed unless the caller explicitly requests the documented fallback.
+		if ( ! empty( $geo ) ) {
+			$nearby_venue_ids = array();
+			$ignore_empty_geo = 'ignore_geo' === ( $geo['empty_result_behavior'] ?? 'empty' );
+			$has_coordinates  = array_key_exists( 'lat', $geo ) && array_key_exists( 'lng', $geo );
+			$geo_radius       = $geo['radius'] ?? 25;
+			$valid_geo        = $has_coordinates
+				&& class_exists( 'DataMachineEvents\\Blocks\\Calendar\\Geo_Query' )
+				&& \DataMachineEvents\Blocks\Calendar\Geo_Query::validate_params( $geo['lat'], $geo['lng'], $geo_radius );
 
-			if ( class_exists( 'DataMachineEvents\\Blocks\\Calendar\\Geo_Query' )
-				&& \DataMachineEvents\Blocks\Calendar\Geo_Query::validate_params( $geo_lat, $geo_lng, $geo_radius ) ) {
-
+			if ( $valid_geo ) {
 				$nearby_venue_ids = \DataMachineEvents\Blocks\Calendar\Geo_Query::get_venue_ids_within_radius(
-					$geo_lat,
-					$geo_lng,
-					$geo_radius,
-					$geo_unit
+					(float) $geo['lat'],
+					(float) $geo['lng'],
+					(float) $geo_radius,
+					$geo['unit'] ?? 'mi'
+				);
+			}
+
+			if ( ! empty( $nearby_venue_ids ) || ! $ignore_empty_geo ) {
+				$tax_query             = isset( $query_args['tax_query'] ) ? $query_args['tax_query'] : array();
+				$tax_query['relation'] = 'AND';
+				$tax_query[]           = array(
+					'taxonomy' => 'venue',
+					'field'    => 'term_id',
+					'terms'    => empty( $nearby_venue_ids ) ? array( 0 ) : $nearby_venue_ids,
+					'operator' => 'IN',
 				);
 
-				$ignore_empty_geo = 'ignore_geo' === ( $geo['empty_result_behavior'] ?? 'empty' );
-				if ( ! empty( $nearby_venue_ids ) || ! $ignore_empty_geo ) {
-					$tax_query             = isset( $query_args['tax_query'] ) ? $query_args['tax_query'] : array();
-					$tax_query['relation'] = 'AND';
-					$tax_query[]           = array(
-						'taxonomy' => 'venue',
-						'field'    => 'term_id',
-						'terms'    => empty( $nearby_venue_ids ) ? array( 0 ) : $nearby_venue_ids,
-						'operator' => 'IN',
-					);
-
-					$query_args['tax_query'] = $tax_query;
-				}
+				$query_args['tax_query'] = $tax_query;
 			}
 		}
 

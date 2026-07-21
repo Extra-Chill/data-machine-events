@@ -119,6 +119,46 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( array( $event_id ), array_column( $fallback['posts'], 'event_id' ) );
 	}
 
+	/**
+	 * @dataProvider invalid_geo_inputs
+	 */
+	public function test_invalid_geo_never_falls_back_to_unrestricted_results( array $geo ): void {
+		$this->seed_event( 'Unrelated published event', 'publish', current_datetime()->modify( '+1 day' )->format( 'Y-m-d H:i:s' ) );
+
+		$result = ( new EventDateQueryAbilities() )->executePublicQueryEvents( array( 'geo' => $geo ) );
+
+		$this->assertSame( 0, $result['post_count'] );
+		$this->assertSame( array(), $result['posts'] );
+	}
+
+	public static function invalid_geo_inputs(): array {
+		return array(
+			'empty geo object'       => array( array() ),
+			'latitude only'          => array( array( 'lat' => 32.7765 ) ),
+			'longitude only'         => array( array( 'lng' => -79.9311 ) ),
+			'nonnumeric latitude'    => array( array( 'lat' => 'north', 'lng' => -79.9311 ) ),
+			'nonnumeric longitude'   => array( array( 'lat' => 32.7765, 'lng' => 'west' ) ),
+			'NaN-like latitude'      => array( array( 'lat' => 'NaN', 'lng' => -79.9311 ) ),
+			'actual NaN latitude'    => array( array( 'lat' => NAN, 'lng' => -79.9311 ) ),
+			'latitude out of range'  => array( array( 'lat' => 90.1, 'lng' => -79.9311 ) ),
+			'longitude out of range' => array( array( 'lat' => 32.7765, 'lng' => -180.1 ) ),
+		);
+	}
+
+	public function test_invalid_geo_can_only_fall_back_when_explicitly_requested(): void {
+		$event_id = $this->seed_event( 'Explicit fallback event', 'publish', current_datetime()->modify( '+1 day' )->format( 'Y-m-d H:i:s' ) );
+
+		$result = ( new EventDateQueryAbilities() )->executePublicQueryEvents(
+			array(
+				'geo' => array(
+					'empty_result_behavior' => 'ignore_geo',
+				),
+			)
+		);
+
+		$this->assertSame( array( $event_id ), array_column( $result['posts'], 'event_id' ) );
+	}
+
 	public function test_upcoming_preserves_ongoing_and_excludes_events_ended_earlier_today(): void {
 		$old_timezone = get_option( 'timezone_string' );
 		update_option( 'timezone_string', 'America/New_York' );

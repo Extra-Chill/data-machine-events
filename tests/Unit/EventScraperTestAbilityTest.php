@@ -66,6 +66,8 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'extraction_info', $output['properties'] );
 		$this->assertArrayHasKey( 'context_supplied', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayHasKey( 'duplicate_packet_count', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'production_max_items', $output['properties']['extraction_info']['properties'] );
+		$this->assertArrayHasKey( 'summary_truncated', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayNotHasKey( 'processed_event_count', $output['properties']['extraction_info']['properties'] );
 		$this->assertArrayNotHasKey( 'eligible_event_count', $output['properties']['extraction_info']['properties'] );
 	}
@@ -212,6 +214,84 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		$this->assertTrue( $result['extraction_info']['context_supplied'] );
 		$this->assertSame( 1, $result['event_data']['event_count'] );
 		$this->assertCount( 1, $result['event_data']['items'] );
+	}
+
+	public function test_max_items_does_not_cap_source_inventory_and_summaries_are_bounded(): void {
+		$events = array();
+		foreach ( range( 1, 105 ) as $index ) {
+			$events[] = array(
+				'@context'  => 'https://schema.org',
+				'@type'     => 'MusicEvent',
+				'name'      => 'Inventory Event ' . $index,
+				'startDate' => '2030-09-01T20:00:00-04:00',
+			);
+		}
+
+		$html = '<script type="application/ld+json">' . wp_json_encode( $events ) . '</script>';
+		$this->mockHttpResponse( $html );
+
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$ability = wp_get_ability( 'data-machine-events/test-event-scraper' );
+		$this->assertNotNull( $ability );
+		$result = $ability->execute(
+			array(
+				'target_url'     => 'https://example.com/large-calendar',
+				'handler_config' => array(
+					'max_items'  => 1,
+					'venue_name' => 'Inventory Venue',
+				),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 105, $result['extraction_info']['extracted_packet_count'] );
+		$this->assertSame( 105, $result['extraction_info']['unique_source_event_count'] );
+		$this->assertSame( 1, $result['extraction_info']['production_max_items'] );
+		$this->assertSame( 100, $result['extraction_info']['summary_event_count'] );
+		$this->assertTrue( $result['extraction_info']['summary_truncated'] );
+		$this->assertSame( 105, $result['event_data']['event_count'] );
+		$this->assertCount( 100, $result['event_data']['items'] );
+	}
+
+	public function test_raw_and_vision_packets_report_truthful_source_counts(): void {
+		$ability = new EventScraperTest();
+		$method  = ( new ReflectionClass( $ability ) )->getMethod( 'analyzePacketEntries' );
+		$method->setAccessible( true );
+
+		$raw = $method->invoke(
+			$ability,
+			array( $this->buildNonEventPacketEntry( array( 'raw_html' => '<article>Event</article>' ), 'raw-section' ) ),
+			false,
+			null
+		);
+		$vision = $method->invoke(
+			$ability,
+			array(
+				$this->buildNonEventPacketEntry(
+					array(
+						'source_type' => 'vision_flyer',
+						'image_url'   => 'https://example.com/flyer.jpg',
+					),
+					'vision-flyer'
+				),
+			),
+			true,
+			5
+		);
+
+		foreach ( array( $raw, $vision ) as $inventory ) {
+			$this->assertSame( 1, $inventory['extraction_info']['extracted_packet_count'] );
+			$this->assertSame( 1, $inventory['extraction_info']['unique_source_event_count'] );
+			$this->assertSame( 0, $inventory['extraction_info']['duplicate_packet_count'] );
+			$this->assertSame( 0, $inventory['extraction_info']['summary_event_count'] );
+			$this->assertFalse( $inventory['extraction_info']['summary_truncated'] );
+		}
+		$this->assertNull( $raw['extraction_info']['production_max_items'] );
+		$this->assertFalse( $raw['extraction_info']['context_supplied'] );
+		$this->assertSame( 5, $vision['extraction_info']['production_max_items'] );
+		$this->assertTrue( $vision['extraction_info']['context_supplied'] );
 	}
 
 	// ────────────────────────────────────────────────────────────────────
@@ -388,6 +468,19 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 			),
 			'metadata'  => array(
 				'source_type' => 'universal_web_scraper',
+			),
+		);
+	}
+
+	private function buildNonEventPacketEntry( array $payload, string $identifier ): array {
+		return array(
+			'data'     => array(
+				'title' => 'Diagnostic Packet',
+				'body'  => wp_json_encode( $payload ),
+			),
+			'metadata' => array(
+				'item_identifier' => $identifier,
+				'source_type'     => 'universal_web_scraper',
 			),
 		);
 	}

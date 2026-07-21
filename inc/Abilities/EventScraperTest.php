@@ -19,12 +19,9 @@
  * events the extractor actually found. That undercount caused every Bandzoogle /
  * multi-event JSON-LD venue to be flagged `extraction_gap` on its first qualify run.
  *
- * Fix shape (Shape A from the issue): walk all packets, build an `event_data.events[]`
- * summary array (compatible with `QualifyFingerprinter::count_events()`'s existing
- * `items[]` check), and surface `event_count` in both `event_data` and
- * `extraction_info`. The first event's full record stays at `event_data` top-level
- * for backwards compatibility with the chat tool and the CLI command, which only
- * read a single event's fields.
+ * Fix shape: walk all packets and surface the exact `event_count` in both
+ * `event_data` and `extraction_info`. A bounded `event_data.items[]` sample and
+ * the first event's full record remain available to diagnostic consumers.
  *
  * Issue #511 adds config-aware source diagnostics only. Stable unique source
  * counts collapse repeated packet identifiers, but do not represent production
@@ -43,6 +40,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class EventScraperTest {
+
+	private const EVENT_SUMMARY_LIMIT = 100;
 
 	private static bool $registered = false;
 
@@ -117,8 +116,9 @@ class EventScraperTest {
 										'venueZip'     => array( 'type' => 'string' ),
 										'event_count'  => array( 'type' => 'integer', 'minimum' => 0 ),
 										'items'        => array(
-											'type'  => 'array',
-											'items' => array(
+											'type'     => 'array',
+											'maxItems' => self::EVENT_SUMMARY_LIMIT,
+											'items'    => array(
 												'type'                 => 'object',
 												'additionalProperties' => false,
 												'properties'           => array(
@@ -146,6 +146,9 @@ class EventScraperTest {
 										'extracted_packet_count',
 										'unique_source_event_count',
 										'duplicate_packet_count',
+										'production_max_items',
+										'summary_event_count',
+										'summary_truncated',
 										'context_supplied',
 									),
 									'properties'           => array(
@@ -157,6 +160,9 @@ class EventScraperTest {
 										'extracted_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
 										'unique_source_event_count' => array( 'type' => 'integer', 'minimum' => 0 ),
 										'duplicate_packet_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
+										'production_max_items'      => array( 'type' => array( 'integer', 'null' ), 'minimum' => 0 ),
+										'summary_event_count'       => array( 'type' => 'integer', 'minimum' => 0 ),
+										'summary_truncated'         => array( 'type' => 'boolean' ),
 										'context_supplied'          => array( 'type' => 'boolean' ),
 										'requires_ai_step'          => array( 'type' => 'boolean' ),
 										'image_file_stored'         => array( 'type' => 'boolean' ),
@@ -240,6 +246,11 @@ class EventScraperTest {
 				'flow_id'      => 'direct',
 			)
 		);
+		$production_max_items = null;
+		if ( array_key_exists( 'max_items', $config ) ) {
+			$production_max_items = max( 0, (int) $config['max_items'] );
+			unset( $config['max_items'] );
+		}
 
 		$handler = new UniversalWebScraper();
 		$results = $handler->get_fetch_data( 'direct', $config, null );
@@ -271,9 +282,9 @@ class EventScraperTest {
 			}
 		}
 
-		$extracted_packet_count    = count( $packet_entries );
-		$packet_entries            = $this->uniquePacketEntries( $packet_entries );
-		$unique_source_event_count = count( $packet_entries );
+		$inventory       = $this->analyzePacketEntries( $packet_entries, null !== $handler_config, $production_max_items );
+		$packet_entries  = $inventory['packet_entries'];
+		$extraction_info = $inventory['extraction_info'];
 
 		$packet_entry = $packet_entries[0] ?? array();
 		$packet_data  = $packet_entry['data'] ?? array();
@@ -287,21 +298,12 @@ class EventScraperTest {
 		$payload = json_decode( (string) $body, true );
 		$event   = is_array( $payload ) ? ( $payload['event'] ?? null ) : null;
 
-		// Build a summary list of every event across all packets. Compatible
-		// with QualifyFingerprinter::count_events() which already handles
-		// $event_data['items'] / $event_data['events'] as the multi-event signal.
-		$all_events = $this->summarizeEventsFromPackets( $packet_entries );
+		// Build a bounded representative summary while retaining exact counts.
+		$all_events = array_slice( $this->summarizeEventsFromPackets( $packet_entries ), 0, self::EVENT_SUMMARY_LIMIT );
 
-		$extraction_info = array(
-			'packet_title'              => $packet_data['title'] ?? '',
-			'source_type'               => $packet_meta['source_type'] ?? '',
-			'extraction_method'         => $packet_meta['extraction_method'] ?? '',
-			'event_count'               => $unique_source_event_count,
-			'extracted_packet_count'    => $extracted_packet_count,
-			'unique_source_event_count' => $unique_source_event_count,
-			'duplicate_packet_count'    => $extracted_packet_count - $unique_source_event_count,
-			'context_supplied'          => null !== $handler_config,
-		);
+		$extraction_info['packet_title']      = $packet_data['title'] ?? '';
+		$extraction_info['source_type']       = $packet_meta['source_type'] ?? '';
+		$extraction_info['extraction_method'] = $packet_meta['extraction_method'] ?? '';
 
 		if ( is_array( $payload ) && isset( $payload['raw_html'] ) && is_string( $payload['raw_html'] ) ) {
 			return array(
@@ -396,15 +398,11 @@ class EventScraperTest {
 		$event_data['venueState']   = $venue_state;
 		$event_data['venueZip']     = $venue_zip;
 
-		// Surface the full event list and total count so qualify-path consumers
-		// downstream consumers see the true
-		// extraction count instead of just the first event (#265).
-		//
-		// `items` is the field QualifyFingerprinter::count_events() already
-		// inspects (`isset($event_data['items'])`) — populating it lets the fix
-		// land without requiring a matching consumer change.
+		// Keep the exact inventory count separate from the bounded event summaries.
+		// Consumers that need the full count must use event_count; items is only a
+		// representative diagnostic sample.
 		$event_data['items']       = $all_events;
-		$event_data['event_count'] = count( $all_events );
+		$event_data['event_count'] = $extraction_info['event_count'];
 
 		$extraction_info['payload_type'] = 'event';
 
@@ -538,6 +536,39 @@ class EventScraperTest {
 		}
 
 		return $unique;
+	}
+
+	/**
+	 * Build source-inventory counts without applying production selection state.
+	 *
+	 * @param array    $packet_entries       Extracted packet entries.
+	 * @param bool     $context_supplied     Whether handler configuration was supplied.
+	 * @param int|null $production_max_items Persisted production cap, if configured.
+	 * @return array{packet_entries:array,extraction_info:array}
+	 */
+	private function analyzePacketEntries( array $packet_entries, bool $context_supplied, ?int $production_max_items ): array {
+		$extracted_packet_count    = count( $packet_entries );
+		$packet_entries            = $this->uniquePacketEntries( $packet_entries );
+		$unique_source_event_count = count( $packet_entries );
+		$source_event_summaries    = count( $this->summarizeEventsFromPackets( $packet_entries ) );
+		$summary_event_count       = min( $source_event_summaries, self::EVENT_SUMMARY_LIMIT );
+
+		return array(
+			'packet_entries'  => $packet_entries,
+			'extraction_info' => array(
+				'packet_title'              => '',
+				'source_type'               => '',
+				'extraction_method'         => '',
+				'event_count'               => $unique_source_event_count,
+				'extracted_packet_count'    => $extracted_packet_count,
+				'unique_source_event_count' => $unique_source_event_count,
+				'duplicate_packet_count'    => $extracted_packet_count - $unique_source_event_count,
+				'production_max_items'      => $production_max_items,
+				'summary_event_count'       => $summary_event_count,
+				'summary_truncated'         => $summary_event_count < $source_event_summaries,
+				'context_supplied'          => $context_supplied,
+			),
+		);
 	}
 
 }

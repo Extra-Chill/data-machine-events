@@ -300,6 +300,54 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		$this->cleanup( $term_id, $existing_post_id );
 	}
 
+	public function test_exact_same_venue_name_matches_within_time_window(): void {
+		$venue_name = 'Exact Venue Within Window ' . uniqid();
+		[ $term_id, $existing_post_id ] = $this->seedVenueWithEvent(
+			'Showcase',
+			'2026-05-20 18:00:00',
+			$venue_name
+		);
+
+		$result = EventDuplicateStrategy::check(
+			array(
+				'title'   => 'Showcase',
+				'context' => array(
+					'venue'     => $venue_name,
+					'startDate' => '2026-05-20 19:30:00',
+					'ticketUrl' => '',
+				),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'duplicate', $result['verdict'] );
+		$this->assertSame( $existing_post_id, $result['match']['post_id'] );
+		$this->cleanup( $term_id, $existing_post_id );
+	}
+
+	public function test_exact_same_venue_name_is_distinct_outside_time_window(): void {
+		$venue_name = 'Exact Venue Outside Window ' . uniqid();
+		[ $term_id, $existing_post_id ] = $this->seedVenueWithEvent(
+			'Showcase',
+			'2026-05-21 13:30:00',
+			$venue_name
+		);
+
+		$result = EventDuplicateStrategy::check(
+			array(
+				'title'   => 'Showcase',
+				'context' => array(
+					'venue'     => $venue_name,
+					'startDate' => '2026-05-21 21:30:00',
+					'ticketUrl' => '',
+				),
+			)
+		);
+
+		$this->assertNull( $result, 'Exact title and venue names must not merge known start times more than two hours apart.' );
+		$this->cleanup( $term_id, $existing_post_id );
+	}
+
 	/**
 	 * Belt-and-suspenders: when no $startDate is passed (legacy
 	 * call shape), the time-window guard is skipped and the term_id

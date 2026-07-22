@@ -24,6 +24,7 @@ use DataMachineEvents\Blocks\Calendar\Query\UpcomingFilter;
 class EventUpsertTest extends WP_UnitTestCase {
 
 	private EventUpsert $handler;
+	private \Closure $lock_query_filter;
 
 	public function setUp(): void {
 		parent::setUp();
@@ -41,9 +42,117 @@ class EventUpsertTest extends WP_UnitTestCase {
 		if ( class_exists( PostIdentityIndex::class ) ) {
 			( new PostIdentityIndex() )->create_table();
 		}
+		$ability_registry = \WP_Abilities_Registry::get_instance();
+		if ( ! $ability_registry->is_registered( 'datamachine/upsert-post' ) ) {
+			$category_registry = \WP_Ability_Categories_Registry::get_instance();
+			$register_category = static function () use ( $category_registry ): void {
+				if ( ! $category_registry->is_registered( 'datamachine-content' ) ) {
+					wp_register_ability_category(
+						'datamachine-content',
+						array(
+							'label'       => 'Data Machine Content',
+							'description' => 'Test content abilities.',
+						)
+					);
+				}
+			};
+			add_action( 'wp_abilities_api_categories_init', $register_category );
+			do_action( 'wp_abilities_api_categories_init' );
+			remove_action( 'wp_abilities_api_categories_init', $register_category );
+
+			$register_upsert = static function () use ( $ability_registry ): void {
+				if ( $ability_registry->is_registered( 'datamachine/upsert-post' ) ) {
+					return;
+				}
+
+				wp_register_ability(
+					'datamachine/upsert-post',
+					array(
+						'label'               => 'Test Upsert Post',
+						'description'         => 'Test-only post upsert boundary.',
+						'category'            => 'datamachine-content',
+						'input_schema'        => array( 'type' => 'object' ),
+						'output_schema'       => array( 'type' => 'object' ),
+						'permission_callback' => '__return_true',
+						'execute_callback'    => static function ( array $input ): array {
+							$post_id = (int) ( $input['post_id'] ?? 0 );
+							$postarr  = array(
+								'post_title'   => $input['title'],
+								'post_content' => $input['content'],
+								'post_type'    => $input['post_type'],
+								'post_status'  => $input['post_status'] ?? 'publish',
+								'meta_input'   => $input['meta_input'] ?? array(),
+							);
+
+							if ( $post_id > 0 ) {
+								$postarr['ID'] = $post_id;
+								$result        = wp_update_post( $postarr, true );
+								$action        = 'updated';
+							} else {
+								$postarr['post_author'] = (int) ( $input['post_author'] ?? 0 );
+								$result                 = wp_insert_post( $postarr, true );
+								$action                 = 'created';
+							}
+
+							if ( is_wp_error( $result ) ) {
+								return array( 'success' => false, 'error' => $result->get_error_message() );
+							}
+
+							return array( 'success' => true, 'post_id' => (int) $result, 'action' => $action );
+						},
+					)
+				);
+			};
+			add_action( 'wp_abilities_api_init', $register_upsert );
+			do_action( 'wp_abilities_api_init' );
+			remove_action( 'wp_abilities_api_init', $register_upsert );
+		}
+		if ( ! $ability_registry->is_registered( 'datamachine/check-duplicate' ) ) {
+			$register_duplicate_check = static function () use ( $ability_registry ): void {
+				if ( $ability_registry->is_registered( 'datamachine/check-duplicate' ) ) {
+					return;
+				}
+
+				wp_register_ability(
+					'datamachine/check-duplicate',
+					array(
+						'label'               => 'Test Duplicate Check',
+						'description'         => 'Test-only event duplicate boundary.',
+						'category'            => 'datamachine-content',
+						'input_schema'        => array( 'type' => 'object' ),
+						'output_schema'       => array( 'type' => 'object' ),
+						'permission_callback' => '__return_true',
+						'execute_callback'    => static function ( array $input ): array {
+							return \DataMachineEvents\Core\DuplicateDetection\EventDuplicateStrategy::check( $input )
+								?? array( 'verdict' => 'clear' );
+						},
+					)
+				);
+			};
+			add_action( 'wp_abilities_api_init', $register_duplicate_check );
+			do_action( 'wp_abilities_api_init' );
+			remove_action( 'wp_abilities_api_init', $register_duplicate_check );
+		}
 		CacheInvalidator::init();
 
+		// WordPress Playground's SQLite runtime does not implement MySQL named
+		// locks. Unit tests emulate successful acquisition/release; contention
+		// coverage overrides GET_LOCK at an earlier filter priority.
+		$this->lock_query_filter = static function ( string $query ): string {
+			if ( str_contains( $query, 'GET_LOCK' ) || str_contains( $query, 'RELEASE_LOCK' ) ) {
+				return 'SELECT 1';
+			}
+
+			return $query;
+		};
+		add_filter( 'query', $this->lock_query_filter );
+
 		$this->handler = new EventUpsert();
+	}
+
+	public function tearDown(): void {
+		remove_filter( 'query', $this->lock_query_filter );
+		parent::tearDown();
 	}
 
 	public function test_handler_instantiation() {
@@ -255,6 +364,175 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertSame( (string) $venue->term_id, (string) ( new PostIdentityIndex() )->get( $post_id )['venue_term_id'] );
 		$this->assertSame( 1, $cache_invalidations, 'A no_change taxonomy repair must invalidate canonical caches exactly once.' );
 		$this->assertFalse( get_transient( $cache_key ), 'Taxonomy-only repair must invalidate calendar caches.' );
+	}
+
+	/**
+	 * A competing writer can commit after this request starts but before its
+	 * lock-protected duplicate check. The protected recheck must reuse that row.
+	 *
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/123
+	 */
+	public function test_concurrent_winner_is_reused_after_lock_acquisition(): void {
+		$title      = 'Concurrent Canonical Winner ' . uniqid();
+		$venue_name = 'Concurrent Winner Venue ' . uniqid();
+		$venue      = wp_insert_term( $venue_name, 'venue' );
+		$this->assertNotWPError( $venue );
+
+		$winner_id = 0;
+		$inserting = false;
+		$interleave = static function ( string $query ) use ( &$winner_id, &$inserting, $title, $venue ): string {
+			if ( $inserting || ! str_contains( $query, 'GET_LOCK' ) ) {
+				return $query;
+			}
+
+			$inserting = true;
+			$winner_id = wp_insert_post(
+				array(
+					'post_title'   => $title,
+					'post_type'    => Event_Post_Type::POST_TYPE,
+					'post_status'  => 'publish',
+					'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-11-14","startTime":"20:00"} --><div class="wp-block-data-machine-events-event-details"></div><!-- /wp:data-machine-events/event-details -->',
+				)
+			);
+			wp_set_object_terms( $winner_id, array( $venue['term_id'] ), 'venue' );
+			\DataMachineEvents\Core\DuplicateDetection\EventIdentityWriter::syncIdentityRow( $winner_id, $title );
+			$inserting = false;
+
+			return $query;
+		};
+		add_filter( 'query', $interleave, 9 );
+
+		$result = $this->invoke_upsert(
+			array(
+				'title'           => $title,
+				'venue'           => $venue_name,
+				'startDate'       => '2026-11-14',
+				'startTime'       => '20:00',
+				'description'     => 'The losing concurrent writer must update or reuse the winner.',
+				'source_identity' => 'venue-direct:event-123',
+			)
+		);
+
+		remove_filter( 'query', $interleave, 9 );
+
+		$this->assertGreaterThan( 0, $winner_id, 'The deterministic competing writer must insert first.' );
+		$this->assertTrue( $result['success'] ?? false, wp_json_encode( $result ) );
+		$this->assertSame( $winner_id, (int) ( $result['data']['post_id'] ?? 0 ) );
+		$this->assertContains( $result['data']['action'] ?? '', array( 'updated', 'no_change' ) );
+
+		$posts = get_posts(
+			array(
+				'post_type'      => Event_Post_Type::POST_TYPE,
+				'post_status'    => 'any',
+				'title'          => $title,
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+			)
+		);
+		$this->assertCount( 1, $posts, 'The loser must not insert a second canonical event.' );
+	}
+
+	/**
+	 * Lock contention must never reopen the race by continuing unlocked.
+	 *
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/123
+	 */
+	public function test_lock_timeout_returns_retryable_failure_without_writing(): void {
+		$title = 'Contended Event ' . uniqid();
+		$force_timeout = static function ( string $query ): string {
+			return str_contains( $query, 'GET_LOCK' ) ? 'SELECT 0' : $query;
+		};
+		add_filter( 'query', $force_timeout, 9 );
+
+		$result = $this->invoke_upsert(
+			array(
+				'title'           => $title,
+				'venue'           => 'Contended Venue',
+				'startDate'       => '2026-11-15',
+				'startTime'       => '21:00',
+				'source_identity' => 'ticketmaster:event-456',
+			)
+		);
+
+		remove_filter( 'query', $force_timeout, 9 );
+
+		$this->assertFalse( $result['success'] ?? true );
+		$this->assertTrue( $result['retryable'] ?? false );
+		$this->assertSame( 'event_upsert_lock_unavailable', $result['error_code'] ?? '' );
+		$this->assertSame(
+			array(),
+			get_posts(
+				array(
+					'post_type'      => Event_Post_Type::POST_TYPE,
+					'post_status'    => 'any',
+					'title'          => $title,
+					'posts_per_page' => -1,
+					'fields'         => 'ids',
+				)
+			),
+			'A timed-out request must not write without canonical serialization.'
+		);
+	}
+
+	/**
+	 * The duplicate strategy must receive time even when import payloads split it
+	 * from the date, preserving legitimate same-day early and late shows.
+	 *
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/219
+	 */
+	public function test_same_title_venue_and_date_outside_time_window_creates_distinct_event(): void {
+		$title      = 'Same Day Residency ' . uniqid();
+		$venue_name = 'Two Stage Venue ' . uniqid();
+		$config     = array(
+			'post_status' => 'publish',
+			'post_author' => self::factory()->user->create( array( 'role' => 'administrator' ) ),
+		);
+
+		$early = $this->invoke_upsert(
+			array(
+				'title'     => $title,
+				'venue'     => $venue_name,
+				'startDate' => '2026-11-16',
+				'startTime' => '13:00',
+			),
+			$config
+		);
+		$late = $this->invoke_upsert(
+			array(
+				'title'     => $title,
+				'venue'     => $venue_name,
+				'startDate' => '2026-11-16',
+				'startTime' => '21:00',
+			),
+			$config
+		);
+
+		$this->assertTrue( $early['success'] ?? false, wp_json_encode( $early ) );
+		$this->assertTrue( $late['success'] ?? false, wp_json_encode( $late ) );
+		$this->assertSame( 'created', $early['data']['action'] ?? '' );
+		$this->assertSame( 'created', $late['data']['action'] ?? '' );
+		$this->assertNotSame( $early['data']['post_id'] ?? 0, $late['data']['post_id'] ?? 0 );
+	}
+
+	/**
+	 * Invoke the protected upsert entry point with normal engine context.
+	 *
+	 * @param array $parameters Event parameters.
+	 * @param array $config     Handler configuration.
+	 * @return array Upsert result.
+	 */
+	private function invoke_upsert( array $parameters, array $config = array() ): array {
+		$method = new \ReflectionMethod( $this->handler, 'executeUpsert' );
+		$method->setAccessible( true );
+		$parameters['engine'] = new EngineData( $parameters, 0 );
+		$parameters['job_id'] = 0;
+
+		if ( empty( $config['post_author'] ) ) {
+			$config['post_author'] = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		}
+		$config['post_status'] = $config['post_status'] ?? 'publish';
+
+		return $method->invoke( $this->handler, $parameters, $config );
 	}
 
 	public function test_save_post_normalizes_implicit_overnight_end_time(): void {

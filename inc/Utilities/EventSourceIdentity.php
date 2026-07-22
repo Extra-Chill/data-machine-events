@@ -9,6 +9,7 @@ namespace DataMachineEvents\Utilities;
 
 use DataMachine\Core\ExecutionContext;
 use DataMachineEvents\Core\DuplicateDetection\EventDuplicateStrategy;
+use DataMachineEvents\Core\Event_Post_Type;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -97,7 +98,7 @@ class EventSourceIdentity {
 		$result = EventDuplicateStrategy::check(
 			array(
 				'title'     => (string) ( $event['title'] ?? '' ),
-				'post_type' => 'data_machine_events',
+				'post_type' => Event_Post_Type::POST_TYPE,
 				'context'   => array(
 					'venue'     => (string) ( $event['venue'] ?? '' ),
 					'startDate' => EventIdentifierGenerator::normalizeStartDateTime(

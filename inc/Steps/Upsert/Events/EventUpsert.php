@@ -654,15 +654,14 @@ class EventUpsert extends UpsertHandler {
 	/**
 	 * Build globally ordered source and canonical collision-domain lock keys.
 	 *
-	 * Known times acquire their own two-hour bucket and its predecessor. Any two
-	 * times within the duplicate strategy's two-hour window therefore overlap on
-	 * at least one key, including bucket boundaries. This deliberately serializes
-	 * unrelated titles at the same venue within that window: fuzzy equivalence has
-	 * no exact narrow key, so brief bounded contention is the correctness tradeoff.
-	 * Different venues and non-overlapping time buckets remain parallel. Distinct
-	 * shows more than two hours apart do not overlap. An unknown time acquires 12
-	 * venue/day buckets so it overlaps any time-aware equivalent. Unknown venues
-	 * include a stable title prefix fingerprint so venue-less events remain bounded.
+	 * Known times acquire their own two-hour bucket and its predecessor. This is a
+	 * conservative adjacent-bucket collision domain, not an exact two-hour range:
+	 * starts beyond 120 minutes can briefly serialize when their bucket sets overlap.
+	 * Fuzzy equivalence has no exact narrow key, so that bounded false contention is
+	 * the correctness tradeoff. Different venue/geography scopes and distant bucket
+	 * sets remain parallel. An unknown time acquires 12 venue/day buckets so it
+	 * overlaps any time-aware equivalent. Unknown venues include a stable title
+	 * prefix fingerprint so venue-less events remain bounded.
 	 *
 	 * @param string $title           Event title.
 	 * @param string $venue           Event venue.
@@ -677,18 +676,24 @@ class EventUpsert extends UpsertHandler {
 		$identity  = \DataMachineEvents\Core\Venue_Taxonomy::resolve_venue_identity( $venue, $venue_context );
 
 		if ( ! empty( $identity['term_id'] ) ) {
-			$venue_scope = 'term:' . (int) $identity['term_id'];
+			$venue_scopes = array( 'term:' . (int) $identity['term_id'] );
 		} elseif ( '' !== trim( $venue ) ) {
-			$venue_scope = 'name:' . SimilarityEngine::normalizeBasic( $venue );
-		} elseif ( '' !== trim( (string) ( $venue_context['address'] ?? '' ) ) ) {
-			$venue_scope = 'geo:' . SimilarityEngine::normalizeBasic(
-				(string) $venue_context['address'] . '|' . (string) ( $venue_context['city'] ?? '' )
-			);
+			$venue_scopes = array( 'name:' . SimilarityEngine::normalizeBasic( $venue ) );
 		} else {
 			$normalized_title = SimilarityEngine::normalizeTitle( $title );
 			$title_tokens     = array_slice( array_filter( explode( ' ', $normalized_title ) ), 0, 3 );
-			$venue_scope      = 'unknown:' . implode( ' ', $title_tokens );
+			$venue_scopes     = array( 'unknown:' . implode( ' ', $title_tokens ) );
 		}
+
+		$normalized_address = \DataMachineEvents\Core\Venue_Taxonomy::normalize_address_for_matching(
+			(string) ( $venue_context['address'] ?? '' )
+		);
+		if ( '' !== $normalized_address ) {
+			// Address is intentionally independent of optional city/state/country.
+			// Partial source geography must still converge on the same physical key.
+			$venue_scopes[] = 'geo:address:' . $normalized_address;
+		}
+		$venue_scopes = array_values( array_unique( $venue_scopes ) );
 
 		$domains = array();
 		if ( '' !== $source_identity ) {
@@ -698,12 +703,16 @@ class EventUpsert extends UpsertHandler {
 		if ( preg_match( '/\b(\d{1,2}):(\d{2})/', $startDate, $matches ) ) {
 			$minutes = ( (int) $matches[1] * 60 ) + (int) $matches[2];
 			$bucket  = (int) floor( $minutes / 120 );
-			foreach ( array( $bucket - 1, $bucket ) as $time_bucket ) {
-				$domains[] = 'canonical|' . $blog_id . '|' . $date_only . '|' . $venue_scope . '|time:' . $time_bucket;
+			foreach ( $venue_scopes as $venue_scope ) {
+				foreach ( array( $bucket - 1, $bucket ) as $time_bucket ) {
+					$domains[] = 'canonical|' . $blog_id . '|' . $date_only . '|' . $venue_scope . '|time:' . $time_bucket;
+				}
 			}
 		} else {
-			foreach ( range( 0, 11 ) as $time_bucket ) {
-				$domains[] = 'canonical|' . $blog_id . '|' . $date_only . '|' . $venue_scope . '|time:' . $time_bucket;
+			foreach ( $venue_scopes as $venue_scope ) {
+				foreach ( range( 0, 11 ) as $time_bucket ) {
+					$domains[] = 'canonical|' . $blog_id . '|' . $date_only . '|' . $venue_scope . '|time:' . $time_bucket;
+				}
 			}
 		}
 

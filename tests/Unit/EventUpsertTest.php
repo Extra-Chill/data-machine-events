@@ -432,6 +432,71 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $posts, 'The loser must not insert a second canonical event.' );
 	}
 
+	public function test_first_time_venue_alias_race_converges_through_address_lock(): void {
+		$title         = 'Address Alias Race ' . uniqid();
+		$winner_id     = 0;
+		$inserting     = false;
+		$winner_venue  = 'Monks ' . uniqid();
+		$incoming_name = $winner_venue . ' Jazz';
+		$interleave    = static function ( string $query ) use ( &$winner_id, &$inserting, $title, $winner_venue ): string {
+			if ( $winner_id > 0 || $inserting || ! str_contains( $query, 'GET_LOCK' ) ) {
+				return $query;
+			}
+
+			$inserting = true;
+			$term      = wp_insert_term( $winner_venue, 'venue' );
+			if ( is_wp_error( $term ) ) {
+				throw new \RuntimeException( $term->get_error_message() );
+			}
+			update_term_meta( $term['term_id'], '_venue_address', '3010 Minnehaha St' );
+			update_term_meta( $term['term_id'], '_venue_city', 'Minneapolis' );
+			$winner_id = wp_insert_post(
+				array(
+					'post_title'   => $title,
+					'post_type'    => Event_Post_Type::POST_TYPE,
+					'post_status'  => 'publish',
+					'post_content' => '<!-- wp:data-machine-events/event-details {"startDate":"2026-11-14","startTime":"20:00"} --><div></div><!-- /wp:data-machine-events/event-details -->',
+				)
+			);
+			wp_set_object_terms( $winner_id, array( $term['term_id'] ), 'venue' );
+			\DataMachineEvents\Core\DuplicateDetection\EventIdentityWriter::syncIdentityRow( $winner_id, $title );
+			$inserting = false;
+
+			return $query;
+		};
+		add_filter( 'query', $interleave, 9 );
+
+		try {
+			$result = $this->invoke_upsert(
+				array(
+					'title'        => $title,
+					'venue'        => $incoming_name,
+					'venueAddress' => '3010 Minnehaha Street Suite 420',
+					'venueCity'    => 'Minneapolis',
+					'startDate'    => '2026-11-14',
+					'startTime'    => '20:00',
+				)
+			);
+		} finally {
+			remove_filter( 'query', $interleave, 9 );
+		}
+
+		$this->assertTrue( $result['success'] ?? false, wp_json_encode( $result ) );
+		$this->assertSame( $winner_id, (int) ( $result['data']['post_id'] ?? 0 ) );
+		$this->assertCount(
+			1,
+			get_posts(
+				array(
+					'post_type'      => Event_Post_Type::POST_TYPE,
+					'post_status'    => 'any',
+					'title'          => $title,
+					'posts_per_page' => -1,
+				)
+			),
+			'First-time aliases sharing a normalized address must produce one canonical event.'
+		);
+	}
+
 	public function test_lock_domains_cover_source_updates_and_fuzzy_canonical_matches(): void {
 		$method = new \ReflectionMethod( $this->handler, 'buildUpsertLockKeys' );
 		$method->setAccessible( true );
@@ -443,6 +508,10 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$fuzzy_a = $method->invoke( $this->handler, 'The Falling Spikes Live', 'Shared Venue', '2026-11-14 19:59' );
 		$fuzzy_b = $method->invoke( $this->handler, 'Falling Spikes', 'Shared Venue', '2026-11-14 21:58' );
 		$this->assertNotEmpty( array_intersect( $fuzzy_a, $fuzzy_b ), 'Likely equivalents within two hours must share a canonical collision lock despite title variation.' );
+
+		$alias_a = $method->invoke( $this->handler, 'Alias Show', 'Monks', '2026-11-14 20:00', '', array( 'address' => '3010 Minnehaha Street', 'city' => 'Minneapolis' ) );
+		$alias_b = $method->invoke( $this->handler, 'Alias Show', 'Monks Jazz', '2026-11-14 20:00', '', array( 'address' => '3010 Minnehaha St' ) );
+		$this->assertNotEmpty( array_intersect( $alias_a, $alias_b ), 'Venue aliases must share an address-derived lock even when one source has only partial geography.' );
 		$this->assertSame( $fuzzy_a, array_values( $fuzzy_a ) );
 		$sorted = $fuzzy_a;
 		sort( $sorted, SORT_STRING );
@@ -456,6 +525,10 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$early = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16 13:00' );
 		$late  = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16 21:00' );
 		$this->assertSame( array(), array_intersect( $early, $late ), 'Known shows outside the duplicate time window must not contend.' );
+		$conservative_overlap = $method->invoke( $this->handler, 'Different Billing', 'Two Stage Venue', '2026-11-16 15:01' );
+		$distant             = $method->invoke( $this->handler, 'Another Billing', 'Two Stage Venue', '2026-11-16 17:01' );
+		$this->assertNotEmpty( array_intersect( $early, $conservative_overlap ), 'Adjacent two-hour buckets deliberately allow conservative overlap at 121 minutes.' );
+		$this->assertSame( array(), array_intersect( $early, $distant ), 'Distant non-overlapping bucket sets must remain parallel.' );
 		$unknown_time = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16' );
 		$this->assertNotEmpty( array_intersect( $early, $unknown_time ), 'A date-only source must serialize with a time-aware equivalent at the same venue.' );
 

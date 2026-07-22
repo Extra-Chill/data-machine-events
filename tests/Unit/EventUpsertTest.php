@@ -381,7 +381,7 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$winner_id = 0;
 		$inserting = false;
 		$interleave = static function ( string $query ) use ( &$winner_id, &$inserting, $title, $venue ): string {
-			if ( $inserting || ! str_contains( $query, 'GET_LOCK' ) ) {
+			if ( $winner_id > 0 || $inserting || ! str_contains( $query, 'GET_LOCK' ) ) {
 				return $query;
 			}
 
@@ -430,6 +430,38 @@ class EventUpsertTest extends WP_UnitTestCase {
 			)
 		);
 		$this->assertCount( 1, $posts, 'The loser must not insert a second canonical event.' );
+	}
+
+	public function test_lock_domains_cover_source_updates_and_fuzzy_canonical_matches(): void {
+		$method = new \ReflectionMethod( $this->handler, 'buildUpsertLockKeys' );
+		$method->setAccessible( true );
+
+		$source_before = $method->invoke( $this->handler, 'Original Billing', 'Shared Venue', '2026-11-14 20:00', 'stable-source' );
+		$source_after  = $method->invoke( $this->handler, 'Corrected Billing', 'Moved Venue', '2026-11-15 21:00', 'stable-source' );
+		$this->assertNotEmpty( array_intersect( $source_before, $source_after ), 'A concrete source identity must serialize updates when canonical fields change.' );
+
+		$fuzzy_a = $method->invoke( $this->handler, 'The Falling Spikes Live', 'Shared Venue', '2026-11-14 19:59' );
+		$fuzzy_b = $method->invoke( $this->handler, 'Falling Spikes', 'Shared Venue', '2026-11-14 21:58' );
+		$this->assertNotEmpty( array_intersect( $fuzzy_a, $fuzzy_b ), 'Likely equivalents within two hours must share a canonical collision lock despite title variation.' );
+		$this->assertSame( $fuzzy_a, array_values( $fuzzy_a ) );
+		$sorted = $fuzzy_a;
+		sort( $sorted, SORT_STRING );
+		$this->assertSame( $sorted, $fuzzy_a, 'Every request must acquire lock keys in the same deterministic order.' );
+	}
+
+	public function test_lock_domains_separate_different_time_and_unknown_venue_events(): void {
+		$method = new \ReflectionMethod( $this->handler, 'buildUpsertLockKeys' );
+		$method->setAccessible( true );
+
+		$early = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16 13:00' );
+		$late  = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16 21:00' );
+		$this->assertSame( array(), array_intersect( $early, $late ), 'Known shows outside the duplicate time window must not contend.' );
+		$unknown_time = $method->invoke( $this->handler, 'Same Day Residency', 'Two Stage Venue', '2026-11-16' );
+		$this->assertNotEmpty( array_intersect( $early, $unknown_time ), 'A date-only source must serialize with a time-aware equivalent at the same venue.' );
+
+		$unknown_a = $method->invoke( $this->handler, 'Acoustic Matinee Session', '', '2026-11-16 13:00' );
+		$unknown_b = $method->invoke( $this->handler, 'Electronic Night Session', '', '2026-11-16 13:00' );
+		$this->assertSame( array(), array_intersect( $unknown_a, $unknown_b ), 'Unknown venues must be bounded by a stable title fingerprint.' );
 	}
 
 	/**

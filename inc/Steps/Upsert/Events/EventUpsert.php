@@ -597,35 +597,58 @@ class EventUpsert extends UpsertHandler {
 		$lock_keys = $this->buildUpsertLockKeys( $title, $venue, $startDate, $source_identity, $venue_context );
 		$acquired  = array();
 		$deadline  = microtime( true ) + 10;
+		$complete  = false;
 
-		foreach ( $lock_keys as $lock_key ) {
-			$timeout = max( 0, (int) ceil( $deadline - microtime( true ) ) );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_key, $timeout ) );
+		try {
+			foreach ( $lock_keys as $lock_key ) {
+				$timeout = max( 0, (int) ceil( $deadline - microtime( true ) ) );
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_key, $timeout ) );
 
-			if ( '1' === (string) $result ) {
-				$acquired[] = $lock_key;
-				continue;
+				if ( '1' === (string) $result ) {
+					$acquired[] = $lock_key;
+					continue;
+				}
+
+				do_action(
+					'datamachine_log',
+					'warning',
+					'Event Upsert: Advisory lock unavailable; returning retryable failure',
+					array(
+						'lock_key'  => $lock_key,
+						'lock_keys' => $lock_keys,
+						'title'     => $title,
+						'startDate' => $startDate,
+						'result'    => null === $result ? 'error' : 'timeout',
+					)
+				);
+
+				return null;
 			}
 
-			$this->releaseUpsertLocks( $acquired );
+			$complete = true;
+
+			return $acquired;
+		} catch ( \Throwable $throwable ) {
 			do_action(
 				'datamachine_log',
 				'warning',
-				'Event Upsert: Advisory lock unavailable; returning retryable failure',
+				'Event Upsert: Advisory lock acquisition failed; returning retryable failure',
 				array(
-					'lock_key'  => $lock_key,
 					'lock_keys' => $lock_keys,
+					'acquired'  => $acquired,
 					'title'     => $title,
 					'startDate' => $startDate,
-					'result'    => null === $result ? 'error' : 'timeout',
+					'exception' => $throwable->getMessage(),
 				)
 			);
 
 			return null;
+		} finally {
+			if ( ! $complete ) {
+				$this->releaseUpsertLocks( $acquired );
+			}
 		}
-
-		return $acquired;
 	}
 
 	/**
@@ -633,8 +656,11 @@ class EventUpsert extends UpsertHandler {
 	 *
 	 * Known times acquire their own two-hour bucket and its predecessor. Any two
 	 * times within the duplicate strategy's two-hour window therefore overlap on
-	 * at least one key, including bucket boundaries. Distinct shows more than two
-	 * hours apart do not overlap. An unknown time acquires the finite set of 12
+	 * at least one key, including bucket boundaries. This deliberately serializes
+	 * unrelated titles at the same venue within that window: fuzzy equivalence has
+	 * no exact narrow key, so brief bounded contention is the correctness tradeoff.
+	 * Different venues and non-overlapping time buckets remain parallel. Distinct
+	 * shows more than two hours apart do not overlap. An unknown time acquires 12
 	 * venue/day buckets so it overlaps any time-aware equivalent. Unknown venues
 	 * include a stable title prefix fingerprint so venue-less events remain bounded.
 	 *
@@ -700,8 +726,20 @@ class EventUpsert extends UpsertHandler {
 		global $wpdb;
 
 		foreach ( array_reverse( $lock_keys ) as $lock_key ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_key ) );
+			try {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_key ) );
+			} catch ( \Throwable $throwable ) {
+				do_action(
+					'datamachine_log',
+					'warning',
+					'Event Upsert: Advisory lock release failed',
+					array(
+						'lock_key'  => $lock_key,
+						'exception' => $throwable->getMessage(),
+					)
+				);
+			}
 		}
 	}
 

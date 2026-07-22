@@ -506,6 +506,60 @@ class EventUpsertTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_lock_exception_after_partial_acquisition_releases_owned_locks(): void {
+		$title         = 'Partial Lock Exception ' . uniqid();
+		$get_calls     = 0;
+		$release_calls = 0;
+		$inject        = static function ( string $query ) use ( &$get_calls ): string {
+			if ( str_contains( $query, 'GET_LOCK' ) && 2 === ++$get_calls ) {
+				throw new \RuntimeException( 'Injected second-lock failure.' );
+			}
+
+			return $query;
+		};
+		$observe       = static function ( string $query ) use ( &$release_calls ): string {
+			if ( str_contains( $query, 'RELEASE_LOCK' ) ) {
+				++$release_calls;
+			}
+
+			return $query;
+		};
+		add_filter( 'query', $observe, 8 );
+		add_filter( 'query', $inject, 9 );
+
+		try {
+			$result = $this->invoke_upsert(
+				array(
+					'title'     => $title,
+					'venue'     => 'Exception Lock Venue',
+					'startDate' => '2026-10-12',
+					'startTime' => '20:00',
+				)
+			);
+		} finally {
+			remove_filter( 'query', $inject, 9 );
+			remove_filter( 'query', $observe, 8 );
+		}
+
+		$this->assertFalse( $result['success'] ?? true );
+		$this->assertSame( 'event_upsert_lock_unavailable', $result['error_code'] ?? '' );
+		$this->assertTrue( $result['retryable'] ?? false );
+		$this->assertSame( 2, $get_calls, 'The exception must occur after one lock was acquired.' );
+		$this->assertSame( 1, $release_calls, 'The partial acquisition must release its one owned lock.' );
+		$this->assertSame(
+			array(),
+			get_posts(
+				array(
+					'post_type'      => Event_Post_Type::POST_TYPE,
+					'post_status'    => 'any',
+					'title'          => $title,
+					'posts_per_page' => -1,
+					'fields'         => 'ids',
+				)
+			)
+		);
+	}
+
 	/**
 	 * The duplicate strategy must receive time even when import payloads split it
 	 * from the date, preserving legitimate same-day early and late shows.

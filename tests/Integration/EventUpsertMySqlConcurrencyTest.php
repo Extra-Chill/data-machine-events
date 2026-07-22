@@ -22,8 +22,14 @@ class EventUpsertMySqlConcurrencyTest extends WP_UnitTestCase {
 		parent::setUp();
 
 		global $wpdb;
-		if ( ! extension_loaded( 'mysqli' ) || ! function_exists( 'pcntl_fork' ) || ! $wpdb->dbh instanceof \mysqli ) {
-			$this->markTestSkipped( 'Real MySQL and pcntl are required for advisory-lock integration coverage.' );
+		if ( ! extension_loaded( 'mysqli' ) ) {
+			$this->markTestSkipped( 'MySQL lock integration skipped: the mysqli extension is unavailable.' );
+		}
+		if ( ! function_exists( 'pcntl_fork' ) ) {
+			$this->markTestSkipped( 'MySQL lock integration skipped: pcntl_fork() is unavailable.' );
+		}
+		if ( ! $wpdb->dbh instanceof \mysqli ) {
+			$this->markTestSkipped( 'MySQL lock integration skipped: the configured WordPress test database is not MySQL (' . get_debug_type( $wpdb->dbh ) . ').' );
 		}
 		if ( ! post_type_exists( Event_Post_Type::POST_TYPE ) ) {
 			Event_Post_Type::register();
@@ -107,6 +113,17 @@ class EventUpsertMySqlConcurrencyTest extends WP_UnitTestCase {
 		$this->assertTrue( $result['success'] ?? false, wp_json_encode( $result ) );
 		$this->assertSame( $winner_id, (int) ( $result['data']['post_id'] ?? 0 ) );
 		$this->assertContains( $result['data']['action'] ?? '', array( 'updated', 'no_change' ) );
+		clean_post_cache( $winner_id );
+		$matching_posts = get_posts(
+			array(
+				'post_type'      => Event_Post_Type::POST_TYPE,
+				'post_status'    => 'any',
+				'title'          => $title,
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+			)
+		);
+		$this->assertSame( array( $winner_id ), array_map( 'intval', $matching_posts ), 'Exactly one canonical event must remain after the blocked loser rechecks.' );
 		$this->assertSame( 1, $this->lock( $waiter, $held, 0 ), 'The same lock must be acquirable after release.' );
 		$this->assertSame( 1, $this->release( $waiter, $held ) );
 

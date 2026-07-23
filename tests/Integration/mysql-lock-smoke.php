@@ -219,6 +219,10 @@ namespace {
 			throw new \RuntimeException( $message );
 		}
 	}
+	function dme_stage( string $stage ): void {
+		fwrite( STDOUT, 'STAGE: ' . $stage . "\n" );
+		fflush( STDOUT );
+	}
 	function dme_lock( \PDO $connection, string $operation, string $key ): int {
 		$sql = 'GET_LOCK' === $operation ? 'SELECT GET_LOCK(?, 0)' : 'SELECT RELEASE_LOCK(?)';
 		$statement = $connection->prepare( $sql );
@@ -245,6 +249,7 @@ namespace {
 	$result_file = null;
 	$ready_file = null;
 	try {
+		dme_stage( 'fixtures' );
 		dme_assert( false !== $wpdb->query( "CREATE TABLE {$table} (term_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(200) NOT NULL, description LONGTEXT NOT NULL) ENGINE=InnoDB" ), 'Could not create term fixture table.' );
 		dme_assert( false !== $wpdb->query( "CREATE TABLE {$meta_table} (meta_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, term_id BIGINT UNSIGNED NOT NULL, meta_key VARCHAR(255), meta_value LONGTEXT, INDEX term_key (term_id, meta_key)) ENGINE=InnoDB" ), 'Could not create metadata fixture table.' );
 		dme_assert( false !== $wpdb->query( "INSERT INTO {$table} (name, description) VALUES ('Concurrency Venue', '')" ), 'Could not insert venue fixture.' );
@@ -253,6 +258,7 @@ namespace {
 		$owner = new \PDO( $dsn, $GLOBALS['dme_test_user'], $GLOBALS['dme_test_password'], array( \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ) );
 		$lock_key = VenueProfileMutations::lockName( $term_id );
 		dme_assert( 1 === dme_lock( $owner, 'GET_LOCK', $lock_key ), 'Owner did not acquire the venue lock.' );
+		dme_stage( 'race-waiter' );
 		$result_file = tempnam( sys_get_temp_dir(), 'dme-venue-mysql-' );
 		$ready_file  = $result_file . '.ready';
 		$process = proc_open(
@@ -298,12 +304,14 @@ namespace {
 		dme_assert( 'operator-value' === get_term_meta( $term_id, '_venue_phone', true ), 'Fill-empty writer overwrote the operator value.' );
 		dme_assert( ! in_array( 'phone', $child['updated_fields'], true ), 'Waiting fill-empty writer did not recheck after locking.' );
 
+		dme_stage( 'duplicate-canonicalization' );
 		$statement = $wpdb->dbh->prepare( "INSERT INTO {$meta_table} (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'stale-duplicate')" );
 		$statement->execute( array( $term_id ) );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'operator-value' ) );
 		dme_assert( ! is_wp_error( $result ), 'Duplicate canonicalization failed.' );
 		dme_assert( array( 'operator-value', 'operator-value' ) === get_term_meta( $term_id, '_venue_phone', false ), 'First-row-equal duplicate remained stale.' );
 
+		dme_stage( 'transaction-ordering' );
 		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
 		$in_transaction = $wpdb->get_var(
 			"SELECT COUNT(*)
@@ -318,6 +326,7 @@ namespace {
 		dme_assert( 'venue_transaction_unsupported' === $result_code, 'Existing transaction returned ' . $result_code . ' instead of venue_transaction_unsupported.' );
 		$wpdb->query( 'ROLLBACK' );
 
+		dme_stage( 'reentrancy' );
 		$nested = null;
 		add_filter( 'update_term_metadata', static function ( $check, $object_id, $meta_key ) use ( $term_id, &$nested ) {
 			if ( $term_id === (int) $object_id && '_venue_website' === $meta_key && null === $nested ) {
@@ -329,18 +338,21 @@ namespace {
 		remove_all_filters( 'update_term_metadata' );
 		dme_assert( ! is_wp_error( $result ) && is_wp_error( $nested ) && 'venue_mutation_reentrant' === $nested->get_error_code(), 'Same-venue reentrancy was not rejected.' );
 
+		dme_stage( 'commit-uncertainty' );
 		$result = DmeCommitUncertain::updateSystem( $term_id, array( 'capacity' => '500' ) );
 		dme_assert( is_wp_error( $result ) && 'venue_commit_uncertain' === $result->get_error_code(), 'Uncertain commit was not surfaced.' );
 		dme_assert( true === $result->get_error_data()['connection_closed'] && true === $result->get_error_data()['connection_recovered'], 'Uncertain commit did not quarantine and recover wpdb.' );
 		dme_assert( 1 === dme_lock( $owner, 'GET_LOCK', VenueProfileMutations::lockName( $term_id ) ), 'Quarantined commit session retained its advisory lock.' );
 		dme_lock( $owner, 'RELEASE_LOCK', VenueProfileMutations::lockName( $term_id ) );
 
+		dme_stage( 'rollback-uncertainty' );
 		add_filter( 'update_term_metadata', static fn() => false );
 		$result = DmeRollbackUncertain::updateSystem( $term_id, array( 'capacity' => '600' ) );
 		remove_all_filters( 'update_term_metadata' );
 		dme_assert( is_wp_error( $result ) && 'venue_rollback_uncertain' === $result->get_error_code(), 'Uncertain rollback was not surfaced.' );
 		dme_assert( true === $result->get_error_data()['connection_closed'] && true === $result->get_error_data()['connection_recovered'], 'Uncertain rollback did not quarantine and recover wpdb.' );
 
+		dme_stage( 'multisite-contention' );
 		$first_lock = VenueProfileMutations::lockName( $term_id );
 		$first_revision = VenueProfileMutations::read( $term_id )['revision'];
 		$GLOBALS['dme_test_blog_id'] = 2;
@@ -356,6 +368,7 @@ namespace {
 		dme_lock( $waiter, 'RELEASE_LOCK', $second_lock );
 		dme_lock( $owner, 'RELEASE_LOCK', $first_lock );
 
+		dme_stage( 'complete' );
 		fwrite( STDOUT, "PASS: actual venue mutation class passed race, duplicate, ordering, reentrancy, uncertainty, and multisite checks.\n" );
 	} catch ( \Throwable $throwable ) {
 		fwrite( STDERR, 'FAIL: ' . $throwable->getMessage() . "\n" );

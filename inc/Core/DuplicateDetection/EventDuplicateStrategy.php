@@ -285,57 +285,45 @@ class EventDuplicateStrategy {
 
 		$title_hash = self::computeTitleHash( $title );
 		$index      = new PostIdentityIndex();
-		$match      = $index->find_by_date_and_title_hash( $date_only, $title_hash );
-
-		if ( ! $match ) {
-			return null;
-		}
-
-		$post_id = (int) $match['post_id'];
-		if ( ! self::isValidPost( $post_id ) ) {
-			return null;
-		}
-
-		// Exact title + date is not sufficient when both sources know the time:
-		// early and late performances can share the same title and venue. Apply
-		// one guard before every Strategy 3 confirmation branch so term IDs,
-		// exact venue names, and missing venue data cannot bypass the policy.
-		$candidate_dates   = \DataMachineEvents\Core\EventDatesTable::get( $post_id );
-		$existing_datetime = $candidate_dates ? $candidate_dates->start_datetime : '';
-		if ( ! self::isWithinTimeWindow( $startDate, $existing_datetime ) ) {
-			return null;
-		}
-
-		// Venue confirmation logic (same as old EventUpsert::findEventByExactTitle).
-		if ( empty( $venue ) && ! $venue_term ) {
-			if ( 'low' === $identity_confidence ) {
-				return null;
+		$candidates = array_filter(
+			$index->find_by_date( $date_only, PHP_INT_MAX ),
+			static fn( array $candidate ): bool => ( $candidate['title_hash'] ?? '' ) === $title_hash
+		);
+		foreach ( $candidates as $candidate ) {
+			$post_id = (int) $candidate['post_id'];
+			if ( ! self::isValidPost( $post_id ) ) {
+				continue;
 			}
-			return self::duplicateResult( $post_id, 'exact_title_no_venue' );
-		}
 
-		// Term-id-aware short-circuit: when the incoming venue resolved to a
-		// term (via address or name), match directly on the candidate's
-		// venue term_ids. This catches dupes where the incoming venue string
-		// differs from the stored term name (e.g. "Monks Jazz" → term "Monks"),
-		// which the name-string compare below would miss.
-		if ( $venue_term ) {
-			$candidate_term_ids = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
-			if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids )
-				&& in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
-				return self::duplicateResult( $post_id, 'exact_title_venue_term_id_match' );
+			$candidate_dates   = \DataMachineEvents\Core\EventDatesTable::get( $post_id );
+			$existing_datetime = $candidate_dates ? $candidate_dates->start_datetime : '';
+			if ( ! self::isWithinTimeWindow( $startDate, $existing_datetime ) ) {
+				continue;
 			}
-		}
 
-		$venue_terms = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'names' ) );
-		if ( empty( $venue_terms ) || is_wp_error( $venue_terms ) ) {
-			if ( 'low' === $identity_confidence ) {
-				return null;
+			if ( empty( $venue ) && ! $venue_term ) {
+				if ( 'low' !== $identity_confidence ) {
+					return self::duplicateResult( $post_id, 'exact_title_no_venue' );
+				}
+				continue;
 			}
-			return self::duplicateResult( $post_id, 'exact_title_no_existing_venue' );
-		}
 
-		if ( '' !== $venue ) {
+			if ( $venue_term ) {
+				$candidate_term_ids = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
+				if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids )
+					&& in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
+					return self::duplicateResult( $post_id, 'exact_title_venue_term_id_match' );
+				}
+			}
+
+			$venue_terms = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'names' ) );
+			if ( empty( $venue_terms ) || is_wp_error( $venue_terms ) ) {
+				if ( 'low' !== $identity_confidence ) {
+					return self::duplicateResult( $post_id, 'exact_title_no_existing_venue' );
+				}
+				continue;
+			}
+
 			foreach ( $venue_terms as $existing_venue ) {
 				if ( $venue === $existing_venue || EventIdentifierGenerator::venuesMatch( $venue, $existing_venue ) ) {
 					return self::duplicateResult( $post_id, 'exact_title_venue_confirmed' );

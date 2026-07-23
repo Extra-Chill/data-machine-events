@@ -118,6 +118,7 @@ namespace {
 	function wp_die( mixed $message = '' ): never { throw new \RuntimeException( (string) $message ); }
 
 	function dme_test_table(): string { return '`' . $GLOBALS['dme_test_table'] . '`'; }
+	function dme_test_meta_table(): string { return '`' . $GLOBALS['dme_test_table'] . '_meta`'; }
 	function get_term( int $term_id, string $taxonomy ): WP_Term|false {
 		global $wpdb;
 		$statement = $wpdb->dbh->prepare( 'SELECT term_id, name, description FROM ' . dme_test_table() . ' WHERE term_id = ?' );
@@ -127,7 +128,7 @@ namespace {
 	}
 	function get_term_meta( int $term_id, string $key = '', bool $single = false ): mixed {
 		global $wpdb;
-		$statement = $wpdb->dbh->prepare( 'SELECT meta_value FROM ' . dme_test_table() . '_meta WHERE term_id = ? AND meta_key = ? ORDER BY meta_id' );
+		$statement = $wpdb->dbh->prepare( 'SELECT meta_value FROM ' . dme_test_meta_table() . ' WHERE term_id = ? AND meta_key = ? ORDER BY meta_id' );
 		$statement->execute( array( $term_id, $key ) );
 		$values = $statement->fetchAll( \PDO::FETCH_COLUMN );
 		return $single ? ( $values[0] ?? '' ) : $values;
@@ -140,20 +141,20 @@ namespace {
 		}
 		$existing = get_term_meta( $term_id, $key, false );
 		if ( empty( $existing ) ) {
-			$statement = $wpdb->dbh->prepare( 'INSERT INTO ' . dme_test_table() . '_meta (term_id, meta_key, meta_value) VALUES (?, ?, ?)' );
+			$statement = $wpdb->dbh->prepare( 'INSERT INTO ' . dme_test_meta_table() . ' (term_id, meta_key, meta_value) VALUES (?, ?, ?)' );
 			$statement->execute( array( $term_id, $key, (string) $value ) );
 			return (int) $wpdb->dbh->lastInsertId();
 		}
 		if ( 1 === count( $existing ) && (string) $existing[0] === (string) $value ) {
 			return false;
 		}
-		$statement = $wpdb->dbh->prepare( 'UPDATE ' . dme_test_table() . '_meta SET meta_value = ? WHERE term_id = ? AND meta_key = ?' );
+		$statement = $wpdb->dbh->prepare( 'UPDATE ' . dme_test_meta_table() . ' SET meta_value = ? WHERE term_id = ? AND meta_key = ?' );
 		$statement->execute( array( (string) $value, $term_id, $key ) );
 		return true;
 	}
 	function delete_term_meta( int $term_id, string $key ): bool {
 		global $wpdb;
-		$statement = $wpdb->dbh->prepare( 'DELETE FROM ' . dme_test_table() . '_meta WHERE term_id = ? AND meta_key = ?' );
+		$statement = $wpdb->dbh->prepare( 'DELETE FROM ' . dme_test_meta_table() . ' WHERE term_id = ? AND meta_key = ?' );
 		$statement->execute( array( $term_id, $key ) );
 		return $statement->rowCount() > 0;
 	}
@@ -237,14 +238,15 @@ namespace {
 
 	$wpdb = new DmeTestWpdb();
 	$GLOBALS['wpdb'] = $wpdb;
-	$table = dme_test_table();
+	$table      = dme_test_table();
+	$meta_table = dme_test_meta_table();
 	$exit_code = 0;
 	$result_file = null;
 	$ready_file = null;
 	try {
-		$wpdb->query( "CREATE TABLE {$table} (term_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(200) NOT NULL, description LONGTEXT NOT NULL) ENGINE=InnoDB" );
-		$wpdb->query( "CREATE TABLE {$table}_meta (meta_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, term_id BIGINT UNSIGNED NOT NULL, meta_key VARCHAR(255), meta_value LONGTEXT, INDEX term_key (term_id, meta_key)) ENGINE=InnoDB" );
-		$wpdb->query( "INSERT INTO {$table} (name, description) VALUES ('Concurrency Venue', '')" );
+		dme_assert( false !== $wpdb->query( "CREATE TABLE {$table} (term_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(200) NOT NULL, description LONGTEXT NOT NULL) ENGINE=InnoDB" ), 'Could not create term fixture table.' );
+		dme_assert( false !== $wpdb->query( "CREATE TABLE {$meta_table} (meta_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, term_id BIGINT UNSIGNED NOT NULL, meta_key VARCHAR(255), meta_value LONGTEXT, INDEX term_key (term_id, meta_key)) ENGINE=InnoDB" ), 'Could not create metadata fixture table.' );
+		dme_assert( false !== $wpdb->query( "INSERT INTO {$table} (name, description) VALUES ('Concurrency Venue', '')" ), 'Could not insert venue fixture.' );
 		$term_id = (int) $wpdb->dbh->lastInsertId();
 
 		$owner = new \PDO( $dsn, $GLOBALS['dme_test_user'], $GLOBALS['dme_test_password'], array( \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ) );
@@ -269,7 +271,7 @@ namespace {
 		}
 		dme_assert( file_exists( $ready_file ), 'Fill-empty writer did not reach the mutation call.' );
 		usleep( 100000 );
-		$statement = $wpdb->dbh->prepare( "INSERT INTO {$table}_meta (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'operator-value')" );
+		$statement = $wpdb->dbh->prepare( "INSERT INTO {$meta_table} (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'operator-value')" );
 		$statement->execute( array( $term_id ) );
 		dme_assert( 1 === dme_lock( $owner, 'RELEASE_LOCK', $lock_key ), 'Owner did not release the venue lock.' );
 		$child_stdout = stream_get_contents( $pipes[1] );
@@ -282,7 +284,7 @@ namespace {
 		dme_assert( 'operator-value' === get_term_meta( $term_id, '_venue_phone', true ), 'Fill-empty writer overwrote the operator value.' );
 		dme_assert( ! in_array( 'phone', $child['updated_fields'], true ), 'Waiting fill-empty writer did not recheck after locking.' );
 
-		$statement = $wpdb->dbh->prepare( "INSERT INTO {$table}_meta (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'stale-duplicate')" );
+		$statement = $wpdb->dbh->prepare( "INSERT INTO {$meta_table} (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'stale-duplicate')" );
 		$statement->execute( array( $term_id ) );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'operator-value' ) );
 		dme_assert( ! is_wp_error( $result ), 'Duplicate canonicalization failed.' );
@@ -343,7 +345,7 @@ namespace {
 			unlink( $ready_file );
 		}
 		if ( isset( $wpdb ) && $wpdb->dbh ) {
-			$wpdb->query( 'DROP TABLE IF EXISTS ' . dme_test_table() . '_meta' );
+			$wpdb->query( 'DROP TABLE IF EXISTS ' . dme_test_meta_table() );
 			$wpdb->query( 'DROP TABLE IF EXISTS ' . dme_test_table() );
 		}
 	}

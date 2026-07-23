@@ -314,7 +314,7 @@ namespace {
 
 		dme_stage( 'transaction-ordering' );
 		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
-		dme_assert( false !== $wpdb->query( "SELECT term_id FROM {$table} WHERE term_id = {$term_id} FOR UPDATE" ), 'Could not establish ordering-test row lock.' );
+		dme_assert( $term_id === (int) $wpdb->get_var( "SELECT term_id FROM {$table} WHERE term_id = {$term_id} FOR UPDATE" ), 'Could not establish ordering-test row lock.' );
 		$in_transaction = $wpdb->get_var(
 			"SELECT COUNT(*)
 			 FROM information_schema.innodb_trx

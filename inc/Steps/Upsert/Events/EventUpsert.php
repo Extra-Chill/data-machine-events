@@ -289,8 +289,8 @@ class EventUpsert extends UpsertHandler {
 		}
 
 		// 2. Build event data.
-		$event_data = $this->buildEventData( $parameters, $handler_config, $engine, $existing_post_id );
-		$venue_resolution = $this->taxonomy_assigner->resolveVenue( $parameters, $engine, $handler_config );
+		$event_data             = $this->buildEventData( $parameters, $handler_config, $engine, $existing_post_id );
+		$venue_resolution       = $this->taxonomy_assigner->resolveVenue( $parameters, $engine, $handler_config );
 		$authoritative_venue_id = (int) $venue_resolution['term_id'];
 		if ( 'skip' === $venue_resolution['action'] && $existing_post_id > 0 ) {
 			$existing_venues = wp_get_object_terms( $existing_post_id, 'venue', array( 'fields' => 'ids' ) );
@@ -299,7 +299,10 @@ class EventUpsert extends UpsertHandler {
 					new \WP_Error(
 						'event_retained_venue_read_failed',
 						'The existing event venue could not be read safely.',
-						array( 'status' => 503, 'retryable' => true )
+						array(
+							'status'    => 503,
+							'retryable' => true,
+						)
 					),
 					$title
 				);
@@ -310,7 +313,10 @@ class EventUpsert extends UpsertHandler {
 					new \WP_Error(
 						'event_retained_venue_ambiguous',
 						'The existing event has multiple venue assignments and cannot be updated safely.',
-						array( 'status' => 409, 'venue_ids' => $existing_venues )
+						array(
+							'status'    => 409,
+							'venue_ids' => $existing_venues,
+						)
 					),
 					$title
 				);
@@ -359,8 +365,8 @@ class EventUpsert extends UpsertHandler {
 			return $this->errorResponse( 'datamachine/upsert-post ability not available' );
 		}
 
-		$context = array(
-			'invocation_id'     => wp_generate_uuid4(),
+		$context          = array(
+			'invocation_id'    => wp_generate_uuid4(),
 			'venue_term_id'    => $authoritative_venue_id,
 			'event'            => $event_data,
 			'post_status'      => $post_status,
@@ -403,7 +409,7 @@ class EventUpsert extends UpsertHandler {
 					}
 				}
 				$error_data['status'] = (int) ( $error_data['status'] ?? ( ! empty( $error_data['retryable'] ) || ! empty( $error_data['transient'] ) ? 503 : 400 ) );
-				$lifecycle_result = new \WP_Error(
+				$lifecycle_result     = new \WP_Error(
 					(string) ( $result['error_code'] ?? 'event_upsert_persistence_failed' ),
 					(string) ( $result['error'] ?? 'Event upsert failed' ),
 					$error_data
@@ -466,7 +472,7 @@ class EventUpsert extends UpsertHandler {
 			EventIdentityWriter::syncIdentityRow( $post_id, $title, datamachine_normalize_ticket_url( $ticketUrl ) ?: null );
 
 			if ( 'no_change' === $action ) {
-				$lifecycle_result = $this->successResponse(
+				$lifecycle_result             = $this->successResponse(
 					array(
 						'post_id'  => $post_id,
 						'post_url' => get_permalink( $post_id ),
@@ -502,7 +508,7 @@ class EventUpsert extends UpsertHandler {
 				)
 			);
 
-			$lifecycle_result = $this->successResponse(
+			$lifecycle_result             = $this->successResponse(
 				array(
 					'post_id'  => $post_id,
 					'post_url' => get_permalink( $post_id ),

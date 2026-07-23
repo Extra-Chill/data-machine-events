@@ -50,12 +50,22 @@ class EventTaxonomyAssigner {
 		if ( 'clear' === $resolution['action'] ) {
 			$result = wp_set_post_terms( $post_id, array(), 'venue' );
 			return is_wp_error( $result )
-				? array( 'success' => false, 'error' => $result->get_error_message() )
-				: array( 'success' => true, 'error' => null );
+				? array(
+					'success' => false,
+					'error'   => $result->get_error_message(),
+				)
+				: array(
+					'success' => true,
+					'error'   => null,
+				);
 		}
 
 		if ( 'assign' !== $resolution['action'] || empty( $resolution['term_id'] ) ) {
-			return array( 'success' => true, 'error' => null, 'skipped' => true );
+			return array(
+				'success' => true,
+				'error'   => null,
+				'skipped' => true,
+			);
 		}
 
 		return Venue::assign_venue_to_event(
@@ -84,7 +94,10 @@ class EventTaxonomyAssigner {
 		}
 
 		if ( empty( $venue_name ) ) {
-			return array( 'term_id' => 0, 'action' => 'clear' );
+			return array(
+				'term_id' => 0,
+				'action'  => 'clear',
+			);
 		}
 
 		if ( $this->isVenueNameMatchingArtist( $venue_name, $handler_config ) ) {
@@ -98,7 +111,10 @@ class EventTaxonomyAssigner {
 					'artist_name' => $this->getPreSelectedArtistName( $handler_config ),
 				)
 			);
-			return array( 'term_id' => 0, 'action' => 'skip' );
+			return array(
+				'term_id' => 0,
+				'action'  => 'skip',
+			);
 		}
 
 		// Merge engine data with AI parameters (engine takes precedence)

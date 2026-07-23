@@ -314,8 +314,8 @@ class EventUpdateAbilities {
 			$updated_fields[] = 'description';
 		}
 
-		$requested_venue_id   = $venue_requested ? absint( $event_update['venue'] ) : 0;
-		$previous_venue_ids   = wp_get_object_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
+		$requested_venue_id = $venue_requested ? absint( $event_update['venue'] ) : 0;
+		$previous_venue_ids = wp_get_object_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
 		if ( is_wp_error( $previous_venue_ids ) ) {
 			return $this->updateErrorResult(
 				$post,
@@ -330,7 +330,7 @@ class EventUpdateAbilities {
 				)
 			);
 		}
-		$previous_venue_ids = array_values( array_unique( array_filter( array_map( 'absint', $previous_venue_ids ) ) ) );
+		$previous_venue_ids   = array_values( array_unique( array_filter( array_map( 'absint', $previous_venue_ids ) ) ) );
 		$next_venue_id        = 1 === count( $previous_venue_ids ) ? (int) reset( $previous_venue_ids ) : 0;
 		$requested_venue_term = $venue_requested ? get_term( $requested_venue_id, 'venue' ) : null;
 		if ( $venue_requested && $requested_venue_term && ! is_wp_error( $requested_venue_term ) ) {
@@ -346,12 +346,12 @@ class EventUpdateAbilities {
 			);
 		}
 
-		$context = array(
-			'invocation_id'     => wp_generate_uuid4(),
-			'post_id'           => $post_id,
-			'post_status'       => (string) $post->post_status,
-			'event'             => $new_attrs,
-			'next_venue_id'     => $next_venue_id,
+		$context          = array(
+			'invocation_id'      => wp_generate_uuid4(),
+			'post_id'            => $post_id,
+			'post_status'        => (string) $post->post_status,
+			'event'              => $new_attrs,
+			'next_venue_id'      => $next_venue_id,
 			'previous_venue_ids' => $previous_venue_ids,
 		);
 		$lifecycle_result = null;
@@ -369,7 +369,7 @@ class EventUpdateAbilities {
 			if ( $venue_requested ) {
 				$venue_result = $this->updateVenue( $post_id, $requested_venue_id );
 				if ( ! $venue_result['success'] ) {
-					$error = $venue_result['error'] ?? new \WP_Error( 'event_venue_assignment_failed', (string) ( $venue_result['warning'] ?? 'Failed to assign venue.' ) );
+					$error            = $venue_result['error'] ?? new \WP_Error( 'event_venue_assignment_failed', (string) ( $venue_result['warning'] ?? 'Failed to assign venue.' ) );
 					$lifecycle_result = $this->updateErrorResult( $post, $error );
 					return $lifecycle_result;
 				}
@@ -408,9 +408,9 @@ class EventUpdateAbilities {
 
 	/** Build one structured failed update item without discarding error status. */
 	private function updateErrorResult( \WP_Post $post, \WP_Error $error, string $prefix = '' ): array {
-		$data = $error->get_error_data();
-		$data = is_array( $data ) ? $data : array();
-		$status = (int) ( $data['status'] ?? 500 );
+		$data           = $error->get_error_data();
+		$data           = is_array( $data ) ? $data : array();
+		$status         = (int) ( $data['status'] ?? 500 );
 		$data['status'] = $status;
 
 		return array(

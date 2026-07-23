@@ -55,6 +55,7 @@ namespace {
 				$GLOBALS['dme_test_password'],
 				array( \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION )
 			);
+			$this->dbh->exec( 'SET SESSION lock_wait_timeout = 5' );
 		}
 		public function prepare( string $query, mixed ...$args ): string {
 			foreach ( $args as $arg ) {
@@ -307,6 +308,7 @@ namespace {
 		dme_stage( 'duplicate-canonicalization' );
 		$statement = $wpdb->dbh->prepare( "INSERT INTO {$meta_table} (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'stale-duplicate')" );
 		$statement->execute( array( $term_id ) );
+		$statement = null;
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'operator-value' ) );
 		dme_assert( ! is_wp_error( $result ), 'Duplicate canonicalization failed.' );
 		dme_assert( array( 'operator-value', 'operator-value' ) === get_term_meta( $term_id, '_venue_phone', false ), 'First-row-equal duplicate remained stale.' );

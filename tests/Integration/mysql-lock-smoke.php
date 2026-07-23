@@ -290,9 +290,12 @@ namespace {
 		dme_assert( ! is_wp_error( $result ), 'Duplicate canonicalization failed.' );
 		dme_assert( array( 'operator-value', 'operator-value' ) === get_term_meta( $term_id, '_venue_phone', false ), 'First-row-equal duplicate remained stale.' );
 
-		$wpdb->query( 'START TRANSACTION' );
+		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
+		$in_transaction = $wpdb->get_var( 'SELECT @@in_transaction' );
+		dme_assert( '1' === (string) $in_transaction, 'MySQL did not expose the ordering-test transaction: ' . (string) $wpdb->last_error );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://blocked.example' ) );
-		dme_assert( is_wp_error( $result ) && 'venue_transaction_unsupported' === $result->get_error_code(), 'Existing transaction was not rejected.' );
+		$result_code = is_wp_error( $result ) ? $result->get_error_code() : 'success';
+		dme_assert( 'venue_transaction_unsupported' === $result_code, 'Existing transaction returned ' . $result_code . ' instead of venue_transaction_unsupported.' );
 		$wpdb->query( 'ROLLBACK' );
 
 		$nested = null;

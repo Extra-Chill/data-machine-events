@@ -388,25 +388,29 @@ class VenueProfileMutations {
 	/**
 	 * Determine whether the current wpdb session owns an active transaction.
 	 *
-	 * InnoDB exposes the current connection's transaction without requiring the
-	 * elevated Performance Schema privileges production WordPress users lack.
-	 * Unknown state fails closed so the contract never acquires its advisory lock
-	 * after caller-owned row locks.
+	 * MySQL accepts SAVEPOINT outside a transaction but cannot subsequently
+	 * release it. Inside a transaction both statements succeed. This bounded
+	 * probe requires no metadata privileges and leaves caller state unchanged.
+	 * Unknown responses fail closed before advisory-lock acquisition.
 	 *
 	 * @return bool|\WP_Error
 	 */
 	private static function inTransaction(): bool|\WP_Error {
 		global $wpdb;
+		$probe           = 'dme_venue_probe_' . substr( md5( uniqid( '', true ) ), 0, 12 );
+		$suppress_errors = $wpdb->suppress_errors();
 		$wpdb->last_error = '';
-		$result = $wpdb->get_var(
-			'SELECT COUNT(*)
-			 FROM information_schema.innodb_trx
-			 WHERE trx_mysql_thread_id = CONNECTION_ID()'
-		);
-		if ( null === $result || '' !== self::databaseLastError() ) {
-			return new \WP_Error( 'venue_transaction_state_unknown', 'Could not safely determine the database transaction state.', array( 'status' => 503 ) );
+		$created          = static::query( 'SAVEPOINT ' . $probe );
+		$released         = false !== $created ? static::query( 'RELEASE SAVEPOINT ' . $probe ) : false;
+		$database_error   = strtolower( self::databaseLastError() );
+		$wpdb->suppress_errors( $suppress_errors );
+		if ( false !== $created && false !== $released ) {
+			return true;
 		}
-		return (int) $result > 0;
+		if ( str_contains( $database_error, 'savepoint' ) && str_contains( $database_error, 'does not exist' ) ) {
+			return false;
+		}
+		return new \WP_Error( 'venue_transaction_state_unknown', 'Could not safely determine the database transaction state.', array( 'status' => 503 ) );
 	}
 
 	/**

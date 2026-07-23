@@ -46,6 +46,7 @@ namespace {
 		public ?\PDO $dbh;
 		public string $prefix = 'wp_';
 		public string $last_error = '';
+		private bool $suppress_errors = false;
 
 		public function __construct() { $this->connect(); }
 		private function connect(): void {
@@ -93,6 +94,13 @@ namespace {
 				$this->connect();
 			}
 			return true;
+		}
+		public function suppress_errors( ?bool $suppress = null ): bool {
+			$previous = $this->suppress_errors;
+			if ( null !== $suppress ) {
+				$this->suppress_errors = $suppress;
+			}
+			return $previous;
 		}
 	}
 
@@ -315,12 +323,6 @@ namespace {
 		dme_stage( 'transaction-ordering' );
 		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
 		dme_assert( $term_id === (int) $wpdb->get_var( "SELECT term_id FROM {$table} WHERE term_id = {$term_id} FOR UPDATE" ), 'Could not establish ordering-test row lock.' );
-		$in_transaction = $wpdb->get_var(
-			"SELECT COUNT(*)
-			 FROM information_schema.innodb_trx
-			 WHERE trx_mysql_thread_id = CONNECTION_ID()"
-		);
-		dme_assert( '1' === (string) $in_transaction, 'MySQL did not expose the ordering-test transaction: ' . (string) $wpdb->last_error );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://blocked.example' ) );
 		$result_code = is_wp_error( $result ) ? $result->get_error_code() : 'success';
 		dme_assert( 'venue_transaction_unsupported' === $result_code, 'Existing transaction returned ' . $result_code . ' instead of venue_transaction_unsupported.' );

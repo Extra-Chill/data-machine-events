@@ -26,6 +26,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		parent::setUp();
 		global $wpdb;
 		$wpdb->query( 'COMMIT' );
+		$wpdb->query( 'SET autocommit = 1' );
 		$this->had_settings    = false !== get_option( Settings_Page::OPTION_KEY, false );
 		$this->settings_before = get_option( Settings_Page::OPTION_KEY, null );
 		if ( ! taxonomy_exists( 'venue' ) ) {
@@ -35,7 +36,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 	public function tearDown(): void {
 		global $wpdb;
-		while ( ms_is_switched() ) {
+		while ( function_exists( 'ms_is_switched' ) && ms_is_switched() ) {
 			restore_current_blog();
 		}
 		foreach ( array_reverse( $this->term_ids ) as $term_id ) {
@@ -49,6 +50,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		} else {
 			delete_option( Settings_Page::OPTION_KEY );
 		}
+		$wpdb->query( 'SET autocommit = 0' );
 		$wpdb->query( 'START TRANSACTION' );
 		parent::tearDown();
 	}
@@ -356,6 +358,8 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 	public function test_shared_term_is_rejected_before_mutation(): void {
 		global $wpdb;
+		$split_finished = get_option( 'finished_splitting_shared_terms' );
+		update_option( 'finished_splitting_shared_terms', false );
 		$term_id = $this->venue( 'Shared Term' );
 		register_taxonomy( 'venue_shadow', 'post' );
 		$wpdb->insert(
@@ -368,9 +372,13 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 				'count'       => 0,
 			)
 		);
-		$this->assertTrue( wp_term_is_shared( $term_id ) );
-		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'blocked' ) );
-		$wpdb->delete( $wpdb->term_taxonomy, array( 'term_id' => $term_id, 'taxonomy' => 'venue_shadow' ) );
+		try {
+			$this->assertTrue( wp_term_is_shared( $term_id ) );
+			$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'blocked' ) );
+		} finally {
+			$wpdb->delete( $wpdb->term_taxonomy, array( 'term_id' => $term_id, 'taxonomy' => 'venue_shadow' ) );
+			update_option( 'finished_splitting_shared_terms', $split_finished );
+		}
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'venue_shared_term_unsupported', $result->get_error_code() );

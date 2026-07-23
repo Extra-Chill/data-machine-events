@@ -59,6 +59,7 @@ class CheckMissingVenueAddressesCommandTest extends WP_UnitTestCase {
 		parent::setUp();
 		global $wpdb;
 		$wpdb->query( 'COMMIT' );
+		$wpdb->query( 'SET autocommit = 1' );
 
 		if ( ! taxonomy_exists( 'venue' ) ) {
 			Venue_Taxonomy::register();
@@ -70,6 +71,7 @@ class CheckMissingVenueAddressesCommandTest extends WP_UnitTestCase {
 		foreach ( array_reverse( $this->term_ids ) as $term_id ) {
 			wp_delete_term( $term_id, 'venue' );
 		}
+		$wpdb->query( 'SET autocommit = 0' );
 		$wpdb->query( 'START TRANSACTION' );
 		parent::tearDown();
 	}

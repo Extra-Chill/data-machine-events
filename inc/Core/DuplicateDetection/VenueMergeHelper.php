@@ -256,12 +256,13 @@ class VenueMergeHelper {
 			return array();
 		}
 
-		return array_values(
-			array_filter(
-				array_map( static fn( string $field ): string => Venue_Taxonomy::$meta_fields[ $field ] ?? '', $result['updated_fields'] ),
-				static fn( string $meta_key ): bool => '' !== $meta_key
-			)
-		);
+		$filled = array();
+		foreach ( $result['updated_fields'] as $field ) {
+			if ( isset( Venue_Taxonomy::$meta_fields[ $field ] ) ) {
+				$filled[] = Venue_Taxonomy::$meta_fields[ $field ];
+			}
+		}
+		return $filled;
 	}
 
 	/**

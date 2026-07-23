@@ -13,12 +13,44 @@ use DataMachineEvents\Core\Venue_Taxonomy;
 use WP_UnitTestCase;
 
 class VenueProfileMutationsTest extends WP_UnitTestCase {
+	/** @var int[] */
+	private array $term_ids = array();
+
+	/** @var int[] */
+	private array $blog_ids = array();
+
+	private bool $had_settings = false;
+	private mixed $settings_before = null;
 
 	public function setUp(): void {
 		parent::setUp();
+		global $wpdb;
+		$wpdb->query( 'COMMIT' );
+		$this->had_settings    = false !== get_option( Settings_Page::OPTION_KEY, false );
+		$this->settings_before = get_option( Settings_Page::OPTION_KEY, null );
 		if ( ! taxonomy_exists( 'venue' ) ) {
 			Venue_Taxonomy::register();
 		}
+	}
+
+	public function tearDown(): void {
+		global $wpdb;
+		while ( ms_is_switched() ) {
+			restore_current_blog();
+		}
+		foreach ( array_reverse( $this->term_ids ) as $term_id ) {
+			wp_delete_term( $term_id, 'venue' );
+		}
+		foreach ( array_reverse( $this->blog_ids ) as $blog_id ) {
+			wpmu_delete_blog( $blog_id, true );
+		}
+		if ( $this->had_settings ) {
+			update_option( Settings_Page::OPTION_KEY, $this->settings_before );
+		} else {
+			delete_option( Settings_Page::OPTION_KEY );
+		}
+		$wpdb->query( 'START TRANSACTION' );
+		parent::tearDown();
 	}
 
 	public function test_stale_profile_write_detects_another_canonical_writer(): void {
@@ -59,8 +91,8 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 	public function test_duplicate_meta_hooks_cache_and_canonical_hook_follow_core_semantics(): void {
 		$term_id = $this->venue( 'Duplicate Meta' );
-		add_term_meta( $term_id, '_venue_phone', 'first' );
-		add_term_meta( $term_id, '_venue_phone', 'second' );
+		add_term_meta( $term_id, '_venue_phone', 'canonical' );
+		add_term_meta( $term_id, '_venue_phone', 'stale' );
 		get_term_meta( $term_id );
 		$profile = VenueProfileMutations::read( $term_id );
 		$updates = 0;
@@ -88,6 +120,39 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$this->assertSame( 'canonical', get_term_meta( $term_id, '_venue_phone', true ) );
 	}
 
+	public function test_preexisting_transaction_is_rejected_before_lock_acquisition(): void {
+		global $wpdb;
+		$term_id = $this->venue( 'Transaction Ordering' );
+		$profile = VenueProfileMutations::read( $term_id );
+		$wpdb->query( 'START TRANSACTION' );
+		$result = VenueProfileMutations::updateProfile( $term_id, array( 'phone' => 'blocked' ), $profile['revision'] );
+		$wpdb->query( 'ROLLBACK' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'venue_transaction_unsupported', $result->get_error_code() );
+		$this->assertSame( '', get_term_meta( $term_id, '_venue_phone', true ) );
+	}
+
+	public function test_same_venue_hook_reentrancy_is_rejected(): void {
+		$term_id = $this->venue( 'Reentrant Mutation' );
+		$profile = VenueProfileMutations::read( $term_id );
+		$nested  = null;
+		$hook    = static function ( $check, $object_id, $meta_key ) use ( $term_id, &$nested ) {
+			if ( $term_id === (int) $object_id && '_venue_phone' === $meta_key && null === $nested ) {
+				$nested = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://nested.example' ) );
+			}
+			return $check;
+		};
+		add_filter( 'update_term_metadata', $hook, 10, 3 );
+		$result = VenueProfileMutations::updateProfile( $term_id, array( 'phone' => 'outer' ), $profile['revision'] );
+		remove_filter( 'update_term_metadata', $hook, 10 );
+
+		$this->assertNotWPError( $result );
+		$this->assertWPError( $nested );
+		$this->assertSame( 'venue_mutation_reentrant', $nested->get_error_code() );
+		$this->assertSame( '', get_term_meta( $term_id, '_venue_website', true ) );
+	}
+
 	public function test_address_relocation_replaces_coordinates_and_timezone_atomically(): void {
 		$term_id = $this->venue( 'Relocation' );
 		update_term_meta( $term_id, '_venue_address', '100 King Street' );
@@ -99,22 +164,10 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 		$http = static function ( $preempt, $args, $url ) {
 			if ( str_contains( $url, 'nominatim.openstreetmap.org' ) ) {
-				return array(
-					'headers'  => array(),
-					'body'     => wp_json_encode( array( array( 'lat' => '34.0522', 'lon' => '-118.2437' ) ) ),
-					'response' => array( 'code' => 200, 'message' => 'OK' ),
-					'cookies'  => array(),
-					'filename' => null,
-				);
+				return self::httpResponse( array( array( 'lat' => '34.0522', 'lon' => '-118.2437' ) ) );
 			}
 			if ( str_contains( $url, 'geonames.org' ) ) {
-				return array(
-					'headers'  => array(),
-					'body'     => wp_json_encode( array( 'timezoneId' => 'America/Los_Angeles' ) ),
-					'response' => array( 'code' => 200, 'message' => 'OK' ),
-					'cookies'  => array(),
-					'filename' => null,
-				);
+				return self::httpResponse( array( 'timezoneId' => 'America/Los_Angeles' ) );
 			}
 			return $preempt;
 		};
@@ -171,16 +224,105 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		if ( ! is_multisite() ) {
 			$this->markTestSkipped( 'Multisite scope requires the multisite WordPress test suite.' );
 		}
-		$first_id = $this->venue( 'Main Site Venue' );
+		global $wpdb;
+		$name     = 'Equivalent Multisite Venue ' . uniqid();
+		$first_id = $this->venue( $name, false );
+		update_term_meta( $first_id, '_venue_phone', 'same-value' );
 		$first    = VenueProfileMutations::read( $first_id );
 		$blog_id  = self::factory()->blog->create();
+		$this->blog_ids[] = $blog_id;
+		$first_lock = VenueProfileMutations::lockName( $first_id );
 		switch_to_blog( $blog_id );
 		Venue_Taxonomy::register();
-		$second_id = $this->venue( 'Second Site Venue' );
+		$second_id = $this->venue( $name, false );
+		update_term_meta( $second_id, '_venue_phone', 'same-value' );
 		$second    = VenueProfileMutations::read( $second_id );
+		$second_lock = VenueProfileMutations::lockName( $second_id );
+		$this->assertSame( $first_id, $second_id, 'Equivalent per-site fixtures must use the same term ID.' );
+		$this->assertNotSame( $first_lock, $second_lock );
+
+		$owner  = mysqli_init();
+		$waiter = mysqli_init();
+		$owner->real_connect( DB_HOST, DB_USER, DB_PASSWORD, DB_NAME );
+		$waiter->real_connect( DB_HOST, DB_USER, DB_PASSWORD, DB_NAME );
+		$this->assertSame( 1, $this->namedLock( $owner, 'GET_LOCK', $first_lock ) );
+		$this->assertSame( 1, $this->namedLock( $waiter, 'GET_LOCK', $second_lock ) );
+		$this->assertSame( 0, $this->namedLock( $waiter, 'GET_LOCK', $first_lock ) );
+		$this->assertSame( 1, $this->namedLock( $waiter, 'RELEASE_LOCK', $second_lock ) );
+		$this->assertSame( 1, $this->namedLock( $owner, 'RELEASE_LOCK', $first_lock ) );
+		$owner->close();
+		$waiter->close();
+		wp_delete_term( $second_id, 'venue' );
 		restore_current_blog();
 
 		$this->assertNotSame( $first['revision'], $second['revision'] );
+	}
+
+	public function test_waiting_fill_empty_writer_rechecks_after_operator_edit(): void {
+		if ( ! extension_loaded( 'mysqli' ) || ! function_exists( 'pcntl_fork' ) ) {
+			$this->markTestSkipped( 'Real MySQL venue concurrency coverage requires mysqli and pcntl.' );
+		}
+		global $wpdb, $table_prefix;
+		$term_id  = $this->venue( 'Fill Empty Race' );
+		$lock_key = VenueProfileMutations::lockName( $term_id );
+		$owner    = mysqli_init();
+		$owner->real_connect( DB_HOST, DB_USER, DB_PASSWORD, DB_NAME );
+		$this->assertSame( 1, $this->namedLock( $owner, 'GET_LOCK', $lock_key ) );
+
+		$result_file = tempnam( sys_get_temp_dir(), 'dme-venue-race-' );
+		$pid         = pcntl_fork();
+		$this->assertNotSame( -1, $pid );
+		if ( 0 === $pid ) {
+			global $wpdb;
+			$wpdb = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+			$wpdb->set_prefix( $table_prefix );
+			$result = VenueProfileMutations::updateSystem(
+				$term_id,
+				array( 'phone' => 'stale-ingestion-value' ),
+				VenueProfileMutations::STRATEGY_FILL_EMPTY
+			);
+			file_put_contents( $result_file, wp_json_encode( is_wp_error( $result ) ? array( 'error' => $result->get_error_code() ) : $result ) );
+			exit( 0 );
+		}
+
+		usleep( 300000 );
+		update_term_meta( $term_id, '_venue_phone', 'operator-value' );
+		$this->assertSame( 1, $this->namedLock( $owner, 'RELEASE_LOCK', $lock_key ) );
+		pcntl_waitpid( $pid, $status );
+		$result = json_decode( (string) file_get_contents( $result_file ), true );
+		unlink( $result_file );
+		$owner->close();
+
+		wp_cache_delete( $term_id, 'term_meta' );
+		$this->assertTrue( pcntl_wifexited( $status ) );
+		$this->assertArrayNotHasKey( 'error', $result );
+		$this->assertSame( 'operator-value', get_term_meta( $term_id, '_venue_phone', true ) );
+		$this->assertNotContains( 'phone', $result['updated_fields'] );
+	}
+
+	public function test_native_wordpress_edit_fails_when_serialization_is_unavailable(): void {
+		if ( ! extension_loaded( 'mysqli' ) ) {
+			$this->markTestSkipped( 'Native venue lock coverage requires mysqli.' );
+		}
+		$term_id  = $this->venue( 'Native Lock Failure' );
+		$lock_key = VenueProfileMutations::lockName( $term_id );
+		$owner    = mysqli_init();
+		$owner->real_connect( DB_HOST, DB_USER, DB_PASSWORD, DB_NAME );
+		$this->assertSame( 1, $this->namedLock( $owner, 'GET_LOCK', $lock_key ) );
+		add_filter( 'data_machine_events_venue_lock_timeout', '__return_zero' );
+		$rejected = false;
+		try {
+			wp_update_term( $term_id, 'venue', array( 'name' => 'Should Not Persist' ) );
+		} catch ( \WPDieException ) {
+			$rejected = true;
+		} finally {
+			remove_filter( 'data_machine_events_venue_lock_timeout', '__return_zero' );
+			$this->namedLock( $owner, 'RELEASE_LOCK', $lock_key );
+			$owner->close();
+		}
+
+		$this->assertTrue( $rejected );
+		$this->assertStringStartsWith( 'Native Lock Failure', get_term( $term_id, 'venue' )->name );
 	}
 
 	public function test_uncertain_commit_requires_a_fresh_read(): void {
@@ -190,6 +332,8 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'venue_commit_uncertain', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['connection_closed'] );
+		$this->assertTrue( $result->get_error_data()['connection_recovered'] );
 		$this->assertNotWPError( VenueProfileMutations::read( $term_id ) );
 	}
 
@@ -206,25 +350,77 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'venue_rollback_uncertain', $result->get_error_code() );
 		$this->assertSame( 'venue_meta_update_failed', $result->get_error_data()['original_error'] );
+		$this->assertTrue( $result->get_error_data()['connection_closed'] );
 	}
 
-	private function venue( string $prefix ): int {
-		$result = wp_insert_term( $prefix . ' ' . uniqid(), 'venue' );
+	public function test_shared_term_is_rejected_before_mutation(): void {
+		global $wpdb;
+		$term_id = $this->venue( 'Shared Term' );
+		register_taxonomy( 'venue_shadow', 'post' );
+		$wpdb->insert(
+			$wpdb->term_taxonomy,
+			array(
+				'term_id'     => $term_id,
+				'taxonomy'    => 'venue_shadow',
+				'description' => '',
+				'parent'      => 0,
+				'count'       => 0,
+			)
+		);
+		$this->assertTrue( wp_term_is_shared( $term_id ) );
+		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'blocked' ) );
+		$wpdb->delete( $wpdb->term_taxonomy, array( 'term_id' => $term_id, 'taxonomy' => 'venue_shadow' ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'venue_shared_term_unsupported', $result->get_error_code() );
+		$this->assertSame( '', get_term_meta( $term_id, '_venue_phone', true ) );
+	}
+
+	private function venue( string $prefix, bool $unique = true ): int {
+		$result = wp_insert_term( $prefix . ( $unique ? ' ' . uniqid() : '' ), 'venue' );
 		$this->assertNotWPError( $result );
-		return (int) $result['term_id'];
+		$term_id          = (int) $result['term_id'];
+		$this->term_ids[] = $term_id;
+		return $term_id;
+	}
+
+	private function namedLock( \mysqli $connection, string $operation, string $key ): int {
+		$sql       = 'GET_LOCK' === $operation ? 'SELECT GET_LOCK(?, 0)' : 'SELECT RELEASE_LOCK(?)';
+		$statement = $connection->prepare( $sql );
+		$statement->bind_param( 's', $key );
+		$statement->execute();
+		return (int) $statement->get_result()->fetch_row()[0];
+	}
+
+	private static function httpResponse( array $body ): array {
+		return array(
+			'headers'  => array(),
+			'body'     => wp_json_encode( $body ),
+			'response' => array( 'code' => 200, 'message' => 'OK' ),
+			'cookies'  => array(),
+			'filename' => null,
+		);
 	}
 }
 
 class VenueProfileCommitUncertain extends VenueProfileMutations {
 	protected static function query( string $sql ): int|bool {
-		$result = parent::query( $sql );
-		return 'COMMIT' === $sql || str_starts_with( $sql, 'RELEASE SAVEPOINT' ) ? false : $result;
+		if ( 'COMMIT' === $sql ) {
+			global $wpdb;
+			$wpdb->close();
+			return false;
+		}
+		return parent::query( $sql );
 	}
 }
 
 class VenueProfileRollbackUncertain extends VenueProfileMutations {
 	protected static function query( string $sql ): int|bool {
-		$result = parent::query( $sql );
-		return 'ROLLBACK' === $sql || str_starts_with( $sql, 'ROLLBACK TO SAVEPOINT' ) ? false : $result;
+		if ( 'ROLLBACK' === $sql ) {
+			global $wpdb;
+			$wpdb->close();
+			return false;
+		}
+		return parent::query( $sql );
 	}
 }

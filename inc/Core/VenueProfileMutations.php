@@ -2,6 +2,9 @@
 /**
  * Canonical venue profile mutation contract.
  *
+ * Lock ordering is strict: callers must hold no SQL transaction before entry.
+ * The contract acquires the venue advisory lock first, then opens its transaction.
+ *
  * @package DataMachineEvents\Core
  */
 
@@ -10,8 +13,10 @@ namespace DataMachineEvents\Core;
 defined( 'ABSPATH' ) || exit;
 
 class VenueProfileMutations {
-	private static array $term_edit_locks     = array();
+	private static array $active_mutations    = array();
+	private static array $native_term_locks   = array();
 	private static bool $internal_term_update = false;
+	private static bool $shutdown_registered  = false;
 
 	public const STRATEGY_OVERWRITE  = 'overwrite';
 	public const STRATEGY_FILL_EMPTY = 'fill_empty';
@@ -19,22 +24,10 @@ class VenueProfileMutations {
 	private const TAXONOMY     = 'venue';
 	private const LOCK_TIMEOUT = 10;
 
-	private const EDITABLE_META_FIELDS = array(
-		'address'  => '_venue_address',
-		'city'     => '_venue_city',
-		'state'    => '_venue_state',
-		'zip'      => '_venue_zip',
-		'country'  => '_venue_country',
-		'phone'    => '_venue_phone',
-		'website'  => '_venue_website',
-		'capacity' => '_venue_capacity',
-	);
+	/** @var string[] */
+	private const EDITABLE_FIELDS = array( 'address', 'city', 'state', 'zip', 'country', 'phone', 'website', 'capacity' );
 
-	private const SYSTEM_META_FIELDS = array(
-		'coordinates' => '_venue_coordinates',
-		'timezone'    => '_venue_timezone',
-	);
-
+	/** @var string[] */
 	private const ADDRESS_FIELDS = array( 'address', 'city', 'state', 'zip', 'country' );
 
 	/**
@@ -56,8 +49,7 @@ class VenueProfileMutations {
 			'name'        => (string) $term->name,
 			'description' => (string) $term->description,
 		);
-
-		foreach ( self::EDITABLE_META_FIELDS as $field => $meta_key ) {
+		foreach ( self::editableMetaFields() as $field => $meta_key ) {
 			$profile[ $field ] = (string) get_term_meta( $term_id, $meta_key, true );
 		}
 
@@ -78,7 +70,7 @@ class VenueProfileMutations {
 			return new \WP_Error( 'venue_revision_required', 'An expected venue revision is required.', array( 'status' => 400 ) );
 		}
 
-		return self::mutate( $term_id, $changes, self::EDITABLE_META_FIELDS, self::STRATEGY_OVERWRITE, $expected_revision, true );
+		return self::mutate( $term_id, $changes, self::editableMetaFields(), self::STRATEGY_OVERWRITE, $expected_revision, true );
 	}
 
 	/**
@@ -90,37 +82,59 @@ class VenueProfileMutations {
 	 * @return array|\WP_Error
 	 */
 	public static function updateSystem( int $term_id, array $changes, string $strategy = self::STRATEGY_OVERWRITE ): array|\WP_Error {
-		return self::mutate(
-			$term_id,
-			$changes,
-			array_merge( self::EDITABLE_META_FIELDS, self::SYSTEM_META_FIELDS ),
-			$strategy,
-			'',
-			false
-		);
+		return self::mutate( $term_id, $changes, self::canonicalMetaFields(), $strategy, '', false );
 	}
 
 	/**
-	 * Serialize native WordPress venue term edits with canonical writers.
+	 * Reject unsupported native venue updates before WordPress can split a term.
+	 *
+	 * WordPress has no WP_Error-returning pre-update hook. wp_die() is therefore
+	 * the only reliable failure channel that prevents the native write.
+	 *
+	 * @param int    $parent   Parsed parent term ID.
+	 * @param int    $term_id  Term ID.
+	 * @param string $taxonomy Taxonomy slug.
+	 * @return int
+	 */
+	public static function guardNativeTermEdit( int $parent, int $term_id, string $taxonomy ): int {
+		if ( self::$internal_term_update || self::TAXONOMY !== $taxonomy ) {
+			return $parent;
+		}
+		if ( in_array( self::lockName( $term_id ), self::$native_term_locks, true ) ) {
+			self::abortNativeTermEdit( new \WP_Error( 'venue_mutation_reentrant', 'Recursive native mutation of the same venue is not supported.', array( 'status' => 409 ) ) );
+		}
+
+		$error = self::preflight( $term_id );
+		if ( is_wp_error( $error ) ) {
+			self::abortNativeTermEdit( $error );
+		}
+		return $parent;
+	}
+
+	/**
+	 * Acquire canonical serialization immediately before a native term write.
 	 *
 	 * @param int    $term_id  Term ID.
 	 * @param string $taxonomy Taxonomy slug.
 	 */
-	public static function beginTermEdit( int $term_id, string $taxonomy ): void {
+	public static function beginNativeTermEdit( int $term_id, string $taxonomy ): void {
 		if ( self::$internal_term_update || self::TAXONOMY !== $taxonomy ) {
 			return;
 		}
+
 		$lock_key = self::acquireLock( $term_id );
-		if ( ! is_wp_error( $lock_key ) ) {
-			self::$term_edit_locks[] = $lock_key;
+		if ( is_wp_error( $lock_key ) ) {
+			self::abortNativeTermEdit( $lock_key );
 		}
+		self::$native_term_locks[] = $lock_key;
+		self::registerShutdownCleanup();
 	}
 
 	/**
-	 * Release a lock acquired for a native WordPress venue term edit.
+	 * Release a native WordPress venue edit lock after all venue save hooks.
 	 */
-	public static function endTermEdit(): void {
-		$lock_key = array_pop( self::$term_edit_locks );
+	public static function endNativeTermEdit(): void {
+		$lock_key = array_pop( self::$native_term_locks );
 		if ( is_string( $lock_key ) ) {
 			self::releaseLock( $lock_key );
 		}
@@ -136,7 +150,21 @@ class VenueProfileMutations {
 	}
 
 	/**
-	 * Run one canonical mutation while holding the venue lock and transaction.
+	 * Build the multisite-scoped advisory lock name.
+	 *
+	 * Exposed for integration tests and operational diagnostics.
+	 *
+	 * @param int $term_id Venue term ID.
+	 * @return string
+	 */
+	public static function lockName( int $term_id ): string {
+		global $wpdb;
+		$scope = DB_NAME . '|' . $wpdb->prefix . '|' . get_current_blog_id() . '|' . $term_id;
+		return 'dme:venue:' . md5( $scope );
+	}
+
+	/**
+	 * Run one top-level canonical mutation.
 	 *
 	 * @param int    $term_id           Venue term ID.
 	 * @param array  $changes           Requested changes.
@@ -157,16 +185,28 @@ class VenueProfileMutations {
 			return new \WP_Error( 'venue_no_fields', 'No supported venue fields were provided.', array( 'status' => 400 ) );
 		}
 
-		$lock_key = self::acquireLock( $term_id );
-		if ( is_wp_error( $lock_key ) ) {
-			return $lock_key;
+		$preflight = self::preflight( $term_id );
+		if ( is_wp_error( $preflight ) ) {
+			return $preflight;
 		}
 
-		$transaction_open  = false;
-		$transaction_scope = '';
+		$lock_key = self::lockName( $term_id );
+		if ( isset( self::$active_mutations[ $lock_key ] ) ) {
+			return new \WP_Error( 'venue_mutation_reentrant', 'Recursive mutation of the same venue is not supported.', array( 'status' => 409 ) );
+		}
+		self::$active_mutations[ $lock_key ] = true;
+
+		$acquired = self::acquireLock( $term_id );
+		if ( is_wp_error( $acquired ) ) {
+			unset( self::$active_mutations[ $lock_key ] );
+			return $acquired;
+		}
+
+		$transaction_open       = false;
+		$connection_quarantined = false;
+		$quarantine_closed      = false;
 		try {
-			$transaction_scope = self::beginTransaction( $term_id );
-			if ( '' === $transaction_scope ) {
+			if ( false === static::query( 'START TRANSACTION' ) ) {
 				return new \WP_Error( 'venue_transaction_failed', 'Could not start the venue mutation transaction.', array( 'status' => 500 ) );
 			}
 			$transaction_open = true;
@@ -174,7 +214,8 @@ class VenueProfileMutations {
 
 			$term = get_term( $term_id, self::TAXONOMY );
 			if ( ! $term || is_wp_error( $term ) ) {
-				return self::rollbackError( $term_id, $term instanceof \WP_Error ? $term : new \WP_Error( 'venue_not_found', 'Venue not found.', array( 'status' => 404 ) ), $transaction_scope, $transaction_open );
+				$error = $term instanceof \WP_Error ? $term : new \WP_Error( 'venue_not_found', 'Venue not found.', array( 'status' => 404 ) );
+				return self::rollbackError( $term_id, $error, $transaction_open, $connection_quarantined, $quarantine_closed );
 			}
 
 			$current_revision = self::revision( $term );
@@ -189,15 +230,15 @@ class VenueProfileMutations {
 							'current_revision' => $current_revision,
 						)
 					),
-					$transaction_scope,
-					$transaction_open
+					$transaction_open,
+					$connection_quarantined,
+					$quarantine_closed
 				);
 			}
 
 			$normalized = self::normalizeChanges( $changes );
 			$updated    = array();
 			$term_args  = array();
-
 			foreach ( array( 'name', 'description' ) as $field ) {
 				if ( ! array_key_exists( $field, $normalized ) ) {
 					continue;
@@ -212,19 +253,19 @@ class VenueProfileMutations {
 				}
 			}
 
-			if ( ! empty( $term_args ) || wp_term_is_shared( $term_id ) ) {
+			if ( ! empty( $term_args ) ) {
 				global $wpdb;
 				$wpdb->last_error           = '';
 				self::$internal_term_update = true;
 				$result                     = wp_update_term( $term_id, self::TAXONOMY, $term_args );
 				self::$internal_term_update = false;
 				if ( is_wp_error( $result ) ) {
-					return self::rollbackError( $term_id, $result, $transaction_scope, $transaction_open );
+					return self::rollbackError( $term_id, $result, $transaction_open, $connection_quarantined, $quarantine_closed );
 				}
-				if ( '' !== $wpdb->last_error ) {
-					return self::rollbackError( $term_id, new \WP_Error( 'venue_term_update_failed', 'WordPress could not persist the venue term fields.', array( 'status' => 500 ) ), $transaction_scope, $transaction_open );
+				if ( '' !== self::databaseLastError() ) {
+					$error = new \WP_Error( 'venue_term_update_failed', 'WordPress could not persist the venue term fields.', array( 'status' => 500 ) );
+					return self::rollbackError( $term_id, $error, $transaction_open, $connection_quarantined, $quarantine_closed );
 				}
-				$term_id = (int) $result['term_id'];
 			}
 
 			$address_changed = false;
@@ -233,18 +274,19 @@ class VenueProfileMutations {
 					continue;
 				}
 
-				$existing = (string) get_term_meta( $term_id, $meta_key, true );
-				if ( self::STRATEGY_FILL_EMPTY === $strategy && '' !== $existing ) {
+				$existing_values = array_values( get_term_meta( $term_id, $meta_key, false ) );
+				if ( self::STRATEGY_FILL_EMPTY === $strategy && self::hasNonEmptyValue( $existing_values ) ) {
 					continue;
 				}
-				if ( $existing === $normalized[ $field ] ) {
+				$already_canonical = 1 === count( $existing_values ) && (string) $existing_values[0] === $normalized[ $field ];
+				if ( $already_canonical ) {
 					continue;
 				}
 
 				$result = update_term_meta( $term_id, $meta_key, $normalized[ $field ] );
 				if ( is_wp_error( $result ) || false === $result ) {
 					$error = is_wp_error( $result ) ? $result : new \WP_Error( 'venue_meta_update_failed', "Could not update venue field '{$field}'.", array( 'status' => 500 ) );
-					return self::rollbackError( $term_id, $error, $transaction_scope, $transaction_open );
+					return self::rollbackError( $term_id, $error, $transaction_open, $connection_quarantined, $quarantine_closed );
 				}
 				$updated[] = $field;
 				if ( in_array( $field, self::ADDRESS_FIELDS, true ) ) {
@@ -255,24 +297,30 @@ class VenueProfileMutations {
 			if ( $address_changed ) {
 				$derived = self::replaceDerivedLocation( $term_id );
 				if ( is_wp_error( $derived ) ) {
-					return self::rollbackError( $term_id, $derived, $transaction_scope, $transaction_open );
+					return self::rollbackError( $term_id, $derived, $transaction_open, $connection_quarantined, $quarantine_closed );
 				}
 				$updated = array_merge( $updated, $derived );
 			} elseif ( in_array( 'coordinates', $updated, true ) ) {
 				$derived = self::replaceTimezone( $term_id, (string) get_term_meta( $term_id, '_venue_coordinates', true ) );
 				if ( is_wp_error( $derived ) ) {
-					return self::rollbackError( $term_id, $derived, $transaction_scope, $transaction_open );
+					return self::rollbackError( $term_id, $derived, $transaction_open, $connection_quarantined, $quarantine_closed );
 				}
 				$updated = array_merge( $updated, $derived );
 			}
 
-			if ( ! self::commitTransaction( $transaction_scope ) ) {
-				$transaction_open = false;
-				self::clearCaches( $term_id );
+			if ( false === static::query( 'COMMIT' ) ) {
+				$transaction_open       = false;
+				$connection_quarantined = true;
+				$quarantine              = self::quarantineConnection( $term_id );
+				$quarantine_closed       = $quarantine['closed'];
 				return new \WP_Error(
 					'venue_commit_uncertain',
-					'The database did not confirm the venue commit; callers must read the venue again before retrying.',
-					array( 'status' => 503 )
+					'The database did not confirm the venue commit; the connection was quarantined and callers must read again before retrying.',
+					array(
+						'status'               => 503,
+						'connection_closed'    => $quarantine['closed'],
+						'connection_recovered' => $quarantine['recovered'],
+					)
 				);
 			}
 			$transaction_open = false;
@@ -290,29 +338,70 @@ class VenueProfileMutations {
 				'revision'       => $profile['revision'],
 				'profile'        => $profile,
 			);
-
-			/**
-			 * Fires after a canonical venue mutation is durably committed.
-			 *
-			 * @param array $result Mutation result.
-			 * @param bool  $profile_contract Whether the bounded profile contract was used.
-			 */
 			do_action( 'data_machine_events_venue_mutated', $result, $profile_contract );
 			return $result;
+		} catch ( \Throwable $throwable ) {
+			$error = new \WP_Error( 'venue_mutation_exception', $throwable->getMessage(), array( 'status' => 500 ) );
+			return self::rollbackError( $term_id, $error, $transaction_open, $connection_quarantined, $quarantine_closed );
 		} finally {
 			self::$internal_term_update = false;
 			if ( $transaction_open ) {
-				self::rollbackTransaction( $transaction_scope );
+				if ( false === static::query( 'ROLLBACK' ) ) {
+					$connection_quarantined = true;
+					$quarantine              = self::quarantineConnection( $term_id );
+					$quarantine_closed       = $quarantine['closed'];
+				}
 				self::clearCaches( $term_id );
 			}
-			self::releaseLock( $lock_key );
+			if ( ! $connection_quarantined ) {
+				self::releaseLock( $lock_key );
+			}
+			if ( ! $connection_quarantined || $quarantine_closed ) {
+				unset( self::$active_mutations[ $lock_key ] );
+			}
 		}
 	}
 
 	/**
-	 * Sanitize values owned by this contract.
+	 * Validate lock ordering and unsupported term state before acquisition.
 	 *
-	 * WordPress applies taxonomy and metadata filters again in its write APIs.
+	 * @param int $term_id Venue term ID.
+	 * @return true|\WP_Error
+	 */
+	private static function preflight( int $term_id ): true|\WP_Error {
+		global $wpdb;
+		if ( isset( self::$active_mutations[ self::lockName( $term_id ) ] ) ) {
+			return new \WP_Error( 'venue_mutation_reentrant', 'Recursive mutation of the same venue is not supported.', array( 'status' => 409 ) );
+		}
+		if ( '1' === (string) $wpdb->get_var( 'SELECT @@in_transaction' ) ) {
+			return new \WP_Error( 'venue_transaction_unsupported', 'Venue mutations must begin outside an existing SQL transaction.', array( 'status' => 409 ) );
+		}
+		if ( wp_term_is_shared( $term_id ) ) {
+			return new \WP_Error( 'venue_shared_term_unsupported', 'Shared venue terms must be split before canonical mutation.', array( 'status' => 409 ) );
+		}
+		return true;
+	}
+
+	/**
+	 * Return the canonical owner field map.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function canonicalMetaFields(): array {
+		return Venue_Taxonomy::$meta_fields;
+	}
+
+	/**
+	 * Return the editable subset of the canonical owner field map.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function editableMetaFields(): array {
+		return array_intersect_key( self::canonicalMetaFields(), array_flip( self::EDITABLE_FIELDS ) );
+	}
+
+	/**
+	 * Sanitize values owned by this contract.
 	 *
 	 * @param array $changes Raw changes.
 	 * @return array
@@ -336,13 +425,29 @@ class VenueProfileMutations {
 	}
 
 	/**
+	 * Whether duplicate metadata contains any curated value.
+	 *
+	 * @param array $values Metadata values.
+	 * @return bool
+	 */
+	private static function hasNonEmptyValue( array $values ): bool {
+		foreach ( $values as $value ) {
+			if ( '' !== trim( (string) $value ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Clear stale location data and derive replacements when possible.
 	 *
 	 * @param int $term_id Venue term ID.
-	 * @return array|\WP_Error Updated derived field names or an error.
+	 * @return array|\WP_Error
 	 */
 	private static function replaceDerivedLocation( int $term_id ): array|\WP_Error {
-		foreach ( self::SYSTEM_META_FIELDS as $field => $meta_key ) {
+		foreach ( array( 'coordinates', 'timezone' ) as $field ) {
+			$meta_key = self::canonicalMetaFields()[ $field ];
 			if ( metadata_exists( 'term', $term_id, $meta_key ) && ! delete_term_meta( $term_id, $meta_key ) ) {
 				return new \WP_Error( 'venue_meta_delete_failed', "Could not invalidate venue field '{$field}'.", array( 'status' => 500 ) );
 			}
@@ -354,7 +459,7 @@ class VenueProfileMutations {
 			return $updated;
 		}
 
-		$result = update_term_meta( $term_id, '_venue_coordinates', sanitize_text_field( $coordinates ) );
+		$result = update_term_meta( $term_id, self::canonicalMetaFields()['coordinates'], sanitize_text_field( $coordinates ) );
 		if ( is_wp_error( $result ) || false === $result ) {
 			return is_wp_error( $result ) ? $result : new \WP_Error( 'venue_coordinates_update_failed', 'Could not save derived venue coordinates.', array( 'status' => 500 ) );
 		}
@@ -371,7 +476,8 @@ class VenueProfileMutations {
 	 * @return array|\WP_Error
 	 */
 	private static function replaceTimezone( int $term_id, string $coordinates ): array|\WP_Error {
-		if ( metadata_exists( 'term', $term_id, '_venue_timezone' ) && ! delete_term_meta( $term_id, '_venue_timezone' ) ) {
+		$meta_key = self::canonicalMetaFields()['timezone'];
+		if ( metadata_exists( 'term', $term_id, $meta_key ) && ! delete_term_meta( $term_id, $meta_key ) ) {
 			return new \WP_Error( 'venue_timezone_delete_failed', 'Could not invalidate venue timezone.', array( 'status' => 500 ) );
 		}
 		if ( '' === $coordinates || ! GeoNamesService::isConfigured() ) {
@@ -382,7 +488,7 @@ class VenueProfileMutations {
 		if ( ! $timezone ) {
 			return array( 'timezone' );
 		}
-		$result = update_term_meta( $term_id, '_venue_timezone', $timezone );
+		$result = update_term_meta( $term_id, $meta_key, $timezone );
 		if ( is_wp_error( $result ) || false === $result ) {
 			return is_wp_error( $result ) ? $result : new \WP_Error( 'venue_timezone_update_failed', 'Could not save the derived venue timezone.', array( 'status' => 500 ) );
 		}
@@ -390,10 +496,7 @@ class VenueProfileMutations {
 	}
 
 	/**
-	 * Fingerprint every canonical field supported by owner writers.
-	 *
-	 * Duplicate meta rows participate so changing any row makes a previously
-	 * read revision stale even though single-value reads return the first row.
+	 * Fingerprint every canonical owner field and every duplicate row.
 	 *
 	 * @param \WP_Term $term Venue term.
 	 * @return string
@@ -406,31 +509,39 @@ class VenueProfileMutations {
 			'description' => (string) $term->description,
 			'meta'        => array(),
 		);
-		foreach ( array_merge( self::EDITABLE_META_FIELDS, self::SYSTEM_META_FIELDS ) as $field => $meta_key ) {
+		foreach ( self::canonicalMetaFields() as $field => $meta_key ) {
 			$state['meta'][ $field ] = array_values( get_term_meta( $term->term_id, $meta_key, false ) );
 		}
 		return hash( 'sha256', (string) wp_json_encode( $state ) );
 	}
 
 	/**
-	 * Roll back a failed mutation and distinguish an uncertain rollback.
+	 * Roll back a failed mutation and quarantine an uncertain connection.
 	 *
-	 * @param int       $term_id Venue term ID.
-	 * @param \WP_Error $error   Original error.
-	 * @param string    $transaction_scope Transaction or savepoint scope.
-	 * @param bool      $transaction_open  Whether the transaction remains open.
+	 * @param int       $term_id                Venue term ID.
+	 * @param \WP_Error $error                  Original error.
+	 * @param bool      $transaction_open       Whether the transaction remains open.
+	 * @param bool      $connection_quarantined Whether wpdb has been quarantined.
+	 * @param bool      $quarantine_closed      Whether the uncertain session closed.
 	 * @return \WP_Error
 	 */
-	private static function rollbackError( int $term_id, \WP_Error $error, string $transaction_scope, bool &$transaction_open ): \WP_Error {
-		if ( ! self::rollbackTransaction( $transaction_scope ) ) {
-			$transaction_open = false;
-			self::clearCaches( $term_id );
+	private static function rollbackError( int $term_id, \WP_Error $error, bool &$transaction_open, bool &$connection_quarantined, bool &$quarantine_closed ): \WP_Error {
+		if ( ! $transaction_open ) {
+			return $error;
+		}
+		if ( false === static::query( 'ROLLBACK' ) ) {
+			$transaction_open       = false;
+			$connection_quarantined = true;
+			$quarantine              = self::quarantineConnection( $term_id );
+			$quarantine_closed       = $quarantine['closed'];
 			return new \WP_Error(
 				'venue_rollback_uncertain',
-				'The database did not confirm the venue rollback; callers must read the venue again before retrying.',
+				'The database did not confirm the venue rollback; the connection was quarantined.',
 				array(
-					'status'         => 503,
-					'original_error' => $error->get_error_code(),
+					'status'               => 503,
+					'original_error'       => $error->get_error_code(),
+					'connection_closed'    => $quarantine['closed'],
+					'connection_recovered' => $quarantine['recovered'],
 				)
 			);
 		}
@@ -440,44 +551,32 @@ class VenueProfileMutations {
 	}
 
 	/**
-	 * Begin a transaction, or a savepoint when the caller already owns one.
+	 * Close the uncertain server session, which ends its transaction and locks.
+	 *
+	 * A fresh wpdb connection is attempted only after the old session is closed.
+	 * No RELEASE_LOCK query is sent against an uncertain transaction state.
 	 *
 	 * @param int $term_id Venue term ID.
-	 * @return string Empty string on failure, otherwise transaction scope.
+	 * @return array{closed:bool,recovered:bool}
 	 */
-	private static function beginTransaction( int $term_id ): string {
+	private static function quarantineConnection( int $term_id ): array {
 		global $wpdb;
-		$in_transaction = '1' === (string) $wpdb->get_var( 'SELECT @@in_transaction' );
-		$scope          = $in_transaction ? 'SAVEPOINT dme_venue_' . $term_id : 'TRANSACTION';
-		$sql            = $in_transaction ? $scope : 'START TRANSACTION';
-		return false === static::query( $sql ) ? '' : $scope;
-	}
-
-	/**
-	 * Commit or release the active venue mutation scope.
-	 *
-	 * @param string $scope Transaction scope.
-	 * @return bool
-	 */
-	private static function commitTransaction( string $scope ): bool {
-		$sql = 'TRANSACTION' === $scope ? 'COMMIT' : 'RELEASE ' . $scope;
-		return false !== static::query( $sql );
-	}
-
-	/**
-	 * Roll back the active venue mutation scope.
-	 *
-	 * @param string $scope Transaction scope.
-	 * @return bool
-	 */
-	private static function rollbackTransaction( string $scope ): bool {
-		if ( 'TRANSACTION' === $scope ) {
-			return false !== static::query( 'ROLLBACK' );
+		$closed = empty( $wpdb->dbh ) || ( is_callable( array( $wpdb, 'close' ) ) && true === call_user_func( array( $wpdb, 'close' ) ) );
+		if ( ! $closed ) {
+			return array(
+				'closed'    => false,
+				'recovered' => false,
+			);
 		}
-		if ( false === static::query( 'ROLLBACK TO ' . $scope ) ) {
-			return false;
+		self::$native_term_locks = array();
+		$recovered = true === $wpdb->check_connection( false );
+		if ( $recovered ) {
+			self::clearCaches( $term_id );
 		}
-		return false !== static::query( 'RELEASE ' . $scope );
+		return array(
+			'closed'    => true,
+			'recovered' => $recovered,
+		);
 	}
 
 	/**
@@ -488,9 +587,9 @@ class VenueProfileMutations {
 	 */
 	private static function acquireLock( int $term_id ): string|\WP_Error {
 		global $wpdb;
-		$scope    = DB_NAME . '|' . $wpdb->prefix . '|' . get_current_blog_id() . '|' . $term_id;
-		$lock_key = 'dme:venue:' . md5( $scope );
-		$result   = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_key, self::LOCK_TIMEOUT ) );
+		$lock_key = self::lockName( $term_id );
+		$timeout  = (int) apply_filters( 'data_machine_events_venue_lock_timeout', self::LOCK_TIMEOUT, $term_id );
+		$result   = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_key, max( 0, $timeout ) ) );
 		if ( '1' !== (string) $result ) {
 			return new \WP_Error( 'venue_lock_unavailable', 'The venue is currently being updated; retry the request.', array( 'status' => 409 ) );
 		}
@@ -511,19 +610,55 @@ class VenueProfileMutations {
 	}
 
 	/**
-	 * Execute transaction control SQL. Kept overridable for failure-path tests.
+	 * Convert an owner guard error into a request-stopping native failure.
+	 *
+	 * @param \WP_Error $error Guard error.
+	 */
+	private static function abortNativeTermEdit( \WP_Error $error ): never {
+		wp_die( esc_html( $error->get_error_message() ), 'Venue update rejected', array( 'response' => (int) ( $error->get_error_data()['status'] ?? 409 ) ) );
+	}
+
+	/**
+	 * Read the mutable wpdb error channel after a WordPress write.
+	 *
+	 * @return string
+	 */
+	private static function databaseLastError(): string {
+		global $wpdb;
+		return (string) $wpdb->last_error;
+	}
+
+	/**
+	 * Release native locks if WordPress aborts before saved_venue.
+	 */
+	private static function registerShutdownCleanup(): void {
+		if ( self::$shutdown_registered ) {
+			return;
+		}
+		self::$shutdown_registered = true;
+		register_shutdown_function(
+			static function (): void {
+				while ( ! empty( self::$native_term_locks ) ) {
+					self::endNativeTermEdit();
+				}
+			}
+		);
+	}
+
+	/**
+	 * Execute bounded transaction control SQL. Overridable for failure tests.
 	 *
 	 * @param string $sql Transaction statement.
 	 * @return int|bool
 	 */
 	protected static function query( string $sql ): int|bool {
 		global $wpdb;
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Bounded transaction control statements assembled internally.
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Only fixed transaction statements reach this method.
 		return $wpdb->query( $sql );
 	}
 
 	/**
-	 * Purge term and metadata caches after commit or rollback boundaries.
+	 * Purge term and metadata caches after transaction boundaries.
 	 *
 	 * @param int $term_id Venue term ID.
 	 */

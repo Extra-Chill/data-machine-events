@@ -204,6 +204,15 @@ Address changes atomically invalidate and, when providers are available,
 rederive owner-managed coordinates and timezone. Slug, taxonomy identity,
 coordinates, timezone, and unrelated term metadata are never caller-editable.
 
+Venue mutations must begin outside an existing SQL transaction. The owner
+contract acquires the site-and-term advisory lock before opening its own
+transaction; unsafe lock-order inversion returns `venue_transaction_unsupported`.
+Shared terms and recursive same-venue mutations fail closed with
+`venue_shared_term_unsupported` and `venue_mutation_reentrant`. An uncertain
+commit or rollback closes the old `wpdb` server session before reconnecting and
+returns `venue_commit_uncertain` or `venue_rollback_uncertain`; callers must
+read the venue again before retrying.
+
 ### `data_machine_events_get_promoter_data( int $term_id ): ?array`
 
 Return the structured promoter data array stored against a `promoter` term.

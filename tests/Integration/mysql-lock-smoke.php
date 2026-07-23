@@ -93,6 +93,7 @@ namespace {
 			}
 			return true;
 		}
+		public function db_server_info(): string { return (string) $this->dbh->query( 'SELECT VERSION()' )->fetchColumn(); }
 	}
 
 	function is_wp_error( mixed $value ): bool { return $value instanceof WP_Error; }
@@ -291,7 +292,12 @@ namespace {
 		dme_assert( array( 'operator-value', 'operator-value' ) === get_term_meta( $term_id, '_venue_phone', false ), 'First-row-equal duplicate remained stale.' );
 
 		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
-		$in_transaction = $wpdb->get_var( 'SELECT @@in_transaction' );
+		$in_transaction = $wpdb->get_var(
+			"SELECT COUNT(*)
+			 FROM performance_schema.events_transactions_current
+			 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
+			 AND STATE = 'ACTIVE'"
+		);
 		dme_assert( '1' === (string) $in_transaction, 'MySQL did not expose the ordering-test transaction: ' . (string) $wpdb->last_error );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://blocked.example' ) );
 		$result_code = is_wp_error( $result ) ? $result->get_error_code() : 'success';

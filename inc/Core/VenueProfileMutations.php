@@ -369,17 +369,49 @@ class VenueProfileMutations {
 	 * @return true|\WP_Error
 	 */
 	private static function preflight( int $term_id ): true|\WP_Error {
-		global $wpdb;
 		if ( isset( self::$active_mutations[ self::lockName( $term_id ) ] ) ) {
 			return new \WP_Error( 'venue_mutation_reentrant', 'Recursive mutation of the same venue is not supported.', array( 'status' => 409 ) );
 		}
-		if ( '1' === (string) $wpdb->get_var( 'SELECT @@in_transaction' ) ) {
+		$in_transaction = self::inTransaction();
+		if ( is_wp_error( $in_transaction ) ) {
+			return $in_transaction;
+		}
+		if ( $in_transaction ) {
 			return new \WP_Error( 'venue_transaction_unsupported', 'Venue mutations must begin outside an existing SQL transaction.', array( 'status' => 409 ) );
 		}
 		if ( wp_term_is_shared( $term_id ) ) {
 			return new \WP_Error( 'venue_shared_term_unsupported', 'Shared venue terms must be split before canonical mutation.', array( 'status' => 409 ) );
 		}
 		return true;
+	}
+
+	/**
+	 * Determine whether the current wpdb session owns an active transaction.
+	 *
+	 * MariaDB exposes a session variable. MySQL exposes the current transaction
+	 * through Performance Schema instead. Unknown state fails closed so the
+	 * contract never acquires its advisory lock after caller-owned row locks.
+	 *
+	 * @return bool|\WP_Error
+	 */
+	private static function inTransaction(): bool|\WP_Error {
+		global $wpdb;
+		$server_info = (string) $wpdb->db_server_info();
+		$wpdb->last_error = '';
+		if ( str_contains( $server_info, 'MariaDB' ) ) {
+			$result = $wpdb->get_var( 'SELECT @@in_transaction' );
+		} else {
+			$result = $wpdb->get_var(
+				"SELECT COUNT(*)
+				 FROM performance_schema.events_transactions_current
+				 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
+				 AND STATE = 'ACTIVE'"
+			);
+		}
+		if ( null === $result || '' !== self::databaseLastError() ) {
+			return new \WP_Error( 'venue_transaction_state_unknown', 'Could not safely determine the database transaction state.', array( 'status' => 503 ) );
+		}
+		return (int) $result > 0;
 	}
 
 	/**

@@ -67,6 +67,7 @@ jobs:
       - name: Run Homeboy ${{ matrix.command }}
         env:
           HOMEBOY_SETTINGS_JSON: '{"validation_dependencies":["/tmp/homeboy-data-machine"]}'
+          HOMEBOY_WORDPRESS_DEPENDENCY_PATHS: /tmp/homeboy-data-machine
         uses: Extra-Chill/homeboy-action@v2
         with:
           commands: ${{ matrix.command }}

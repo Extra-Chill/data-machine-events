@@ -12,8 +12,8 @@ namespace {
 		fwrite( STDOUT, "SKIP: DME_MYSQL_TEST_DSN is unavailable; no MySQL test endpoint was contacted.\n" );
 		exit( 0 );
 	}
-	if ( ! extension_loaded( 'pdo_mysql' ) || ! function_exists( 'pcntl_fork' ) ) {
-		fwrite( STDERR, "FAIL: pdo_mysql and pcntl are required.\n" );
+	if ( ! extension_loaded( 'pdo_mysql' ) ) {
+		fwrite( STDERR, "FAIL: pdo_mysql is required.\n" );
 		exit( 1 );
 	}
 	if ( ! preg_match( '/(?:^|;)dbname=([^;]+)/i', $dsn, $matches ) || ! str_contains( strtolower( $matches[1] ), 'test' ) ) {
@@ -223,6 +223,17 @@ namespace {
 		$statement->execute( array( $key ) );
 		return (int) $statement->fetchColumn();
 	}
+	if ( 'child' === ( $argv[1] ?? '' ) ) {
+		$term_id                          = (int) $argv[2];
+		$GLOBALS['dme_test_table']         = (string) $argv[3];
+		$result_file                       = (string) $argv[4];
+		$ready_file                        = (string) $argv[5];
+		$GLOBALS['wpdb']                   = new DmeTestWpdb();
+		file_put_contents( $ready_file, 'ready' );
+		$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'stale-ingestion' ), VenueProfileMutations::STRATEGY_FILL_EMPTY );
+		file_put_contents( $result_file, json_encode( is_wp_error( $result ) ? array( 'error' => $result->get_error_code() ) : $result ) );
+		exit( is_wp_error( $result ) ? 1 : 0 );
+	}
 
 	$wpdb = new DmeTestWpdb();
 	$GLOBALS['wpdb'] = $wpdb;
@@ -241,16 +252,17 @@ namespace {
 		dme_assert( 1 === dme_lock( $owner, 'GET_LOCK', $lock_key ), 'Owner did not acquire the venue lock.' );
 		$result_file = tempnam( sys_get_temp_dir(), 'dme-venue-mysql-' );
 		$ready_file  = $result_file . '.ready';
-		$pid = pcntl_fork();
-		dme_assert( -1 !== $pid, 'Could not fork fill-empty writer.' );
-		if ( 0 === $pid ) {
-			$owner = null;
-			$GLOBALS['wpdb'] = new DmeTestWpdb();
-			file_put_contents( $ready_file, 'ready' );
-			$result = VenueProfileMutations::updateSystem( $term_id, array( 'phone' => 'stale-ingestion' ), VenueProfileMutations::STRATEGY_FILL_EMPTY );
-			file_put_contents( $result_file, json_encode( is_wp_error( $result ) ? array( 'error' => $result->get_error_code() ) : $result ) );
-			exit( 0 );
-		}
+		$process = proc_open(
+			array( PHP_BINARY, __FILE__, 'child', (string) $term_id, $GLOBALS['dme_test_table'], $result_file, $ready_file ),
+			array(
+				0 => array( 'pipe', 'r' ),
+				1 => array( 'pipe', 'w' ),
+				2 => array( 'pipe', 'w' ),
+			),
+			$pipes
+		);
+		dme_assert( is_resource( $process ), 'Could not start fill-empty writer process.' );
+		fclose( $pipes[0] );
 		$deadline = microtime( true ) + 2;
 		while ( ! file_exists( $ready_file ) && microtime( true ) < $deadline ) {
 			usleep( 10000 );
@@ -260,9 +272,13 @@ namespace {
 		$statement = $wpdb->dbh->prepare( "INSERT INTO {$table}_meta (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'operator-value')" );
 		$statement->execute( array( $term_id ) );
 		dme_assert( 1 === dme_lock( $owner, 'RELEASE_LOCK', $lock_key ), 'Owner did not release the venue lock.' );
-		pcntl_waitpid( $pid, $status );
+		$child_stdout = stream_get_contents( $pipes[1] );
+		$child_stderr = stream_get_contents( $pipes[2] );
+		fclose( $pipes[1] );
+		fclose( $pipes[2] );
+		$child_status = proc_close( $process );
 		$child = json_decode( (string) file_get_contents( $result_file ), true );
-		dme_assert( pcntl_wifexited( $status ) && ! isset( $child['error'] ), 'Fill-empty writer failed.' );
+		dme_assert( 0 === $child_status && ! isset( $child['error'] ), 'Fill-empty writer failed: ' . trim( $child_stdout . ' ' . $child_stderr ) );
 		dme_assert( 'operator-value' === get_term_meta( $term_id, '_venue_phone', true ), 'Fill-empty writer overwrote the operator value.' );
 		dme_assert( ! in_array( 'phone', $child['updated_fields'], true ), 'Waiting fill-empty writer did not recheck after locking.' );
 

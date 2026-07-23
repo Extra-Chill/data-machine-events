@@ -275,12 +275,25 @@ namespace {
 		$statement = $wpdb->dbh->prepare( "INSERT INTO {$meta_table} (term_id, meta_key, meta_value) VALUES (?, '_venue_phone', 'operator-value')" );
 		$statement->execute( array( $term_id ) );
 		dme_assert( 1 === dme_lock( $owner, 'RELEASE_LOCK', $lock_key ), 'Owner did not release the venue lock.' );
+		$process_deadline = microtime( true ) + 15;
+		do {
+			$process_status = proc_get_status( $process );
+			if ( ! $process_status['running'] ) {
+				break;
+			}
+			usleep( 10000 );
+		} while ( microtime( true ) < $process_deadline );
+		if ( $process_status['running'] ) {
+			proc_terminate( $process );
+		}
 		$child_stdout = stream_get_contents( $pipes[1] );
 		$child_stderr = stream_get_contents( $pipes[2] );
 		fclose( $pipes[1] );
 		fclose( $pipes[2] );
-		$child_status = proc_close( $process );
+		$close_status = proc_close( $process );
+		$child_status = -1 !== $process_status['exitcode'] ? $process_status['exitcode'] : $close_status;
 		$child = json_decode( (string) file_get_contents( $result_file ), true );
+		dme_assert( ! $process_status['running'], 'Fill-empty writer exceeded its 15-second completion deadline.' );
 		dme_assert( 0 === $child_status && ! isset( $child['error'] ), 'Fill-empty writer failed: ' . trim( $child_stdout . ' ' . $child_stderr ) );
 		dme_assert( 'operator-value' === get_term_meta( $term_id, '_venue_phone', true ), 'Fill-empty writer overwrote the operator value.' );
 		dme_assert( ! in_array( 'phone', $child['updated_fields'], true ), 'Waiting fill-empty writer did not recheck after locking.' );
@@ -296,7 +309,8 @@ namespace {
 			"SELECT COUNT(*)
 			 FROM performance_schema.events_transactions_current
 			 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
-			 AND STATE = 'ACTIVE'"
+			 AND STATE = 'ACTIVE'
+			 AND AUTOCOMMIT = 'NO'"
 		);
 		dme_assert( '1' === (string) $in_transaction, 'MySQL did not expose the ordering-test transaction: ' . (string) $wpdb->last_error );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://blocked.example' ) );

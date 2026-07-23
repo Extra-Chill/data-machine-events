@@ -405,7 +405,8 @@ class VenueProfileMutations {
 				"SELECT COUNT(*)
 				 FROM performance_schema.events_transactions_current
 				 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
-				 AND STATE = 'ACTIVE'"
+				 AND STATE = 'ACTIVE'
+				 AND AUTOCOMMIT = 'NO'"
 			);
 		}
 		if ( null === $result || '' !== self::databaseLastError() ) {

@@ -125,6 +125,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$term_id = $this->venue( 'Transaction Ordering' );
 		$profile = VenueProfileMutations::read( $term_id );
 		$wpdb->query( 'START TRANSACTION' );
+		$wpdb->get_var( $wpdb->prepare( "SELECT term_id FROM {$wpdb->terms} WHERE term_id = %d FOR UPDATE", $term_id ) );
 		$result = VenueProfileMutations::updateProfile( $term_id, array( 'phone' => 'blocked' ), $profile['revision'] );
 		$wpdb->query( 'ROLLBACK' );
 

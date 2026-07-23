@@ -94,7 +94,6 @@ namespace {
 			}
 			return true;
 		}
-		public function db_server_info(): string { return (string) $this->dbh->query( 'SELECT VERSION()' )->fetchColumn(); }
 	}
 
 	function is_wp_error( mixed $value ): bool { return $value instanceof WP_Error; }
@@ -315,12 +314,11 @@ namespace {
 
 		dme_stage( 'transaction-ordering' );
 		dme_assert( false !== $wpdb->query( 'START TRANSACTION' ), 'Could not start ordering-test transaction.' );
+		dme_assert( false !== $wpdb->query( "SELECT term_id FROM {$table} WHERE term_id = {$term_id} FOR UPDATE" ), 'Could not establish ordering-test row lock.' );
 		$in_transaction = $wpdb->get_var(
 			"SELECT COUNT(*)
-			 FROM performance_schema.events_transactions_current
-			 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
-			 AND STATE = 'ACTIVE'
-			 AND AUTOCOMMIT = 'NO'"
+			 FROM information_schema.innodb_trx
+			 WHERE trx_mysql_thread_id = CONNECTION_ID()"
 		);
 		dme_assert( '1' === (string) $in_transaction, 'MySQL did not expose the ordering-test transaction: ' . (string) $wpdb->last_error );
 		$result = VenueProfileMutations::updateSystem( $term_id, array( 'website' => 'https://blocked.example' ) );

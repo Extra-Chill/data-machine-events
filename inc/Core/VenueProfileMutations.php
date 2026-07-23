@@ -388,27 +388,21 @@ class VenueProfileMutations {
 	/**
 	 * Determine whether the current wpdb session owns an active transaction.
 	 *
-	 * MariaDB exposes a session variable. MySQL exposes the current transaction
-	 * through Performance Schema instead. Unknown state fails closed so the
-	 * contract never acquires its advisory lock after caller-owned row locks.
+	 * InnoDB exposes the current connection's transaction without requiring the
+	 * elevated Performance Schema privileges production WordPress users lack.
+	 * Unknown state fails closed so the contract never acquires its advisory lock
+	 * after caller-owned row locks.
 	 *
 	 * @return bool|\WP_Error
 	 */
 	private static function inTransaction(): bool|\WP_Error {
 		global $wpdb;
-		$server_info = (string) $wpdb->db_server_info();
 		$wpdb->last_error = '';
-		if ( str_contains( $server_info, 'MariaDB' ) ) {
-			$result = $wpdb->get_var( 'SELECT @@in_transaction' );
-		} else {
-			$result = $wpdb->get_var(
-				"SELECT COUNT(*)
-				 FROM performance_schema.events_transactions_current
-				 WHERE THREAD_ID = PS_CURRENT_THREAD_ID()
-				 AND STATE = 'ACTIVE'
-				 AND AUTOCOMMIT = 'NO'"
-			);
-		}
+		$result = $wpdb->get_var(
+			'SELECT COUNT(*)
+			 FROM information_schema.innodb_trx
+			 WHERE trx_mysql_thread_id = CONNECTION_ID()'
+		);
 		if ( null === $result || '' !== self::databaseLastError() ) {
 			return new \WP_Error( 'venue_transaction_state_unknown', 'Could not safely determine the database transaction state.', array( 'status' => 503 ) );
 		}

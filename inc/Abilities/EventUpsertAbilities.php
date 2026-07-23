@@ -41,7 +41,7 @@ class EventUpsertAbilities {
 				'input_schema'        => $this->getInputSchema(),
 				'output_schema'       => $this->getOutputSchema(),
 				'execute_callback'    => array( $this, 'executeUpsertEvent' ),
-				'permission_callback' => AbilityPermissions::canWrite(),
+				'permission_callback' => array( $this, 'canUpsertEvent' ),
 				'meta'                => array(
 					'show_in_rest' => true,
 					'mcp'          => array( 'public' => true ),
@@ -53,6 +53,29 @@ class EventUpsertAbilities {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Check access to the canonical event upsert boundary.
+	 *
+	 * The ability keeps the shared write gate as its default. Consumers may
+	 * narrowly grant or deny this one operation from the validated ability
+	 * input without changing permissions for unrelated event mutations.
+	 *
+	 * @param array $input Validated ability input.
+	 * @return bool
+	 */
+	public function canUpsertEvent( array $input = array() ): bool {
+		$can_write = AbilityPermissions::canWrite();
+		$allowed   = (bool) $can_write();
+
+		/**
+		 * Filter permission for the canonical event upsert ability only.
+		 *
+		 * @param bool  $allowed Shared DME write-gate decision.
+		 * @param array $input   Validated event-upsert input.
+		 */
+		return (bool) apply_filters( 'datamachine_events_upsert_event_permission', $allowed, $input );
 	}
 
 	/**
@@ -94,17 +117,18 @@ class EventUpsertAbilities {
 
 		$result = ( new EventUpsert() )->upsertCanonicalEvent( $event, $config );
 		if ( empty( $result['success'] ) ) {
-			$retryable  = ! empty( $result['retryable'] );
-			$error_code = (string) ( $result['error_code'] ?? $result['rule'] ?? 'event_upsert_failed' );
+			$retryable               = ! empty( $result['retryable'] );
+			$error_code              = (string) ( $result['error_code'] ?? $result['rule'] ?? 'event_upsert_failed' );
+			$status                  = (int) ( $result['status'] ?? ( $retryable ? 503 : 400 ) );
+			$error_data              = is_array( $result['error_data'] ?? null ) ? $result['error_data'] : array();
+			$error_data['status']    = $status;
+			$error_data['rule']      = $result['rule'] ?? ( $error_data['rule'] ?? null );
+			$error_data['retryable'] = $retryable;
+			$error_data['transient'] = ! empty( $result['transient'] ) || $retryable;
 			return new \WP_Error(
 				$error_code,
 				(string) ( $result['error'] ?? 'Event upsert failed.' ),
-				array(
-					'status'    => $retryable ? 503 : 400,
-					'rule'      => $result['rule'] ?? null,
-					'retryable' => $retryable,
-					'transient' => $retryable,
-				)
+				$error_data
 			);
 		}
 

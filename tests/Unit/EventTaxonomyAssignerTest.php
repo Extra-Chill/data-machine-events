@@ -283,8 +283,8 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Attach a venue term whose city is Houston (the event's actual city).
 		$venue = wp_insert_term( 'Toyota Center', 'venue' );
 		$this->assertNotWPError( $venue );
-		update_term_meta( $venue['term_id'], '_venue_city', 'Houston' );
-		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Houston' );
+		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
 
@@ -320,8 +320,8 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 
 		$venue = wp_insert_term( 'The Grand 1894 Opera House', 'venue' );
 		$this->assertNotWPError( $venue );
-		update_term_meta( $venue['term_id'], '_venue_city', 'Galveston' );
-		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Galveston' );
+		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
 
@@ -356,8 +356,8 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Venue in "Tinyburg" — no matching location term exists.
 		$venue = wp_insert_term( 'Tinyburg Hall', 'venue' );
 		$this->assertNotWPError( $venue );
-		update_term_meta( $venue['term_id'], '_venue_city', 'Tinyburg' );
-		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Tinyburg' );
+		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
 
@@ -393,8 +393,8 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Venue in "Sugar Land" (a Houston suburb with no direct location term).
 		$venue = wp_insert_term( 'Smart Financial Centre', 'venue' );
 		$this->assertNotWPError( $venue );
-		update_term_meta( $venue['term_id'], '_venue_city', 'Sugar Land' );
-		wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Sugar Land' );
+		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
 
@@ -434,5 +434,11 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		);
 		$this->assertGreaterThan( 0, $post_id );
 		return $post_id;
+	}
+
+	private function set_venue_city( int $term_id, string $city ): void {
+		$result = update_term_meta( $term_id, '_venue_city', $city );
+		$this->assertNotFalse( $result, 'Canonical venue city fixture must persist.' );
+		$this->assertSame( $city, get_term_meta( $term_id, '_venue_city', true ) );
 	}
 }

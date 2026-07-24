@@ -493,12 +493,17 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $second );
 		wp_set_object_terms( $post_id, array( $first['term_id'], $second['term_id'] ), 'venue' );
 
-		$nested       = false;
-		$invalidations = 0;
-		$snapshots     = array();
-		CalendarCache::get_generation();
-		$generation_listener = static function () use ( &$invalidations ): void {
-			++$invalidations;
+		$nested         = false;
+		$invalidations  = 0;
+		$snapshots      = array();
+		$external_cache = wp_using_ext_object_cache();
+		wp_using_ext_object_cache( false );
+		$cache_key      = $this->prime_invalidation_sentinel();
+		$cache_observer = static function () use ( $cache_key, &$invalidations ): void {
+			if ( false === CalendarCache::get( $cache_key ) ) {
+				++$invalidations;
+				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
+			}
 		};
 		$nested_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, $first, &$nested ): void {
 			if ( ! $nested && $post_id === (int) $object_id && 'venue' === $taxonomy ) {
@@ -516,15 +521,19 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			}
 		};
 
-		add_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $generation_listener );
+		add_action( 'set_object_terms', $cache_observer, 15 );
+		add_action( 'deleted_term_relationships', $cache_observer, 15 );
 		add_action( 'delete_term_relationships', $nested_removal, 20, 3 );
 		add_action( 'deleted_term_relationships', $observe_removal, 20, 3 );
 		try {
 			wp_remove_object_terms( $post_id, array( $first['term_id'], $second['term_id'] ), 'venue' );
 		} finally {
-			remove_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $generation_listener );
+			remove_action( 'set_object_terms', $cache_observer, 15 );
+			remove_action( 'deleted_term_relationships', $cache_observer, 15 );
 			remove_action( 'delete_term_relationships', $nested_removal, 20 );
 			remove_action( 'deleted_term_relationships', $observe_removal, 20 );
+			delete_transient( $cache_key );
+			wp_using_ext_object_cache( $external_cache );
 		}
 
 		$this->assertSame( 2, $invalidations );
@@ -596,17 +605,36 @@ class CalendarCacheTest extends WP_UnitTestCase {
 	}
 
 	private function count_calendar_invalidations( callable $operation ): int {
-		$count = 0;
-		CalendarCache::get_generation();
-		$listener = static function () use ( &$count ): void {
-			++$count;
+		$count          = 0;
+		$external_cache = wp_using_ext_object_cache();
+		wp_using_ext_object_cache( false );
+		$cache_key = $this->prime_invalidation_sentinel();
+		$observer  = static function () use ( $cache_key, &$count ): void {
+			if ( false === CalendarCache::get( $cache_key ) ) {
+				++$count;
+				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
+			}
 		};
 
-		add_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $listener );
-		$operation();
-		remove_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $listener );
+		add_action( 'set_object_terms', $observer, 15 );
+		add_action( 'deleted_term_relationships', $observer, 15 );
+		try {
+			$operation();
+		} finally {
+			remove_action( 'set_object_terms', $observer, 15 );
+			remove_action( 'deleted_term_relationships', $observer, 15 );
+			delete_transient( $cache_key );
+			wp_using_ext_object_cache( $external_cache );
+		}
 
 		return $count;
+	}
+
+	private function prime_invalidation_sentinel(): string {
+		$key = CalendarCache::generate_key( array( 'scope_token' => wp_generate_uuid4() ), 'invalidation' );
+		$this->assertTrue( CalendarCache::set( $key, 'primed', MINUTE_IN_SECONDS ) );
+		$this->assertSame( 'primed', CalendarCache::get( $key ) );
+		return $key;
 	}
 
 	private function pending_removed_terms(): array {

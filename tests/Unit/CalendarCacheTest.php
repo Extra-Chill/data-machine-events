@@ -365,6 +365,43 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $invalidations );
 	}
 
+	/**
+	 * @dataProvider object_cache_modes
+	 */
+	public function test_real_venue_mutation_makes_calendar_caches_unreadable_without_flushing_other_transients( bool $persistent ): void {
+		$original_mode = wp_using_ext_object_cache();
+		wp_using_ext_object_cache( $persistent );
+
+		$post_id       = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
+		$venue         = wp_insert_term( 'Cache Outcome Venue ' . uniqid(), 'venue' );
+		$bucket_key    = CalendarCache::generate_key( array(), 'dates' );
+		$response_key  = CalendarCache::generate_full_response_key( array() );
+		$unrelated_key = 'unrelated_calendar_invalidation_' . uniqid();
+		$this->assertNotWPError( $venue );
+
+		CalendarCache::set( $bucket_key, 'stale bucket', HOUR_IN_SECONDS );
+		CalendarCache::set_full_response( $response_key, 'stale response', HOUR_IN_SECONDS );
+		set_transient( $unrelated_key, 'preserved', HOUR_IN_SECONDS );
+
+		try {
+			wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' );
+
+			$this->assertFalse( CalendarCache::get( $bucket_key ) );
+			$this->assertFalse( CalendarCache::get_full_response( $response_key ) );
+			$this->assertSame( 'preserved', get_transient( $unrelated_key ) );
+		} finally {
+			delete_transient( $unrelated_key );
+			wp_using_ext_object_cache( $original_mode );
+		}
+	}
+
+	public function object_cache_modes(): array {
+		return array(
+			'nonpersistent object cache' => array( false ),
+			'persistent object cache'    => array( true ),
+		);
+	}
+
 	public function test_identical_venue_append_does_not_invalidate_calendar_cache(): void {
 		$post_id = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
 		$venue   = wp_insert_term( 'Cache Identical Append Venue ' . uniqid(), 'venue' );
@@ -459,11 +496,9 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$nested       = false;
 		$invalidations = 0;
 		$snapshots     = array();
-		$query_filter  = static function ( string $query ) use ( &$invalidations ): string {
-			if ( str_starts_with( ltrim( $query ), 'DELETE FROM' ) && str_contains( $query, '_transient_' . CalendarCache::PREFIX ) ) {
-				++$invalidations;
-			}
-			return $query;
+		CalendarCache::get_generation();
+		$generation_listener = static function () use ( &$invalidations ): void {
+			++$invalidations;
 		};
 		$nested_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, $first, &$nested ): void {
 			if ( ! $nested && $post_id === (int) $object_id && 'venue' === $taxonomy ) {
@@ -481,13 +516,13 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			}
 		};
 
-		add_filter( 'query', $query_filter );
+		add_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $generation_listener );
 		add_action( 'delete_term_relationships', $nested_removal, 20, 3 );
 		add_action( 'deleted_term_relationships', $observe_removal, 20, 3 );
 		try {
 			wp_remove_object_terms( $post_id, array( $first['term_id'], $second['term_id'] ), 'venue' );
 		} finally {
-			remove_filter( 'query', $query_filter );
+			remove_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $generation_listener );
 			remove_action( 'delete_term_relationships', $nested_removal, 20 );
 			remove_action( 'deleted_term_relationships', $observe_removal, 20 );
 		}
@@ -561,17 +596,15 @@ class CalendarCacheTest extends WP_UnitTestCase {
 	}
 
 	private function count_calendar_invalidations( callable $operation ): int {
-		$count  = 0;
-		$filter = static function ( string $query ) use ( &$count ): string {
-			if ( str_starts_with( ltrim( $query ), 'DELETE FROM' ) && str_contains( $query, '_transient_' . CalendarCache::PREFIX ) ) {
-				++$count;
-			}
-			return $query;
+		$count = 0;
+		CalendarCache::get_generation();
+		$listener = static function () use ( &$count ): void {
+			++$count;
 		};
 
-		add_filter( 'query', $filter );
+		add_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $listener );
 		$operation();
-		remove_filter( 'query', $filter );
+		remove_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $listener );
 
 		return $count;
 	}

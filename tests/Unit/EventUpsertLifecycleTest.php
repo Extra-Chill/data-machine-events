@@ -36,6 +36,7 @@ class EventUpsertLifecycleTest extends WP_UnitTestCase {
 		if ( class_exists( PostIdentityIndex::class ) ) {
 			( new PostIdentityIndex() )->create_table();
 		}
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 
 		$ability_registry = \WP_Abilities_Registry::get_instance();
 		if ( ! $ability_registry->is_registered( 'datamachine/upsert-post' ) ) {
@@ -147,6 +148,7 @@ class EventUpsertLifecycleTest extends WP_UnitTestCase {
 		remove_all_filters( 'datamachine_events_before_event_upsert_persistence' );
 		remove_all_actions( 'datamachine_events_after_event_upsert_persistence' );
 		remove_all_filters( 'wp_insert_post_empty_content' );
+		wp_set_current_user( 0 );
 		parent::tearDown();
 	}
 

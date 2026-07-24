@@ -374,6 +374,7 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		}
 
 		$html         = (string) file_get_contents( $fixture_path );
+		$html         = str_replace( '2026-', ( (int) gmdate( 'Y' ) + 5 ) . '-', $html );
 		$target_url   = 'https://charlestonpourhouse.com';
 		$direct       = ( new JsonLdExtractor() )->extract( $html, $target_url );
 		$direct_count = count( $direct );

@@ -36,6 +36,7 @@ class EventUpsertAbilitiesTest extends WP_UnitTestCase {
 		if ( class_exists( PostIdentityIndex::class ) ) {
 			( new PostIdentityIndex() )->create_table();
 		}
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 		$this->lock_query_filter = static function ( string $query ): string {
 			if ( str_contains( $query, 'GET_LOCK' ) || str_contains( $query, 'RELEASE_LOCK' ) ) {
 				return 'SELECT 1';

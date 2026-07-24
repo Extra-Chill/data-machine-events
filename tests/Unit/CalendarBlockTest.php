@@ -12,6 +12,7 @@ namespace DataMachineEvents\Tests\Unit;
 
 use WP_UnitTestCase;
 use DataMachineEvents\Blocks\Calendar\Pagination\Renderer as Pagination;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 
 class CalendarBlockTest extends WP_UnitTestCase {
 
@@ -116,6 +117,7 @@ class CalendarBlockTest extends WP_UnitTestCase {
 			2
 		);
 
+		CalendarCache::invalidate();
 		$html = $this->render_calendar( array( 'displayMode' => 'date-groups', 'showSearch' => false ) );
 
 		$this->assertSame( array(), $_GET, 'Consumers do not need to mutate request globals.' );
@@ -163,6 +165,7 @@ class CalendarBlockTest extends WP_UnitTestCase {
 			2
 		);
 
+		CalendarCache::invalidate();
 		$this->render_calendar();
 
 		$this->assertSame( '40.7128', $parsed_input['geo_lat'] );

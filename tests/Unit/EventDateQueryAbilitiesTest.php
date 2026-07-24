@@ -218,6 +218,7 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	public function test_matching_ids_sql_preserves_consumer_constraints_without_querying(): void {
+		wp_load_alloptions();
 		$filter = static function ( array $query_args, array $input ): array {
 			if ( 'sql-capture-scope' === ( $input['scope_token'] ?? '' ) ) {
 				$query_args['post__in'] = array( 123, 456 );
@@ -253,6 +254,7 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	public function test_matching_ids_sql_handles_large_consumer_sets_without_materializing_results(): void {
+		wp_load_alloptions();
 		$large_set = range( 1, 17000 );
 		$filter    = static function ( array $query_args ) use ( $large_set ): array {
 			$query_args['post__in'] = $large_set;

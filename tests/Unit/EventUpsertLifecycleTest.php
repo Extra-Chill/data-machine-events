@@ -538,11 +538,12 @@ class EventUpsertLifecycleTest extends WP_UnitTestCase {
 		$post_id         = (int) $created['data']['post_id'];
 		$old_venue_id   = (int) reset( wp_get_object_terms( $post_id, 'venue', array( 'fields' => 'ids' ) ) );
 		$candidate      = 'Ambiguous Candidate ' . uniqid();
-		Venue_Taxonomy::find_or_create_venue( $candidate, array( 'address' => '100 Main Street', 'city' => 'Charleston', 'state' => 'SC', 'country' => 'US' ) );
+		$this->assertNotWPError( wp_insert_term( $candidate . '!', 'venue' ) );
+		$this->assertNotWPError( wp_insert_term( $candidate . '?', 'venue' ) );
 		$observed = 0;
 		add_filter( 'datamachine_events_before_event_upsert_persistence', static function ( $allowed, array $context ) use ( &$observed ) { $observed = $context['venue_term_id']; return $allowed; }, 10, 2 );
 
-		$result = $this->invoke_upsert( array( 'title' => 'Resolution Skip Event', 'venue' => $candidate, 'venueAddress' => '200 Main Street', 'venueCity' => 'Atlanta', 'venueState' => 'GA', 'venueCountry' => 'US', 'startDate' => '2027-03-06', 'startTime' => '21:00', 'source_identity' => $source_identity ) );
+		$result = $this->invoke_upsert( array( 'title' => 'Resolution Skip Event', 'venue' => $candidate, 'startDate' => '2027-03-06', 'startTime' => '21:00', 'source_identity' => $source_identity ) );
 
 		$this->assertTrue( $result['success'] ?? false, wp_json_encode( $result ) );
 		$this->assertSame( $old_venue_id, $observed );

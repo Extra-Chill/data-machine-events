@@ -319,6 +319,8 @@ class EventScraperTestAbilityTest extends WP_UnitTestCase {
 		}
 
 		$html         = (string) file_get_contents( $fixture_path );
+		$future_year  = (int) current_time( 'Y' ) + 1;
+		$html         = (string) preg_replace( '/(<span class="date">[^<]+)(<\/span>)/', '$1, ' . $future_year . '$2', $html );
 		$target_url   = 'https://elephantroom.com/calendar';
 		$direct       = ( new BandzoogleExtractor() )->extract( $html, $target_url );
 		$direct_count = count( $direct );

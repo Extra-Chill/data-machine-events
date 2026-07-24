@@ -142,18 +142,8 @@ class EventUpsertAbilitiesTest extends WP_UnitTestCase {
 		$input = $this->validInput();
 		$name  = $input['event']['venue'];
 
-		Venue_Taxonomy::find_or_create_venue(
-			$name,
-			array(
-				'address' => '100 Main Street',
-				'city'    => 'Charleston',
-				'state'   => 'SC',
-				'country' => 'US',
-			)
-		);
-		$input['event']['venueAddress'] = '200 Main Street';
-		$input['event']['venueCity']    = 'Atlanta';
-		$input['event']['venueState']   = 'GA';
+		$this->assertNotWPError( wp_insert_term( $name . '!', 'venue' ) );
+		$this->assertNotWPError( wp_insert_term( $name . '?', 'venue' ) );
 
 		$result = $this->ability->executeUpsertEvent( $input );
 

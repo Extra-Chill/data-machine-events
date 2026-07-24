@@ -246,7 +246,7 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( array(), $executed_queries );
-		$this->assertStringContainsString( 'SELECT DISTINCT', $sql );
+		$this->assertMatchesRegularExpression( '/SELECT\s+DISTINCT/', $sql );
 		$this->assertStringContainsString( '123,456', str_replace( ' ', '', $sql ) );
 		$this->assertStringContainsString( 'needle', $sql );
 		$this->assertStringNotContainsString( ' LIMIT ', strtoupper( $sql ) );

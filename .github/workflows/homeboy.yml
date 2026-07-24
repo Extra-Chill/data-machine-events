@@ -59,8 +59,9 @@ jobs:
 
       - name: Run Homeboy ${{ matrix.command }}
         env:
-          HOMEBOY_SETTINGS_JSON: '{"database_type":"mysql","validation_dependencies":["/tmp/data-machine"]}'
+          HOMEBOY_SETTINGS_JSON: '{"database_type":"mysql","validation_dependencies":["/tmp/data-machine"],"wp_codebox_multisite":true,"wp_codebox_phpunit_bootstrap_mode":"managed"}'
           HOMEBOY_WORDPRESS_DEPENDENCY_PATHS: /tmp/data-machine
+          HOMEBOY_WP_CODEBOX_REF: fix/2007-deferred-init-lifecycle
         uses: Extra-Chill/homeboy-action@v2
         with:
           commands: ${{ matrix.command }}

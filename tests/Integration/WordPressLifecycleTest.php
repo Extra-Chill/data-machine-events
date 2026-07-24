@@ -34,6 +34,7 @@ class WordPressLifecycleTest extends WP_UnitTestCase {
 		$this->assertTrue( $blocks->is_registered( 'data-machine-events/calendar' ) );
 		$this->assertTrue( $blocks->is_registered( 'data-machine-events/event-details' ) );
 		$this->assertTrue( $blocks->is_registered( 'data-machine-events/events-map' ) );
+		do_action( 'wp_abilities_api_init' );
 		$this->assertNotNull( wp_get_ability( 'data-machine-events/venue-stats' ) );
 
 		$handlers = apply_filters( 'datamachine_handlers', array(), 'event_import' );

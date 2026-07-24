@@ -236,6 +236,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$this->blog_ids[] = $blog_id;
 		$first_lock = VenueProfileMutations::lockName( $first_id );
 		switch_to_blog( $blog_id );
+		wp_cache_flush();
 		Venue_Taxonomy::register();
 		$second_id = $this->venue( $name, false );
 		update_term_meta( $second_id, '_venue_phone', 'same-value' );
@@ -257,6 +258,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$waiter->close();
 		wp_delete_term( $second_id, 'venue' );
 		restore_current_blog();
+		wp_cache_flush();
 
 		$this->assertNotSame( $first['revision'], $second['revision'] );
 	}

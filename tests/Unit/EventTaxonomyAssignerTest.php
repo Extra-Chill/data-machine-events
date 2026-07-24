@@ -41,6 +41,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 				)
 			);
 		}
+		$this->assertTrue( register_taxonomy_for_object_type( 'location', Event_Post_Type::POST_TYPE ) );
 		if ( ! taxonomy_exists( 'artist' ) ) {
 			register_taxonomy( 'artist', 'data_machine_events' );
 		}

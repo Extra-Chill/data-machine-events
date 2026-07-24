@@ -461,9 +461,11 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$snapshots      = array();
 		$cache_key      = $this->prime_invalidation_sentinel();
 		$cache_observer = static function () use ( $cache_key, &$invalidations ): void {
-			if ( false === CalendarCache::get( $cache_key ) ) {
+			$found = false;
+			wp_cache_get( $cache_key, CalendarCache::GROUP, false, $found );
+			if ( ! $found ) {
 				++$invalidations;
-				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
+				wp_cache_set( $cache_key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS );
 			}
 		};
 		$nested_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, $first, &$nested ): void {
@@ -493,7 +495,7 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			remove_action( 'deleted_term_relationships', $cache_observer, 15 );
 			remove_action( 'delete_term_relationships', $nested_removal, 20 );
 			remove_action( 'deleted_term_relationships', $observe_removal, 20 );
-			delete_transient( $cache_key );
+			wp_cache_delete( $cache_key, CalendarCache::GROUP );
 		}
 
 		$this->assertSame( 2, $invalidations );
@@ -568,9 +570,11 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$count     = 0;
 		$cache_key = $this->prime_invalidation_sentinel();
 		$observer  = static function () use ( $cache_key, &$count ): void {
-			if ( false === CalendarCache::get( $cache_key ) ) {
+			$found = false;
+			wp_cache_get( $cache_key, CalendarCache::GROUP, false, $found );
+			if ( ! $found ) {
 				++$count;
-				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
+				wp_cache_set( $cache_key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS );
 			}
 		};
 
@@ -581,7 +585,7 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		} finally {
 			remove_action( 'set_object_terms', $observer, 15 );
 			remove_action( 'deleted_term_relationships', $observer, 15 );
-			delete_transient( $cache_key );
+			wp_cache_delete( $cache_key, CalendarCache::GROUP );
 		}
 
 		return $count;
@@ -589,8 +593,8 @@ class CalendarCacheTest extends WP_UnitTestCase {
 
 	private function prime_invalidation_sentinel(): string {
 		$key = CalendarCache::generate_key( array( 'scope_token' => wp_generate_uuid4() ), 'invalidation' );
-		$this->assertTrue( CalendarCache::set( $key, 'primed', MINUTE_IN_SECONDS ) );
-		$this->assertSame( 'primed', CalendarCache::get( $key ) );
+		$this->assertTrue( wp_cache_set( $key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS ) );
+		$this->assertSame( 'primed', wp_cache_get( $key, CalendarCache::GROUP ) );
 		return $key;
 	}
 

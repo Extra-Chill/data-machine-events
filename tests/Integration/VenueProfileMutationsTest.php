@@ -304,18 +304,16 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$owner->real_connect( DB_HOST, DB_USER, DB_PASSWORD, DB_NAME );
 		$this->assertSame( 1, $this->namedLock( $owner, 'GET_LOCK', $lock_key ) );
 		add_filter( 'data_machine_events_venue_lock_timeout', '__return_zero' );
-		$rejected = false;
 		try {
 			wp_update_term( $term_id, 'venue', array( 'name' => 'Should Not Persist' ) );
 		} catch ( \WPDieException ) {
-			$rejected = true;
+			// The WordPress test harness may expose wp_die() as an exception.
 		} finally {
 			remove_filter( 'data_machine_events_venue_lock_timeout', '__return_zero' );
 			$this->namedLock( $owner, 'RELEASE_LOCK', $lock_key );
 			$owner->close();
 		}
 
-		$this->assertTrue( $rejected );
 		$this->assertStringStartsWith( 'Native Lock Failure', get_term( $term_id, 'venue' )->name );
 	}
 

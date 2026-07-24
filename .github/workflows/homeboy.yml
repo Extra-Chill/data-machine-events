@@ -57,6 +57,9 @@ jobs:
           git clone --depth 1 https://github.com/Extra-Chill/data-machine.git /tmp/data-machine
           composer install --working-dir=/tmp/data-machine --no-dev --no-interaction --no-progress --prefer-dist --classmap-authoritative
 
+      - name: Prepare Homeboy extension lifecycle fix
+        run: git clone --depth 1 --branch fix/2399-declare-phpunit-multisite https://github.com/Extra-Chill/homeboy-extensions.git /tmp/homeboy-extensions
+
       - name: Run Homeboy ${{ matrix.command }}
         env:
           HOMEBOY_SETTINGS_JSON: '{"database_type":"mysql","validation_dependencies":["/tmp/data-machine"],"wp_codebox_multisite":true,"wp_codebox_phpunit_bootstrap_mode":"managed","wp_codebox_prepare_steps":[{"command":"npm","args":["ci"],"cwd":"inc/Blocks/Calendar"},{"command":"npm","args":["run","build"],"cwd":"inc/Blocks/Calendar"},{"command":"npm","args":["ci"],"cwd":"inc/Blocks/EventDetails"},{"command":"npm","args":["run","build"],"cwd":"inc/Blocks/EventDetails"},{"command":"npm","args":["ci"],"cwd":"inc/Blocks/EventsMap"},{"command":"npm","args":["run","build"],"cwd":"inc/Blocks/EventsMap"}]}'
@@ -67,5 +70,6 @@ jobs:
         with:
           commands: ${{ matrix.command }}
           expected-commands: review audit,review lint,review test
+          extension-source: /tmp/homeboy-extensions
           app-token: ${{ steps.app-token.outputs.token || '' }}
           autofix: 'false'

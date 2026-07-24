@@ -273,6 +273,7 @@ class EventUpdateAbilitiesTest extends WP_UnitTestCase {
 
 	public function test_update_lifecycle_completes_once_on_post_failure(): void {
 		$completions = array();
+		$event_id    = $this->makeEvent();
 		add_filter( 'wp_insert_post_empty_content', '__return_true' );
 		add_action(
 			'datamachine_events_after_event_update_persistence',
@@ -283,7 +284,7 @@ class EventUpdateAbilitiesTest extends WP_UnitTestCase {
 			2
 		);
 
-		$response = $this->ability->executeUpdateEvent( array( 'event' => $this->makeEvent(), 'startTime' => '22:00' ) );
+		$response = $this->ability->executeUpdateEvent( array( 'event' => $event_id, 'startTime' => '22:00' ) );
 
 		$this->assertSame( 'failed', $response['results'][0]['status'] );
 		$this->assertCount( 1, $completions );

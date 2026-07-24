@@ -459,13 +459,13 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$nested         = false;
 		$invalidations  = 0;
 		$snapshots      = array();
+		$external_cache = wp_using_ext_object_cache();
+		wp_using_ext_object_cache( false );
 		$cache_key      = $this->prime_invalidation_sentinel();
 		$cache_observer = static function () use ( $cache_key, &$invalidations ): void {
-			$found = false;
-			wp_cache_get( $cache_key, CalendarCache::GROUP, false, $found );
-			if ( ! $found ) {
+			if ( false === CalendarCache::get( $cache_key ) ) {
 				++$invalidations;
-				wp_cache_set( $cache_key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS );
+				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
 			}
 		};
 		$nested_removal = static function ( $object_id, $tt_ids, $taxonomy ) use ( $post_id, $first, &$nested ): void {
@@ -495,7 +495,8 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			remove_action( 'deleted_term_relationships', $cache_observer, 15 );
 			remove_action( 'delete_term_relationships', $nested_removal, 20 );
 			remove_action( 'deleted_term_relationships', $observe_removal, 20 );
-			wp_cache_delete( $cache_key, CalendarCache::GROUP );
+			delete_transient( $cache_key );
+			wp_using_ext_object_cache( $external_cache );
 		}
 
 		$this->assertSame( 2, $invalidations );
@@ -567,14 +568,14 @@ class CalendarCacheTest extends WP_UnitTestCase {
 	}
 
 	private function count_calendar_invalidations( callable $operation ): int {
-		$count     = 0;
-		$cache_key = $this->prime_invalidation_sentinel();
+		$count          = 0;
+		$external_cache = wp_using_ext_object_cache();
+		wp_using_ext_object_cache( false );
+		$cache_key      = $this->prime_invalidation_sentinel();
 		$observer  = static function () use ( $cache_key, &$count ): void {
-			$found = false;
-			wp_cache_get( $cache_key, CalendarCache::GROUP, false, $found );
-			if ( ! $found ) {
+			if ( false === CalendarCache::get( $cache_key ) ) {
 				++$count;
-				wp_cache_set( $cache_key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS );
+				CalendarCache::set( $cache_key, 'primed', MINUTE_IN_SECONDS );
 			}
 		};
 
@@ -585,7 +586,8 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		} finally {
 			remove_action( 'set_object_terms', $observer, 15 );
 			remove_action( 'deleted_term_relationships', $observer, 15 );
-			wp_cache_delete( $cache_key, CalendarCache::GROUP );
+			delete_transient( $cache_key );
+			wp_using_ext_object_cache( $external_cache );
 		}
 
 		return $count;
@@ -593,8 +595,8 @@ class CalendarCacheTest extends WP_UnitTestCase {
 
 	private function prime_invalidation_sentinel(): string {
 		$key = CalendarCache::generate_key( array( 'scope_token' => wp_generate_uuid4() ), 'invalidation' );
-		$this->assertTrue( wp_cache_set( $key, 'primed', CalendarCache::GROUP, MINUTE_IN_SECONDS ) );
-		$this->assertSame( 'primed', wp_cache_get( $key, CalendarCache::GROUP ) );
+		$this->assertTrue( CalendarCache::set( $key, 'primed', MINUTE_IN_SECONDS ) );
+		$this->assertSame( 'primed', CalendarCache::get( $key ) );
 		return $key;
 	}
 

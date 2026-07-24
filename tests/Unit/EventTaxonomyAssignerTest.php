@@ -274,8 +274,9 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 	 * must carry Houston, derived from the venue's own city.
 	 */
 	public function test_process_location_derives_term_from_venue_city_not_pipeline_center() {
-		$galveston = wp_insert_term( 'Galveston', 'location' );
-		$houston   = wp_insert_term( 'Houston', 'location' );
+		$suffix    = uniqid();
+		$galveston = wp_insert_term( 'Galveston ' . $suffix, 'location' );
+		$houston   = wp_insert_term( 'Houston ' . $suffix, 'location' );
 		$this->assertNotWPError( $galveston );
 		$this->assertNotWPError( $houston );
 
@@ -284,7 +285,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Attach a venue term whose city is Houston (the event's actual city).
 		$venue = wp_insert_term( 'Toyota Center', 'venue' );
 		$this->assertNotWPError( $venue );
-		$this->set_venue_city( (int) $venue['term_id'], 'Houston' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Houston ' . $suffix );
 		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
@@ -301,7 +302,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		$assigned = wp_get_object_terms( $post_id, 'location' );
 		$this->assertNotWPError( $assigned );
 		$this->assertCount( 1, $assigned, 'Exactly one location term must be assigned.' );
-		$this->assertSame( 'Houston', $assigned[0]->name, 'Venue-city term must override the pipeline-center term.' );
+		$this->assertSame( 'Houston ' . $suffix, $assigned[0]->name, 'Venue-city term must override the pipeline-center term.' );
 
 		wp_delete_post( $post_id, true );
 		wp_delete_term( $venue['term_id'], 'venue' );
@@ -314,14 +315,15 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 	 * unchanged — the fix must not regress the normal in-city case.
 	 */
 	public function test_process_location_keeps_pipeline_term_when_venue_is_in_that_city() {
-		$galveston = wp_insert_term( 'Galveston', 'location' );
+		$city      = 'Galveston ' . uniqid();
+		$galveston = wp_insert_term( $city, 'location' );
 		$this->assertNotWPError( $galveston );
 
 		$post_id = $this->make_event_post();
 
 		$venue = wp_insert_term( 'The Grand 1894 Opera House', 'venue' );
 		$this->assertNotWPError( $venue );
-		$this->set_venue_city( (int) $venue['term_id'], 'Galveston' );
+		$this->set_venue_city( (int) $venue['term_id'], $city );
 		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
@@ -336,7 +338,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		$assigned = wp_get_object_terms( $post_id, 'location' );
 		$this->assertNotWPError( $assigned );
 		$this->assertCount( 1, $assigned );
-		$this->assertSame( 'Galveston', $assigned[0]->name );
+		$this->assertSame( $city, $assigned[0]->name );
 
 		wp_delete_post( $post_id, true );
 		wp_delete_term( $venue['term_id'], 'venue' );
@@ -349,7 +351,8 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 	 * fallback rather than dropping the event from the location archive.
 	 */
 	public function test_process_location_falls_back_to_pipeline_term_when_venue_city_unresolved() {
-		$galveston = wp_insert_term( 'Galveston', 'location' );
+		$city      = 'Galveston ' . uniqid();
+		$galveston = wp_insert_term( $city, 'location' );
 		$this->assertNotWPError( $galveston );
 
 		$post_id = $this->make_event_post();
@@ -357,7 +360,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Venue in "Tinyburg" — no matching location term exists.
 		$venue = wp_insert_term( 'Tinyburg Hall', 'venue' );
 		$this->assertNotWPError( $venue );
-		$this->set_venue_city( (int) $venue['term_id'], 'Tinyburg' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Tinyburg ' . uniqid() );
 		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
@@ -372,7 +375,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		$assigned = wp_get_object_terms( $post_id, 'location' );
 		$this->assertNotWPError( $assigned );
 		$this->assertCount( 1, $assigned );
-		$this->assertSame( 'Galveston', $assigned[0]->name, 'Unresolved venue city must fall back to the pipeline term.' );
+		$this->assertSame( $city, $assigned[0]->name, 'Unresolved venue city must fall back to the pipeline term.' );
 
 		wp_delete_post( $post_id, true );
 		wp_delete_term( $venue['term_id'], 'venue' );
@@ -384,8 +387,9 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 	 * consumer layer supply a richer resolver (e.g. suburb→market rollup).
 	 */
 	public function test_process_location_honors_consumer_filter_override() {
-		$galveston = wp_insert_term( 'Galveston', 'location' );
-		$houston   = wp_insert_term( 'Houston', 'location' );
+		$suffix    = uniqid();
+		$galveston = wp_insert_term( 'Galveston ' . $suffix, 'location' );
+		$houston   = wp_insert_term( 'Houston ' . $suffix, 'location' );
 		$this->assertNotWPError( $galveston );
 		$this->assertNotWPError( $houston );
 
@@ -394,7 +398,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		// Venue in "Sugar Land" (a Houston suburb with no direct location term).
 		$venue = wp_insert_term( 'Smart Financial Centre', 'venue' );
 		$this->assertNotWPError( $venue );
-		$this->set_venue_city( (int) $venue['term_id'], 'Sugar Land' );
+		$this->set_venue_city( (int) $venue['term_id'], 'Sugar Land ' . $suffix );
 		$this->assertNotWPError( wp_set_object_terms( $post_id, array( $venue['term_id'] ), 'venue' ) );
 
 		$engine = new \DataMachine\Core\EngineData( array(), 0 );
@@ -417,7 +421,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		$assigned = wp_get_object_terms( $post_id, 'location' );
 		$this->assertNotWPError( $assigned );
 		$this->assertCount( 1, $assigned );
-		$this->assertSame( 'Houston', $assigned[0]->name, 'Consumer filter override must win.' );
+		$this->assertSame( 'Houston ' . $suffix, $assigned[0]->name, 'Consumer filter override must win.' );
 
 		wp_delete_post( $post_id, true );
 		wp_delete_term( $venue['term_id'], 'venue' );

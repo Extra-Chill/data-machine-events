@@ -63,12 +63,12 @@ jobs:
 
       - name: Prepare Data Machine validation dependency
         run: |
-          git clone --depth 1 https://github.com/Extra-Chill/data-machine.git /tmp/homeboy-data-machine
-          composer install --working-dir=/tmp/homeboy-data-machine --no-dev --no-interaction --no-progress --prefer-dist --classmap-authoritative
+          git clone --depth 1 https://github.com/Extra-Chill/data-machine.git /tmp/data-machine
+          composer install --working-dir=/tmp/data-machine --no-dev --no-interaction --no-progress --prefer-dist --classmap-authoritative
 
       - name: Run Homeboy ${{ matrix.command }}
         env:
-          HOMEBOY_SETTINGS_JSON: '{"database_type":"mysql","validation_dependencies":["/tmp/homeboy-data-machine"]}'
+          HOMEBOY_SETTINGS_JSON: '{"database_type":"mysql","validation_dependencies":["/tmp/data-machine"]}'
         uses: Extra-Chill/homeboy-action@v2
         with:
           commands: ${{ matrix.command }}

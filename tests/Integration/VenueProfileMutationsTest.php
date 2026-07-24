@@ -235,12 +235,13 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$this->blog_ids[] = $blog_id;
 		$first_lock = VenueProfileMutations::lockName( $first_id );
 		switch_to_blog( $blog_id );
+		$this->assertSame( $blog_id, get_current_blog_id() );
 		wp_cache_flush();
 		Venue_Taxonomy::register();
-		$second_lock = VenueProfileMutations::lockName( $first_id );
 		$second_id   = $this->venue( 'Second Multisite Venue' );
 		update_term_meta( $second_id, '_venue_phone', 'same-value' );
-		$second    = VenueProfileMutations::read( $second_id );
+		$second      = VenueProfileMutations::read( $second_id );
+		$second_lock = VenueProfileMutations::lockName( $second_id );
 		$this->assertNotSame( $first_lock, $second_lock );
 
 		$owner  = mysqli_init();

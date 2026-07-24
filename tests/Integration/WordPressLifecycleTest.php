@@ -17,7 +17,7 @@ class WordPressLifecycleTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 
-		while ( ms_is_switched() ) {
+		while ( function_exists( 'ms_is_switched' ) && ms_is_switched() ) {
 			restore_current_blog();
 		}
 

@@ -76,6 +76,22 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		wp_delete_term( $term['term_id'], 'venue' );
 	}
 
+	public function test_trashed_index_candidate_remains_valid_for_re_resolution(): void {
+		$post_id = wp_insert_post(
+			array(
+				'post_title'  => 'Trashed Duplicate Candidate',
+				'post_type'   => Event_Post_Type::POST_TYPE,
+				'post_status' => 'publish',
+			)
+		);
+		wp_trash_post( $post_id );
+
+		$method = new \ReflectionMethod( EventDuplicateStrategy::class, 'isValidPost' );
+		$method->setAccessible( true );
+
+		$this->assertTrue( $method->invoke( null, $post_id ) );
+	}
+
 	/**
 	 * Address-first resolution: when the incoming venue string does NOT
 	 * match the canonical term name but the address does match, the

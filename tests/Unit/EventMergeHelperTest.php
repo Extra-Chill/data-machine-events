@@ -81,6 +81,29 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$this->assertSame( 'trash', get_post_status( $loser ) );
 	}
 
+	public function test_merge_transfers_loser_url_history_to_winner(): void {
+		$winner = $this->makeEventPost( 'Canonical Winner' );
+		$loser  = $this->makeEventPost( 'Duplicate Loser' );
+		add_post_meta( $loser, '_wp_old_slug', 'original-loser-url' );
+
+		$result    = EventMergeHelper::merge( $winner, $loser );
+		$old_slugs = get_post_meta( $winner, '_wp_old_slug', false );
+
+		$this->assertTrue( $result['success'] );
+		$this->assertContains( 'duplicate-loser', $old_slugs );
+		$this->assertContains( 'original-loser-url', $old_slugs );
+		$this->assertNotContains( 'canonical-winner', $old_slugs );
+	}
+
+	public function test_ordinary_trash_does_not_fabricate_redirect_history(): void {
+		$event = $this->makeEventPost( 'Cancelled Without Replacement' );
+
+		wp_trash_post( $event );
+
+		$this->assertSame( 'trash', get_post_status( $event ) );
+		$this->assertSame( array(), get_post_meta( $event, '_wp_old_slug', false ) );
+	}
+
 	public function test_ticket_url_forward_merge_when_winner_lacks_one(): void {
 		$winner = $this->makeEventPost( 'Winner' );
 		$loser  = $this->makeEventPost( 'Loser', 'https://tickets.example.com/loser' );

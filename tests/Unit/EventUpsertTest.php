@@ -164,6 +164,38 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( EventUpsert::class, $this->handler );
 	}
 
+	public function test_source_identity_re_resolves_the_same_trashed_post(): void {
+		$source_identity = 'source:event-' . uniqid();
+		$post_id         = wp_insert_post(
+			array(
+				'post_title'  => 'Trashed Source Event',
+				'post_type'   => Event_Post_Type::POST_TYPE,
+				'post_status' => 'publish',
+				'post_name'   => 'stable-source-event-url',
+			)
+		);
+		update_post_meta( $post_id, EventUpsert::SOURCE_IDENTITY_META_KEY, $source_identity );
+		wp_trash_post( $post_id );
+
+		$method = new \ReflectionMethod( $this->handler, 'findExistingEventBySourceIdentity' );
+		$method->setAccessible( true );
+
+		$this->assertSame( $post_id, $method->invoke( $this->handler, $source_identity ) );
+		$this->assertSame( 'stable-source-event-url', get_post_field( 'post_name', $post_id ) );
+		$this->assertCount(
+			1,
+			get_posts(
+				array(
+					'post_type'      => Event_Post_Type::POST_TYPE,
+					'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private', 'trash' ),
+					'meta_key'       => EventUpsert::SOURCE_IDENTITY_META_KEY,
+					'meta_value'     => $source_identity,
+					'posts_per_page' => -1,
+				)
+			)
+		);
+	}
+
 	public function test_consumer_can_provide_automated_import_author(): void {
 		$user_id = self::factory()->user->create();
 		$callback = static function ( int $author_id ) use ( $user_id ): int {

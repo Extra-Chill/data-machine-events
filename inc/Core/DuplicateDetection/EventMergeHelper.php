@@ -29,9 +29,10 @@ class EventMergeHelper {
 	/**
 	 * Merge a duplicate event pair.
 	 *
-	 * Trashes the loser. Optionally forward-merges the ticket URL into the
-	 * winner when the winner has none and the loser has one. Returns a
-	 * structured result so callers can report on what happened.
+	 * Trashes the loser after transferring its URL history to the winner.
+	 * Optionally forward-merges the ticket URL into the winner when the winner
+	 * has none and the loser has one. Returns a structured result so callers
+	 * can report on what happened.
 	 *
 	 * Both IDs must refer to existing event posts. The caller is responsible
 	 * for picking which post wins (e.g. oldest, longest body, has ticket URL).
@@ -93,8 +94,12 @@ class EventMergeHelper {
 			}
 		}
 
-		$trashed = wp_trash_post( $loser_id );
+		$transferred_slugs = self::transferOldSlugs( $winner, $loser );
+		$trashed           = wp_trash_post( $loser_id );
 		if ( ! $trashed ) {
+			foreach ( $transferred_slugs as $slug ) {
+				delete_post_meta( $winner_id, '_wp_old_slug', $slug );
+			}
 			$result['error'] = sprintf( 'Failed to trash post %d.', $loser_id );
 			return $result;
 		}
@@ -103,5 +108,37 @@ class EventMergeHelper {
 		$result['success'] = true;
 
 		return $result;
+	}
+
+	/**
+	 * Transfer the loser's routable slug history to the canonical winner.
+	 *
+	 * WordPress core's wp_old_slug_redirect() resolves these values without a
+	 * plugin-owned redirect service.
+	 *
+	 * @param \WP_Post $winner Canonical event post.
+	 * @param \WP_Post $loser  Duplicate event post being removed.
+	 * @return string[] Slugs newly added to the winner.
+	 */
+	private static function transferOldSlugs( \WP_Post $winner, \WP_Post $loser ): array {
+		$winner_slugs = array_merge(
+			array( $winner->post_name ),
+			get_post_meta( $winner->ID, '_wp_old_slug', false )
+		);
+		$loser_slugs  = array_merge(
+			array( $loser->post_name ),
+			get_post_meta( $loser->ID, '_wp_old_slug', false )
+		);
+		$slugs        = array_values( array_unique( array_filter( array_map( 'sanitize_title', $loser_slugs ) ) ) );
+		$existing     = array_values( array_unique( array_filter( array_map( 'sanitize_title', $winner_slugs ) ) ) );
+		$transferred  = array();
+
+		foreach ( array_diff( $slugs, $existing ) as $slug ) {
+			if ( add_post_meta( $winner->ID, '_wp_old_slug', $slug ) ) {
+				$transferred[] = $slug;
+			}
+		}
+
+		return $transferred;
 	}
 }

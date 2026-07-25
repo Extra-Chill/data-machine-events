@@ -94,6 +94,11 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$this->assertContains( $loser_slug, $old_slugs );
 		$this->assertContains( 'original-loser-url', $old_slugs );
 		$this->assertNotContains( 'canonical-winner', $old_slugs );
+		set_query_var( 'name', $loser_slug );
+		$this->assertSame( $winner, _find_post_by_old_slug( Event_Post_Type::POST_TYPE ) );
+		set_query_var( 'name', 'original-loser-url' );
+		$this->assertSame( $winner, _find_post_by_old_slug( Event_Post_Type::POST_TYPE ) );
+		set_query_var( 'name', '' );
 		$this->assertSame( $loser_slug, get_post_meta( $loser, '_wp_desired_post_slug', true ) );
 		$this->assertSame( $loser_slug . '__trashed', get_post_field( 'post_name', $loser ) );
 	}

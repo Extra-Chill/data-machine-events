@@ -479,6 +479,20 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 			$venue_name
 		);
 		wp_trash_post( $post_id );
+		EventDatesTable::upsert( $post_id, '2026-04-22 21:00:00' );
+		$index = new \DataMachine\Core\Database\PostIdentityIndex\PostIdentityIndex();
+		$index->upsert(
+			$post_id,
+			array(
+				'post_type'     => Event_Post_Type::POST_TYPE,
+				'event_date'    => '2026-04-22',
+				'venue_term_id' => $term_id,
+				'title_hash'    => EventDuplicateStrategy::computeTitleHash( 'Cancelled Event' ),
+			)
+		);
+
+		$this->assertNotNull( EventDatesTable::get( $post_id ), 'The stale date row must remain available to both fuzzy paths.' );
+		$this->assertSame( $post_id, (int) $index->get( $post_id )['post_id'], 'The stale identity candidate must be present after trash.' );
 
 		$result = EventDuplicateStrategy::check(
 			array(

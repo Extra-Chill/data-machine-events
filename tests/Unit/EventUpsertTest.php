@@ -164,24 +164,31 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( EventUpsert::class, $this->handler );
 	}
 
-	public function test_source_identity_re_resolves_the_same_trashed_post(): void {
-		$source_identity = 'source:event-' . uniqid();
-		$post_id         = wp_insert_post(
-			array(
-				'post_title'  => 'Trashed Source Event',
-				'post_type'   => Event_Post_Type::POST_TYPE,
-				'post_status' => 'publish',
-				'post_name'   => 'stable-source-event-url',
-			)
+	public function test_unchanged_trash_reimport_reuses_exact_source_post_but_awaits_core_status_reconciliation(): void {
+		$parameters = array(
+			'title'           => 'Exact Source Trash Replay ' . uniqid(),
+			'venue'           => 'Exact Source Venue ' . uniqid(),
+			'startDate'       => '2026-11-20',
+			'startTime'       => '20:00',
+			'description'     => 'Stable content for an exact source replay.',
+			'source_identity' => 'source:event-' . uniqid(),
 		);
-		update_post_meta( $post_id, EventUpsert::SOURCE_IDENTITY_META_KEY, $source_identity );
+		$created = $this->invoke_upsert( $parameters );
+
+		$this->assertTrue( $created['success'] ?? false, wp_json_encode( $created ) );
+		$post_id       = (int) $created['data']['post_id'];
+		$original_slug = get_post_field( 'post_name', $post_id );
 		wp_trash_post( $post_id );
 
-		$method = new \ReflectionMethod( $this->handler, 'findExistingEventBySourceIdentity' );
-		$method->setAccessible( true );
+		$this->assertSame( $original_slug, get_post_meta( $post_id, '_wp_desired_post_slug', true ) );
+		$this->assertSame( $original_slug . '__trashed', get_post_field( 'post_name', $post_id ) );
 
-		$this->assertSame( $post_id, $method->invoke( $this->handler, $source_identity ) );
-		$this->assertSame( 'stable-source-event-url', get_post_field( 'post_name', $post_id ) );
+		$reimported = $this->invoke_upsert( $parameters );
+
+		$this->assertTrue( $reimported['success'] ?? false, wp_json_encode( $reimported ) );
+		$this->assertSame( $post_id, (int) $reimported['data']['post_id'] );
+		$this->assertSame( 'no_change', $reimported['data']['action'] );
+		$this->assertSame( 'trash', get_post_status( $post_id ), 'Data Machine #2993 owns unchanged-content status reconciliation.' );
 		$this->assertCount(
 			1,
 			get_posts(
@@ -189,7 +196,7 @@ class EventUpsertTest extends WP_UnitTestCase {
 					'post_type'      => Event_Post_Type::POST_TYPE,
 					'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private', 'trash' ),
 					'meta_key'       => EventUpsert::SOURCE_IDENTITY_META_KEY,
-					'meta_value'     => $source_identity,
+					'meta_value'     => $parameters['source_identity'],
 					'posts_per_page' => -1,
 				)
 			)

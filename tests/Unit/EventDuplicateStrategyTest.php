@@ -76,22 +76,6 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		wp_delete_term( $term['term_id'], 'venue' );
 	}
 
-	public function test_trashed_index_candidate_remains_valid_for_re_resolution(): void {
-		$post_id = wp_insert_post(
-			array(
-				'post_title'  => 'Trashed Duplicate Candidate',
-				'post_type'   => Event_Post_Type::POST_TYPE,
-				'post_status' => 'publish',
-			)
-		);
-		wp_trash_post( $post_id );
-
-		$method = new \ReflectionMethod( EventDuplicateStrategy::class, 'isValidPost' );
-		$method->setAccessible( true );
-
-		$this->assertTrue( $method->invoke( null, $post_id ) );
-	}
-
 	/**
 	 * Address-first resolution: when the incoming venue string does NOT
 	 * match the canonical term name but the address does match, the
@@ -485,6 +469,31 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		);
 
 		$this->cleanup( $term_id, $existing_post_id );
+	}
+
+	public function test_trashed_event_is_not_recovered_by_broad_duplicate_matching(): void {
+		$venue_name = 'Cancelled Event Venue ' . uniqid();
+		[ $term_id, $post_id ] = $this->seedVenueWithEvent(
+			'Cancelled Event',
+			'2026-04-22 21:00:00',
+			$venue_name
+		);
+		wp_trash_post( $post_id );
+
+		$result = EventDuplicateStrategy::check(
+			array(
+				'title'   => 'Cancelled Event',
+				'context' => array(
+					'venue'     => $venue_name,
+					'startDate' => '2026-04-22T21:30:00',
+					'ticketUrl' => '',
+				),
+			)
+		);
+
+		$this->assertNull( $result );
+		$this->assertSame( 'trash', get_post_status( $post_id ) );
+		$this->cleanup( $term_id, $post_id );
 	}
 
 	/**

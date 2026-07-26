@@ -646,9 +646,6 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		const interactionAbandonTimers = new Set<
 			ReturnType< typeof setTimeout >
 		>();
-		const gestureCancelTimers = new Set<
-			ReturnType< typeof setTimeout >
-		>();
 		const mountTimers = new Set< ReturnType< typeof setTimeout > >();
 		const cleanupCallbacks: Array< () => void > = [];
 		let activeGestureGeneration: number | null = null;
@@ -679,19 +676,9 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			}
 		};
 		const handleDragEnd = () => {
-			const generation = activeGestureGeneration;
-			if ( generation === null || activeGestureMoved ) {
-				return;
+			if ( activeGestureGeneration !== null && ! activeGestureMoved ) {
+				cancelActiveGesture();
 			}
-			const timer = setTimeout( () => {
-				authority.cancel( generation );
-				if ( activeGestureGeneration === generation ) {
-					activeGestureGeneration = null;
-					activeGestureMoved = false;
-				}
-				gestureCancelTimers.delete( timer );
-			}, 0 );
-			gestureCancelTimers.add( timer );
 		};
 		const handleMoveStart = () => authority.movementStarted();
 		const handleMoveEnd = () => {
@@ -722,6 +709,11 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 				prepareUserInteraction();
 			}
 		};
+		const handleDocumentKeyDown = ( event: KeyboardEvent ) => {
+			if ( event.key === 'Escape' ) {
+				cancelActiveGesture();
+			}
+		};
 		const handleClick = ( event: MouseEvent ) => {
 			const target = event.target as Element | null;
 			if (
@@ -739,10 +731,10 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		map.on( 'moveend', handleMoveEnd );
 		map.on( 'dragstart boxzoomstart', activateUserInteraction );
 		map.on( 'dragend', handleDragEnd );
-		map.on( 'boxzoomcancel', cancelActiveGesture );
 		el.addEventListener( 'dblclick', handleDoubleClick, true );
 		el.addEventListener( 'keydown', handleKeyDown, true );
 		el.addEventListener( 'click', handleClick, true );
+		document.addEventListener( 'keydown', handleDocumentKeyDown, true );
 
 		if ( isTouch ) {
 			// Show gesture hint when user tries single-finger drag.
@@ -882,8 +874,6 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			mountTimers.clear();
 			interactionAbandonTimers.forEach( clearTimeout );
 			interactionAbandonTimers.clear();
-			gestureCancelTimers.forEach( clearTimeout );
-			gestureCancelTimers.clear();
 			if ( gestureTimeoutRef.current ) {
 				clearTimeout( gestureTimeoutRef.current );
 				gestureTimeoutRef.current = null;
@@ -897,10 +887,14 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			map.off( 'moveend', handleMoveEnd );
 			map.off( 'dragstart boxzoomstart', activateUserInteraction );
 			map.off( 'dragend', handleDragEnd );
-			map.off( 'boxzoomcancel', cancelActiveGesture );
 			el.removeEventListener( 'dblclick', handleDoubleClick, true );
 			el.removeEventListener( 'keydown', handleKeyDown, true );
 			el.removeEventListener( 'click', handleClick, true );
+			document.removeEventListener(
+				'keydown',
+				handleDocumentKeyDown,
+				true
+			);
 			cleanupCallbacks.forEach( ( cleanup ) => cleanup() );
 			el.removeEventListener(
 				'data-machine-map-invalidate-size',

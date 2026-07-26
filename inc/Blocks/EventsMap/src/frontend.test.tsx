@@ -396,17 +396,30 @@ describe( 'EventsMap geo authority integration', () => {
 		bounds.remove();
 	} );
 
-	it( 'keeps cancelled gestures neutral through later invalidation', () => {
+	it( 'cancels an unmoved drag before its trailing moveend', () => {
+		const bounds = collectBoundsEvents();
+		const { root, map } = renderMap( props() );
+
+		act( () => {
+			map.fire( 'dragstart' );
+			map.fire( 'dragend' );
+			map.fire( 'moveend' );
+		} );
+
+		expect( bounds.events ).toEqual( [] );
+		act( () => root.unmount() );
+		bounds.remove();
+	} );
+
+	it( 'cancels box zoom authority through Leaflet Escape handling', () => {
 		const bounds = collectBoundsEvents();
 		const { root, map } = renderMap( props() );
 
 		act( () => {
 			map.fire( 'boxzoomstart' );
-			map.fire( 'boxzoomcancel' );
-			map.invalidateSize();
-			map.fire( 'dragstart' );
-			map.fire( 'dragend' );
-			jest.advanceTimersByTime( 0 );
+			document.dispatchEvent(
+				new KeyboardEvent( 'keydown', { key: 'Escape' } )
+			);
 			map.invalidateSize();
 		} );
 

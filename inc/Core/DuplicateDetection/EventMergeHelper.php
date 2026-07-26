@@ -88,12 +88,23 @@ class EventMergeHelper {
 
 		$merge_ticket_url        = $opts['merge_ticket_url'] ?? true;
 		$winner_ticket_values    = get_post_meta( $winner_id, EVENT_TICKET_URL_META_KEY, false );
+		$loser_old_slug_values   = get_post_meta( $loser_id, '_wp_old_slug', false );
 		$transferred_slugs       = self::transferOldSlugs( $winner, $loser );
 		$ticket_url_was_modified = false;
 
 		if ( is_wp_error( $transferred_slugs ) ) {
 			$result['error'] = $transferred_slugs->get_error_message();
 			return $result;
+		}
+
+		if ( ! empty( $loser_old_slug_values ) ) {
+			delete_post_meta( $loser_id, '_wp_old_slug' );
+			if ( ! empty( get_post_meta( $loser_id, '_wp_old_slug', false ) ) ) {
+				self::removeTransferredSlugs( $winner_id, $transferred_slugs );
+				self::restoreMetaValues( $loser_id, '_wp_old_slug', $loser_old_slug_values );
+				$result['error'] = 'Failed to transfer event URL history ownership.';
+				return $result;
+			}
 		}
 
 		if ( $merge_ticket_url ) {
@@ -103,6 +114,7 @@ class EventMergeHelper {
 			if ( ! empty( $loser_ticket ) && empty( $winner_ticket ) ) {
 				if ( false === update_post_meta( $winner_id, EVENT_TICKET_URL_META_KEY, $loser_ticket ) ) {
 					self::removeTransferredSlugs( $winner_id, $transferred_slugs );
+					self::restoreMetaValues( $loser_id, '_wp_old_slug', $loser_old_slug_values );
 					self::restoreMetaValues( $winner_id, EVENT_TICKET_URL_META_KEY, $winner_ticket_values );
 					$result['error'] = 'Failed to transfer winner metadata.';
 					return $result;
@@ -114,6 +126,7 @@ class EventMergeHelper {
 		$trashed = wp_trash_post( $loser_id );
 		if ( ! $trashed ) {
 			self::removeTransferredSlugs( $winner_id, $transferred_slugs );
+			self::restoreMetaValues( $loser_id, '_wp_old_slug', $loser_old_slug_values );
 			if ( $ticket_url_was_modified ) {
 				self::restoreMetaValues( $winner_id, EVENT_TICKET_URL_META_KEY, $winner_ticket_values );
 			}

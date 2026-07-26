@@ -94,6 +94,7 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$this->assertContains( $loser_slug, $old_slugs );
 		$this->assertContains( 'original-loser-url', $old_slugs );
 		$this->assertNotContains( 'canonical-winner', $old_slugs );
+		$this->assertSame( array(), get_post_meta( $loser, '_wp_old_slug', false ) );
 		set_query_var( 'name', $loser_slug );
 		$this->assertSame( $winner, _find_post_by_old_slug( Event_Post_Type::POST_TYPE ) );
 		set_query_var( 'name', 'original-loser-url' );
@@ -149,6 +150,7 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$this->assertFalse( $result['success'] );
 		$this->assertStringContainsString( 'URL history', $result['error'] );
 		$this->assertSame( 'publish', get_post_status( $loser ) );
+		$this->assertSame( array( 'blocked-loser-history' ), get_post_meta( $loser, '_wp_old_slug', false ) );
 		$this->assertSame( array( 'existing-winner-history' ), get_post_meta( $winner, '_wp_old_slug', false ) );
 		$this->assertSame( '', get_post_meta( $winner, EVENT_TICKET_URL_META_KEY, true ) );
 	}
@@ -157,6 +159,7 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$winner = $this->makeEventPost( 'Trash Rollback Winner' );
 		$loser  = $this->makeEventPost( 'Trash Rollback Loser', 'https://tickets.example.com/loser' );
 		add_post_meta( $winner, '_wp_old_slug', 'existing-winner-history' );
+		add_post_meta( $loser, '_wp_old_slug', 'existing-loser-history' );
 		$prevent_trash = static function ( $trash, $post ) use ( $loser ) {
 			return $loser === $post->ID ? false : $trash;
 		};
@@ -171,6 +174,7 @@ class EventMergeHelperTest extends WP_UnitTestCase {
 		$this->assertFalse( $result['success'] );
 		$this->assertFalse( $result['ticket_url_merged'] );
 		$this->assertSame( 'publish', get_post_status( $loser ) );
+		$this->assertSame( array( 'existing-loser-history' ), get_post_meta( $loser, '_wp_old_slug', false ) );
 		$this->assertSame( array( 'existing-winner-history' ), get_post_meta( $winner, '_wp_old_slug', false ) );
 		$this->assertSame( '', get_post_meta( $winner, EVENT_TICKET_URL_META_KEY, true ) );
 	}

@@ -66,6 +66,7 @@ export function createGeoAuthorityTracker(): {
 	movementEnded: () => GeoAuthorityOperation | null;
 	completeNoop: ( generation: number ) => GeoAuthorityOperation | null;
 	abandon: ( generation: number ) => void;
+	cancel: ( generation: number ) => void;
 	immediate: ( source: GeoAuthoritySource ) => GeoAuthorityOperation;
 	isLatest: ( generation: number ) => boolean;
 	destroy: () => void;
@@ -114,6 +115,14 @@ export function createGeoAuthorityTracker(): {
 		abandon( operationGeneration ) {
 			if ( awaitingStart?.generation === operationGeneration ) {
 				awaitingStart = null;
+			}
+		},
+		cancel( operationGeneration ) {
+			if ( awaitingStart?.generation === operationGeneration ) {
+				awaitingStart = null;
+			}
+			if ( active?.generation === operationGeneration ) {
+				active = null;
 			}
 		},
 		immediate( source ) {

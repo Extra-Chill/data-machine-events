@@ -646,8 +646,13 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		const interactionAbandonTimers = new Set<
 			ReturnType< typeof setTimeout >
 		>();
+		const gestureCancelTimers = new Set<
+			ReturnType< typeof setTimeout >
+		>();
 		const mountTimers = new Set< ReturnType< typeof setTimeout > >();
 		const cleanupCallbacks: Array< () => void > = [];
+		let activeGestureGeneration: number | null = null;
+		let activeGestureMoved = false;
 		const prepareUserInteraction = () => {
 			const operation = authority.prepare( 'user-interaction' );
 			const timer = setTimeout( () => {
@@ -657,7 +662,36 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			interactionAbandonTimers.add( timer );
 		};
 		const activateUserInteraction = () => {
-			authority.activate( 'user-interaction' );
+			activeGestureMoved = false;
+			activeGestureGeneration =
+				authority.activate( 'user-interaction' ).generation;
+		};
+		const cancelActiveGesture = () => {
+			if ( activeGestureGeneration !== null ) {
+				authority.cancel( activeGestureGeneration );
+				activeGestureGeneration = null;
+				activeGestureMoved = false;
+			}
+		};
+		const handleMove = () => {
+			if ( activeGestureGeneration !== null ) {
+				activeGestureMoved = true;
+			}
+		};
+		const handleDragEnd = () => {
+			const generation = activeGestureGeneration;
+			if ( generation === null || activeGestureMoved ) {
+				return;
+			}
+			const timer = setTimeout( () => {
+				authority.cancel( generation );
+				if ( activeGestureGeneration === generation ) {
+					activeGestureGeneration = null;
+					activeGestureMoved = false;
+				}
+				gestureCancelTimers.delete( timer );
+			}, 0 );
+			gestureCancelTimers.add( timer );
 		};
 		const handleMoveStart = () => authority.movementStarted();
 		const handleMoveEnd = () => {
@@ -666,6 +700,10 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			}
 			const operation = authority.movementEnded();
 			if ( operation ) {
+				if ( activeGestureGeneration === operation.generation ) {
+					activeGestureGeneration = null;
+					activeGestureMoved = false;
+				}
 				dispatchBoundsChanged( map, syncId, operation );
 			}
 		};
@@ -697,8 +735,11 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		const handleDoubleClick = () => prepareUserInteraction();
 
 		map.on( 'movestart', handleMoveStart );
+		map.on( 'move', handleMove );
 		map.on( 'moveend', handleMoveEnd );
 		map.on( 'dragstart boxzoomstart', activateUserInteraction );
+		map.on( 'dragend', handleDragEnd );
+		map.on( 'boxzoomcancel', cancelActiveGesture );
 		el.addEventListener( 'dblclick', handleDoubleClick, true );
 		el.addEventListener( 'keydown', handleKeyDown, true );
 		el.addEventListener( 'click', handleClick, true );
@@ -841,6 +882,8 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			mountTimers.clear();
 			interactionAbandonTimers.forEach( clearTimeout );
 			interactionAbandonTimers.clear();
+			gestureCancelTimers.forEach( clearTimeout );
+			gestureCancelTimers.clear();
 			if ( gestureTimeoutRef.current ) {
 				clearTimeout( gestureTimeoutRef.current );
 				gestureTimeoutRef.current = null;
@@ -850,8 +893,11 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			venueRequestRef.current = null;
 			authority.destroy();
 			map.off( 'movestart', handleMoveStart );
+			map.off( 'move', handleMove );
 			map.off( 'moveend', handleMoveEnd );
 			map.off( 'dragstart boxzoomstart', activateUserInteraction );
+			map.off( 'dragend', handleDragEnd );
+			map.off( 'boxzoomcancel', cancelActiveGesture );
 			el.removeEventListener( 'dblclick', handleDoubleClick, true );
 			el.removeEventListener( 'keydown', handleKeyDown, true );
 			el.removeEventListener( 'click', handleClick, true );

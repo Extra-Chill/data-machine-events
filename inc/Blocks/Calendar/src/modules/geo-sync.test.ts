@@ -14,6 +14,9 @@ jest.mock( './filter-state', () => ( {
 	} ) ),
 } ) );
 
+/**
+ * Internal dependencies
+ */
 import { fetchCalendarEvents } from './api-client';
 import { destroyGeoSync, initGeoSync } from './geo-sync';
 
@@ -97,6 +100,31 @@ describe( 'calendar geo authority', () => {
 		expect( secondSignal.aborted ).toBe( false );
 		destroyGeoSync( calendar );
 		expect( secondSignal.aborted ).toBe( true );
+	} );
+
+	it( 'invalidates an active response as soon as newer authority is accepted', async () => {
+		let resolveOld!: () => void;
+		mockFetchCalendarEvents.mockImplementationOnce(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveOld = () => resolve( {} );
+				} )
+		);
+		dispatchBounds( 'external', 'map-a', 10 );
+		jest.advanceTimersByTime( 300 );
+		const oldOptions = mockFetchCalendarEvents.mock.calls[ 0 ][ 3 ];
+		mockUpdateUrl.mockClear();
+		mockSaveGeoToStorage.mockClear();
+
+		dispatchBounds( 'user-interaction', 'map-a', 11 );
+		expect( oldOptions.signal.aborted ).toBe( true );
+		expect( oldOptions.shouldApply() ).toBe( false );
+		resolveOld();
+		await Promise.resolve();
+
+		expect( mockFetchCalendarEvents ).toHaveBeenCalledTimes( 1 );
+		expect( mockUpdateUrl ).not.toHaveBeenCalled();
+		expect( mockSaveGeoToStorage ).not.toHaveBeenCalled();
 	} );
 
 	it( 'ignores replayed and out-of-order map generations', () => {

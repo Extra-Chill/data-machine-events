@@ -58,7 +58,11 @@ interface GeoSyncState {
 	handler: ( e: Event ) => void;
 	syncId: string;
 	currentGeo: GeoContext | null;
-	onGridUpdate?: ( geo: GeoContext ) => Promise< boolean >;
+	onGridUpdate?: (
+		geo: GeoContext,
+		signal: AbortSignal,
+		isCurrent: () => boolean
+	) => Promise< boolean >;
 	debounceTimer: ReturnType< typeof setTimeout > | null;
 	abortController: AbortController | null;
 	requestGeneration: number;
@@ -80,7 +84,11 @@ const instances = new WeakMap< HTMLElement, GeoSyncState >();
 export function initGeoSync(
 	calendar: HTMLElement,
 	syncId: string,
-	onGridUpdate?: ( geo: GeoContext ) => Promise< boolean >
+	onGridUpdate?: (
+		geo: GeoContext,
+		signal: AbortSignal,
+		isCurrent: () => boolean
+	) => Promise< boolean >
 ): void {
 	if ( instances.has( calendar ) || ! syncId ) {
 		return;
@@ -155,6 +163,7 @@ export function updateCalendarGeo(
 	const state = instances.get( calendar );
 	if ( state ) {
 		state.currentGeo = geo;
+		invalidateActiveRequest( state );
 		startGeoRequest( calendar, state, geo );
 		return;
 	}
@@ -183,6 +192,7 @@ function createBoundsHandler( calendar: HTMLElement ): ( e: Event ) => void {
 			return;
 		}
 		state.lastMapGeneration = detail.generation;
+		invalidateActiveRequest( state );
 
 		if ( state.debounceTimer ) {
 			clearTimeout( state.debounceTimer );
@@ -215,7 +225,6 @@ function startGeoRequest(
 	state: GeoSyncState,
 	geo: GeoContext
 ): void {
-	state.abortController?.abort();
 	state.abortController = new AbortController();
 	const requestGeneration = ++state.requestGeneration;
 	void fetchAndUpdate(
@@ -225,6 +234,12 @@ function startGeoRequest(
 		requestGeneration,
 		state.abortController.signal
 	);
+}
+
+function invalidateActiveRequest( state: GeoSyncState ): void {
+	state.requestGeneration++;
+	state.abortController?.abort();
+	state.abortController = null;
 }
 
 /**
@@ -253,7 +268,7 @@ async function fetchAndUpdate(
 	}
 	const filterState = getFilterState( calendar );
 	if ( state?.onGridUpdate ) {
-		const updated = await state.onGridUpdate( geo );
+		const updated = await state.onGridUpdate( geo, signal!, isCurrent );
 		if ( updated && isCurrent() ) {
 			filterState.saveGeoToStorage( {
 				lat: geo.lat,

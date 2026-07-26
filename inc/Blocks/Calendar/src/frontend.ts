@@ -148,23 +148,30 @@ export function initCalendarInstance( calendar: HTMLElement ): void {
 	const mapSyncId = resolveMapSyncId( calendar );
 	if ( mapSyncId ) {
 		if ( gridMode ) {
-			initGeoSync( calendar, mapSyncId, async function ( geo ) {
-				const params = getFilterState( calendar ).buildParams(
-					getDatePicker( calendar )
-				);
-				params.set( 'lat', geo.lat );
-				params.set( 'lng', geo.lng );
-				if ( geo.radius !== undefined ) {
-					params.set( 'radius', String( geo.radius ) );
+			initGeoSync(
+				calendar,
+				mapSyncId,
+				async function ( geo, signal, isCurrent ) {
+					const params = getFilterState( calendar ).buildParams(
+						getDatePicker( calendar )
+					);
+					params.set( 'lat', geo.lat );
+					params.set( 'lng', geo.lng );
+					if ( geo.radius !== undefined ) {
+						params.set( 'radius', String( geo.radius ) );
+					}
+					if ( geo.radius_unit ) {
+						params.set( 'radius_unit', geo.radius_unit );
+					}
+					const controller = getMonthGridController( calendar );
+					return controller
+						? controller.handleFilterChange( params, {
+								signal,
+								shouldApply: isCurrent,
+						  } )
+						: false;
 				}
-				if ( geo.radius_unit ) {
-					params.set( 'radius_unit', geo.radius_unit );
-				}
-				const controller = getMonthGridController( calendar );
-				return controller
-					? controller.handleFilterChange( params )
-					: false;
-			} );
+			);
 		} else {
 			initGeoSync( calendar, mapSyncId );
 		}

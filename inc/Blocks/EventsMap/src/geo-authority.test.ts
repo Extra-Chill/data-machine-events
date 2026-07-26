@@ -1,3 +1,6 @@
+/**
+ * Internal dependencies
+ */
 import {
 	createGeoAuthorityTracker,
 	resolveInitialView,
@@ -112,5 +115,14 @@ describe( 'map geo authority', () => {
 
 		expect( tracker.isLatest( initial.generation ) ).toBe( false );
 		expect( tracker.isLatest( user.generation ) ).toBe( true );
+	} );
+
+	it( 'cancels active gesture authority before neutral movement', () => {
+		const tracker = createGeoAuthorityTracker();
+		const gesture = tracker.activate( 'user-interaction' );
+		tracker.cancel( gesture.generation );
+
+		tracker.movementStarted();
+		expect( tracker.movementEnded() ).toBeNull();
 	} );
 } );

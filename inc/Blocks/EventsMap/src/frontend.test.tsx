@@ -121,9 +121,19 @@ jest.mock( 'leaflet', () => {
 } );
 jest.mock( 'leaflet.markercluster', () => ( {} ) );
 
+/**
+ * WordPress dependencies
+ */
 import { createRoot } from '@wordpress/element';
+
+/**
+ * External dependencies
+ */
 import { act } from 'react';
 
+/**
+ * Internal dependencies
+ */
 import { EventsMap } from './frontend';
 
 import type { MapProps } from './types';
@@ -382,6 +392,25 @@ describe( 'EventsMap geo authority integration', () => {
 				zoom: 13,
 			} ),
 		] );
+		act( () => root.unmount() );
+		bounds.remove();
+	} );
+
+	it( 'keeps cancelled gestures neutral through later invalidation', () => {
+		const bounds = collectBoundsEvents();
+		const { root, map } = renderMap( props() );
+
+		act( () => {
+			map.fire( 'boxzoomstart' );
+			map.fire( 'boxzoomcancel' );
+			map.invalidateSize();
+			map.fire( 'dragstart' );
+			map.fire( 'dragend' );
+			jest.advanceTimersByTime( 0 );
+			map.invalidateSize();
+		} );
+
+		expect( bounds.events ).toEqual( [] );
 		act( () => root.unmount() );
 		bounds.remove();
 	} );

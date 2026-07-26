@@ -1,3 +1,6 @@
+/**
+ * Internal dependencies
+ */
 import { fetchCalendarEvents } from './api-client';
 
 function calendarMarkup(): HTMLElement {

@@ -650,6 +650,7 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		const cleanupCallbacks: Array< () => void > = [];
 		let activeGestureGeneration: number | null = null;
 		let activeGestureMoved = false;
+		let activeGestureType: 'drag' | 'boxzoom' | null = null;
 		const prepareUserInteraction = () => {
 			const operation = authority.prepare( 'user-interaction' );
 			const timer = setTimeout( () => {
@@ -658,16 +659,20 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			}, 750 );
 			interactionAbandonTimers.add( timer );
 		};
-		const activateUserInteraction = () => {
+		const activateUserInteraction = ( type: 'drag' | 'boxzoom' ) => {
 			activeGestureMoved = false;
+			activeGestureType = type;
 			activeGestureGeneration =
 				authority.activate( 'user-interaction' ).generation;
 		};
+		const handleDragStart = () => activateUserInteraction( 'drag' );
+		const handleBoxZoomStart = () => activateUserInteraction( 'boxzoom' );
 		const cancelActiveGesture = () => {
 			if ( activeGestureGeneration !== null ) {
 				authority.cancel( activeGestureGeneration );
 				activeGestureGeneration = null;
 				activeGestureMoved = false;
+				activeGestureType = null;
 			}
 		};
 		const handleMove = () => {
@@ -690,6 +695,7 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 				if ( activeGestureGeneration === operation.generation ) {
 					activeGestureGeneration = null;
 					activeGestureMoved = false;
+					activeGestureType = null;
 				}
 				dispatchBoundsChanged( map, syncId, operation );
 			}
@@ -710,7 +716,7 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			}
 		};
 		const handleDocumentKeyDown = ( event: KeyboardEvent ) => {
-			if ( event.key === 'Escape' ) {
+			if ( event.key === 'Escape' && activeGestureType === 'boxzoom' ) {
 				cancelActiveGesture();
 			}
 		};
@@ -729,7 +735,8 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		map.on( 'movestart', handleMoveStart );
 		map.on( 'move', handleMove );
 		map.on( 'moveend', handleMoveEnd );
-		map.on( 'dragstart boxzoomstart', activateUserInteraction );
+		map.on( 'dragstart', handleDragStart );
+		map.on( 'boxzoomstart', handleBoxZoomStart );
 		map.on( 'dragend', handleDragEnd );
 		el.addEventListener( 'dblclick', handleDoubleClick, true );
 		el.addEventListener( 'keydown', handleKeyDown, true );
@@ -885,7 +892,8 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			map.off( 'movestart', handleMoveStart );
 			map.off( 'move', handleMove );
 			map.off( 'moveend', handleMoveEnd );
-			map.off( 'dragstart boxzoomstart', activateUserInteraction );
+			map.off( 'dragstart', handleDragStart );
+			map.off( 'boxzoomstart', handleBoxZoomStart );
 			map.off( 'dragend', handleDragEnd );
 			el.removeEventListener( 'dblclick', handleDoubleClick, true );
 			el.removeEventListener( 'keydown', handleKeyDown, true );

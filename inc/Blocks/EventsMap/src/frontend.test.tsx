@@ -371,6 +371,30 @@ describe( 'EventsMap geo authority integration', () => {
 		bounds.remove();
 	} );
 
+	it( 'does not apply box zoom Escape cancellation to a moved drag', () => {
+		const bounds = collectBoundsEvents();
+		const { root, map } = renderMap( props() );
+
+		act( () => {
+			map.fire( 'dragstart' );
+			map.fire( 'move' );
+			document.dispatchEvent(
+				new KeyboardEvent( 'keydown', { key: 'Escape' } )
+			);
+			map.center = { lat: 40.7128, lng: -74.006 };
+			map.fire( 'moveend' );
+		} );
+
+		expect( bounds.events ).toEqual( [
+			expect.objectContaining( {
+				authority: 'user-interaction',
+				center: { lat: 40.7128, lng: -74.006 },
+			} ),
+		] );
+		act( () => root.unmount() );
+		bounds.remove();
+	} );
+
 	it( 'emits deliberate user zoom authority', () => {
 		const bounds = collectBoundsEvents();
 		const { root, host, map } = renderMap( props() );

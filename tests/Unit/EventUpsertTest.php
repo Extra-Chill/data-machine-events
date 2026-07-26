@@ -164,7 +164,7 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( EventUpsert::class, $this->handler );
 	}
 
-	public function test_unchanged_trash_reimport_reuses_exact_source_post_but_awaits_core_status_reconciliation(): void {
+	public function test_unchanged_trash_reimport_republishes_the_exact_source_post(): void {
 		$parameters = array(
 			'title'           => 'Exact Source Trash Replay ' . uniqid(),
 			'venue'           => 'Exact Source Venue ' . uniqid(),
@@ -187,8 +187,12 @@ class EventUpsertTest extends WP_UnitTestCase {
 
 		$this->assertTrue( $reimported['success'] ?? false, wp_json_encode( $reimported ) );
 		$this->assertSame( $post_id, (int) $reimported['data']['post_id'] );
-		$this->assertSame( 'no_change', $reimported['data']['action'] );
-		$this->assertSame( 'trash', get_post_status( $post_id ), 'Data Machine #2993 owns unchanged-content status reconciliation.' );
+		$this->assertSame( 'updated', $reimported['data']['action'] );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+		$this->assertSame( $original_slug, get_post_field( 'post_name', $post_id ) );
+		$this->assertSame( array(), get_post_meta( $post_id, '_wp_desired_post_slug', false ) );
+		$this->assertSame( array(), get_post_meta( $post_id, '_wp_trash_meta_status', false ) );
+		$this->assertSame( array(), get_post_meta( $post_id, '_wp_trash_meta_time', false ) );
 		$this->assertCount(
 			1,
 			get_posts(
@@ -200,6 +204,18 @@ class EventUpsertTest extends WP_UnitTestCase {
 					'posts_per_page' => -1,
 				)
 			)
+		);
+		$this->assertCount(
+			1,
+			get_posts(
+				array(
+					'post_type'      => Event_Post_Type::POST_TYPE,
+					'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private', 'trash' ),
+					'title'          => $parameters['title'],
+					'posts_per_page' => -1,
+				)
+			),
+			'Reimport must restore the original slug instead of creating a suffixed replacement.'
 		);
 	}
 

@@ -19,10 +19,16 @@ import { destroyGeoSync, initGeoSync } from './geo-sync';
 
 const mockFetchCalendarEvents = fetchCalendarEvents as jest.Mock;
 
-function dispatchBounds( authority?: string ): void {
+function dispatchBounds(
+	authority?: string,
+	syncId = 'map-a',
+	generation = 1
+): void {
 	document.dispatchEvent(
 		new CustomEvent( 'data-machine-map-bounds-changed', {
 			detail: {
+				syncId,
+				generation,
 				bounds: { swLat: 32, swLng: -80, neLat: 33, neLng: -79 },
 				zoom: 10,
 				center: { lat: 32.7765, lng: -79.9311 },
@@ -41,7 +47,67 @@ describe( 'calendar geo authority', () => {
 		mockUpdateUrl.mockClear();
 		mockSaveGeoToStorage.mockClear();
 		mockFetchCalendarEvents.mockClear();
-		initGeoSync( calendar );
+		initGeoSync( calendar, 'map-a' );
+	} );
+
+	it( 'ignores bounds from an unrelated map instance', () => {
+		dispatchBounds( 'user-interaction', 'map-b' );
+		jest.advanceTimersByTime( 300 );
+
+		expect( mockFetchCalendarEvents ).not.toHaveBeenCalled();
+	} );
+
+	it( 'routes simultaneous map events to their targeted calendars', () => {
+		const calendarB = document.createElement( 'div' );
+		initGeoSync( calendarB, 'map-b' );
+
+		dispatchBounds( 'external', 'map-a', 2 );
+		dispatchBounds( 'user-interaction', 'map-b', 3 );
+		jest.advanceTimersByTime( 300 );
+
+		expect( mockFetchCalendarEvents ).toHaveBeenCalledTimes( 2 );
+		expect(
+			new Set(
+				mockFetchCalendarEvents.mock.calls.map( ( call ) => call[ 0 ] )
+			)
+		).toEqual( new Set( [ calendar, calendarB ] ) );
+		destroyGeoSync( calendarB );
+	} );
+
+	it( 'cancels queued work during teardown', () => {
+		dispatchBounds( 'external' );
+		destroyGeoSync( calendar );
+		jest.advanceTimersByTime( 300 );
+
+		expect( mockFetchCalendarEvents ).not.toHaveBeenCalled();
+	} );
+
+	it( 'aborts superseded and destroyed calendar requests', () => {
+		dispatchBounds( 'external', 'map-a', 4 );
+		jest.advanceTimersByTime( 300 );
+		const firstSignal = mockFetchCalendarEvents.mock.calls[ 0 ][ 3 ]
+			.signal as AbortSignal;
+
+		dispatchBounds( 'user-interaction', 'map-a', 5 );
+		jest.advanceTimersByTime( 300 );
+		const secondSignal = mockFetchCalendarEvents.mock.calls[ 1 ][ 3 ]
+			.signal as AbortSignal;
+
+		expect( firstSignal.aborted ).toBe( true );
+		expect( secondSignal.aborted ).toBe( false );
+		destroyGeoSync( calendar );
+		expect( secondSignal.aborted ).toBe( true );
+	} );
+
+	it( 'ignores replayed and out-of-order map generations', () => {
+		dispatchBounds( 'external', 'map-a', 8 );
+		dispatchBounds( 'user-interaction', 'map-a', 7 );
+		jest.advanceTimersByTime( 300 );
+
+		expect( mockFetchCalendarEvents ).toHaveBeenCalledTimes( 1 );
+		expect( mockSaveGeoToStorage ).toHaveBeenCalledWith(
+			expect.objectContaining( { lat: '32.7765' } )
+		);
 	} );
 
 	afterEach( () => {

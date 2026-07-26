@@ -25,6 +25,8 @@ import type { GeoContext } from '../types';
  * Shape of the custom event dispatched by the EventsMap block.
  */
 interface BoundsChangedDetail {
+	syncId: string;
+	generation: number;
 	bounds: {
 		swLat: number;
 		swLng: number;
@@ -54,8 +56,14 @@ const GEO_AUTHORITY_SOURCES = new Set( [
  */
 interface GeoSyncState {
 	handler: ( e: Event ) => void;
+	syncId: string;
 	currentGeo: GeoContext | null;
 	onGridUpdate?: ( geo: GeoContext ) => Promise< boolean >;
+	debounceTimer: ReturnType< typeof setTimeout > | null;
+	abortController: AbortController | null;
+	requestGeneration: number;
+	lastMapGeneration: number;
+	destroyed: boolean;
 }
 
 const instances = new WeakMap< HTMLElement, GeoSyncState >();
@@ -66,20 +74,28 @@ const instances = new WeakMap< HTMLElement, GeoSyncState >();
  * Listens for map bounds-changed events and re-fetches the calendar
  * via REST, updating the DOM in-place.
  * @param calendar
+ * @param syncId
  * @param onGridUpdate
  */
 export function initGeoSync(
 	calendar: HTMLElement,
+	syncId: string,
 	onGridUpdate?: ( geo: GeoContext ) => Promise< boolean >
 ): void {
-	if ( instances.has( calendar ) ) {
+	if ( instances.has( calendar ) || ! syncId ) {
 		return;
 	}
 
 	const state: GeoSyncState = {
 		handler: createBoundsHandler( calendar ),
+		syncId,
 		currentGeo: null,
 		onGridUpdate,
+		debounceTimer: null,
+		abortController: null,
+		requestGeneration: 0,
+		lastMapGeneration: 0,
+		destroyed: false,
 	};
 
 	instances.set( calendar, state );
@@ -109,6 +125,17 @@ export function destroyGeoSync( calendar: HTMLElement ): void {
 		'data-machine-map-bounds-changed',
 		state.handler
 	);
+	state.destroyed = true;
+	state.requestGeneration++;
+	if ( state.debounceTimer ) {
+		clearTimeout( state.debounceTimer );
+		state.debounceTimer = null;
+	}
+	state.abortController?.abort();
+	state.abortController = null;
+	calendar
+		.querySelector( '.data-machine-events-content' )
+		?.classList.remove( 'loading' );
 
 	instances.delete( calendar );
 }
@@ -128,6 +155,8 @@ export function updateCalendarGeo(
 	const state = instances.get( calendar );
 	if ( state ) {
 		state.currentGeo = geo;
+		startGeoRequest( calendar, state, geo );
+		return;
 	}
 
 	void fetchAndUpdate( calendar, geo );
@@ -138,21 +167,32 @@ export function updateCalendarGeo(
 /* ------------------------------------------------------------------ */
 
 function createBoundsHandler( calendar: HTMLElement ): ( e: Event ) => void {
-	let debounceTimer: ReturnType< typeof setTimeout >;
-
 	return function ( e: Event ): void {
 		const detail = ( e as CustomEvent< BoundsChangedDetail > ).detail;
+		const state = instances.get( calendar );
 		if (
+			! state ||
+			state.destroyed ||
 			! detail?.center ||
+			detail.syncId !== state.syncId ||
+			! Number.isInteger( detail.generation ) ||
+			detail.generation <= state.lastMapGeneration ||
 			! detail.authority ||
 			! GEO_AUTHORITY_SOURCES.has( detail.authority )
 		) {
 			return;
 		}
+		state.lastMapGeneration = detail.generation;
 
-		clearTimeout( debounceTimer );
+		if ( state.debounceTimer ) {
+			clearTimeout( state.debounceTimer );
+		}
 
-		debounceTimer = setTimeout( () => {
+		state.debounceTimer = setTimeout( () => {
+			state.debounceTimer = null;
+			if ( state.destroyed || instances.get( calendar ) !== state ) {
+				return;
+			}
 			// Derive radius from viewport bounds — the map zoom IS the radius.
 			const radius = boundsToRadius( detail.bounds, detail.center );
 
@@ -163,30 +203,58 @@ function createBoundsHandler( calendar: HTMLElement ): ( e: Event ) => void {
 				radius_unit: 'mi',
 			};
 
-			const state = instances.get( calendar );
-			if ( state ) {
-				state.currentGeo = geo;
-			}
+			state.currentGeo = geo;
 
-			void fetchAndUpdate( calendar, geo );
+			startGeoRequest( calendar, state, geo );
 		}, 300 );
 	};
+}
+
+function startGeoRequest(
+	calendar: HTMLElement,
+	state: GeoSyncState,
+	geo: GeoContext
+): void {
+	state.abortController?.abort();
+	state.abortController = new AbortController();
+	const requestGeneration = ++state.requestGeneration;
+	void fetchAndUpdate(
+		calendar,
+		geo,
+		state,
+		requestGeneration,
+		state.abortController.signal
+	);
 }
 
 /**
  * Fetch calendar data via REST API and update the DOM.
  * @param calendar
  * @param geo
+ * @param state
+ * @param requestGeneration
+ * @param signal
  */
 async function fetchAndUpdate(
 	calendar: HTMLElement,
-	geo: GeoContext
+	geo: GeoContext,
+	state?: GeoSyncState,
+	requestGeneration?: number,
+	signal?: AbortSignal
 ): Promise< void > {
+	const isCurrent = (): boolean =>
+		! state ||
+		( ! state.destroyed &&
+			instances.get( calendar ) === state &&
+			state.requestGeneration === requestGeneration &&
+			! signal?.aborted );
+	if ( ! isCurrent() ) {
+		return;
+	}
 	const filterState = getFilterState( calendar );
-	const state = instances.get( calendar );
 	if ( state?.onGridUpdate ) {
 		const updated = await state.onGridUpdate( geo );
-		if ( updated ) {
+		if ( updated && isCurrent() ) {
 			filterState.saveGeoToStorage( {
 				lat: geo.lat,
 				lng: geo.lng,
@@ -233,7 +301,10 @@ async function fetchAndUpdate(
 	// updates flow into Load More through the URL (pushed by
 	// `filterState.updateUrl()` above) — the next Load More click reads
 	// fresh geo via `buildCalendarRequest()`.
-	await fetchCalendarEvents( calendar, params, archiveContext );
+	await fetchCalendarEvents( calendar, params, archiveContext, {
+		signal,
+		shouldApply: isCurrent,
+	} );
 }
 
 /**

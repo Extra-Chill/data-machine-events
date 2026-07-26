@@ -145,9 +145,10 @@ export function initCalendarInstance( calendar: HTMLElement ): void {
 	} );
 
 	// Auto-detect map block on page and enable geo sync.
-	if ( hasMapBlockOnPage() ) {
+	const mapSyncId = resolveMapSyncId( calendar );
+	if ( mapSyncId ) {
 		if ( gridMode ) {
-			initGeoSync( calendar, async function ( geo ) {
+			initGeoSync( calendar, mapSyncId, async function ( geo ) {
 				const params = getFilterState( calendar ).buildParams(
 					getDatePicker( calendar )
 				);
@@ -165,7 +166,7 @@ export function initCalendarInstance( calendar: HTMLElement ): void {
 					: false;
 			} );
 		} else {
-			initGeoSync( calendar );
+			initGeoSync( calendar, mapSyncId );
 		}
 	}
 
@@ -339,9 +340,22 @@ function navigateToUrl( params: URLSearchParams ): void {
 /**
  * Check if an events-map block exists on the current page.
  * When present, the calendar auto-enables geo sync mode.
+ * @param calendar
  */
-function hasMapBlockOnPage(): boolean {
-	return document.querySelector( '.data-machine-events-map-root' ) !== null;
+function resolveMapSyncId( calendar: HTMLElement ): string {
+	const explicitTarget = calendar.dataset.mapSyncId || '';
+	if ( explicitTarget ) {
+		return explicitTarget;
+	}
+
+	const maps = document.querySelectorAll< HTMLElement >(
+		'.data-machine-events-map-root'
+	);
+	if ( maps.length !== 1 ) {
+		return '';
+	}
+
+	return maps[ 0 ].dataset.syncId || maps[ 0 ].id || '';
 }
 
 window.addEventListener( 'beforeunload', function () {

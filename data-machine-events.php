@@ -269,6 +269,7 @@ class DATAMACHINE_Events {
 			\DataMachineEvents\Abilities\FilterAbilities::class,
 			\DataMachineEvents\Abilities\EventQualityAuditAbilities::class,
 			\DataMachineEvents\Abilities\SettingsAbilities::class,
+			\DataMachineEvents\Abilities\SchedulingAbilities::class,
 			\DataMachineEvents\Abilities\DuplicateDetectionAbilities::class,
 			\DataMachineEvents\Abilities\UpcomingCountAbilities::class,
 			\DataMachineEvents\Abilities\EventDateQueryAbilities::class,

@@ -57,6 +57,10 @@ class CommandRegistry {
 				'file'  => $cli . 'SettingsCommand.php',
 				'class' => SettingsCommand::class,
 			),
+			'data-machine-events scheduling'             => array(
+				'file'  => $cli . 'SchedulingCommand.php',
+				'class' => SchedulingCommand::class,
+			),
 			'data-machine-events get-venue-events'       => array(
 				'file'  => $cli . 'GetVenueEventsCommand.php',
 				'class' => GetVenueEventsCommand::class,

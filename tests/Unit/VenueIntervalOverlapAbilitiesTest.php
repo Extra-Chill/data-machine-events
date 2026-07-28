@@ -169,7 +169,6 @@ class VenueIntervalOverlapAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	public function test_registered_ability_schema_and_read_contract_are_bounded(): void {
-		do_action( 'wp_abilities_api_init' );
 		$registered = wp_get_ability( VenueIntervalOverlapAbilities::ABILITY_NAME );
 		$this->assertNotNull( $registered );
 		$this->assertTrue( $registered->get_meta()['show_in_rest'] );

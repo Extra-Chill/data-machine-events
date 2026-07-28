@@ -28,36 +28,33 @@ class VenueIntervalOverlapAbilities {
 	private static bool $registered = false;
 
 	public function __construct() {
-		if ( ! self::$registered ) {
-			$this->registerAbility();
-			self::$registered = true;
+		if ( self::$registered ) {
+			return;
 		}
+
+		add_action( 'wp_abilities_api_init', array( $this, 'registerAbility' ) );
+		self::$registered = true;
 	}
 
-	private function registerAbility(): void {
-		add_action(
-			'wp_abilities_api_init',
-			function (): void {
-				wp_register_ability(
-					self::ABILITY_NAME,
-					array(
-						'label'               => __( 'Query Venue Interval Overlaps', 'data-machine-events' ),
-						'description'         => __( 'Return published canonical events whose indexed closed range overlaps a half-open interval at one venue.', 'data-machine-events' ),
-						'category'            => 'datamachine-events-events',
-						'input_schema'        => self::inputSchema(),
-						'output_schema'       => self::outputSchema(),
-						'execute_callback'    => array( $this, 'execute' ),
-						'permission_callback' => '__return_true',
-						'meta'                => array(
-							'show_in_rest' => true,
-							'annotations'  => array(
-								'readonly'   => true,
-								'idempotent' => true,
-							),
-						),
-					)
-				);
-			}
+	public function registerAbility(): void {
+		wp_register_ability(
+			self::ABILITY_NAME,
+			array(
+				'label'               => __( 'Query Venue Interval Overlaps', 'data-machine-events' ),
+				'description'         => __( 'Return published canonical events whose indexed closed range overlaps a half-open interval at one venue.', 'data-machine-events' ),
+				'category'            => AbilityCategories::EVENTS,
+				'input_schema'        => self::inputSchema(),
+				'output_schema'       => self::outputSchema(),
+				'execute_callback'    => array( $this, 'execute' ),
+				'permission_callback' => '__return_true',
+				'meta'                => array(
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'   => true,
+						'idempotent' => true,
+					),
+				),
+			)
 		);
 	}
 
@@ -267,14 +264,8 @@ class VenueIntervalOverlapAbilities {
 					'additionalProperties' => false,
 					'required'             => array( 'start', 'end' ),
 					'properties'           => array(
-						'start' => array(
-							'type'   => 'string',
-							'format' => 'date-time',
-						),
-						'end'   => array(
-							'type'   => 'string',
-							'format' => 'date-time',
-						),
+						'start' => self::dateTimeSchema(),
+						'end'   => self::dateTimeSchema(),
 					),
 				),
 				'events'   => array(
@@ -285,14 +276,8 @@ class VenueIntervalOverlapAbilities {
 						'required'             => array( 'event_id', 'start', 'end', 'status' ),
 						'properties'           => array(
 							'event_id' => array( 'type' => 'integer' ),
-							'start'    => array(
-								'type'   => 'string',
-								'format' => 'date-time',
-							),
-							'end'      => array(
-								'type'   => 'string',
-								'format' => 'date-time',
-							),
+							'start'    => self::dateTimeSchema(),
+							'end'      => self::dateTimeSchema(),
 							'status'   => array(
 								'type' => 'string',
 								'enum' => array( 'publish' ),
@@ -304,6 +289,13 @@ class VenueIntervalOverlapAbilities {
 				'per_page' => array( 'type' => 'integer' ),
 				'has_more' => array( 'type' => 'boolean' ),
 			),
+		);
+	}
+
+	private static function dateTimeSchema(): array {
+		return array(
+			'type'   => 'string',
+			'format' => 'date-time',
 		);
 	}
 }

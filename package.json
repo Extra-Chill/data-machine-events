@@ -1,6 +1,9 @@
 {
   "name": "data-machine-events",
   "private": true,
+  "scripts": {
+    "test:js": "npm --prefix inc/Blocks/Calendar test"
+  },
   "devDependencies": {
     "@wordpress/eslint-plugin": "^25.7.0",
     "eslint": "^9.0.0"

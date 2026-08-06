@@ -135,7 +135,7 @@ class Promoter_Taxonomy {
 		$was_created = ! empty( $resolved['created'] );
 
 		if ( ! empty( $promoter_data ) ) {
-			$strategy = $was_created ? 'overwrite' : 'fill_empty';
+			$strategy = $was_created ? VenueProfileMutations::STRATEGY_OVERWRITE : VenueProfileMutations::STRATEGY_FILL_EMPTY;
 
 			// Description was already applied by resolve-term on the create
 			// path (via wp_insert_term args). Only the existing-term path needs

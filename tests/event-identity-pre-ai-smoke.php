@@ -12,6 +12,7 @@
 
 namespace {
 	define( 'ABSPATH', __DIR__ . '/' );
+	define( 'DATA_MACHINE_EVENTS_POST_TYPE', 'data_machine_events' );
 
 	function do_action(): void {}
 
@@ -56,7 +57,7 @@ namespace DataMachineEvents\Core\DuplicateDetection {
 
 namespace DataMachineEvents\Core {
 	class Event_Post_Type {
-		public const POST_TYPE = 'data_machine_events';
+		public const POST_TYPE = \DATA_MACHINE_EVENTS_POST_TYPE;
 	}
 }
 

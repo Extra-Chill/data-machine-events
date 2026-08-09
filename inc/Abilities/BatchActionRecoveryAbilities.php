@@ -32,32 +32,52 @@ class BatchActionRecoveryAbilities {
 	}
 
 	private function registerAbility(): void {
-		add_action(
-			'wp_abilities_api_init',
-			function (): void {
-				wp_register_ability(
+		$register_callback = function (): void {
+			wp_register_ability(
 					'data-machine-events/recover-batch-actions',
 					array(
 						'label'               => __( 'Recover Pipeline Batch Actions', 'data-machine-events' ),
 						'description'         => __( 'Classify and remove exact obsolete pipeline batch action paths in bounded batches.', 'data-machine-events' ),
-						'category'            => 'datamachine-events-events',
+						'category'            => AbilityCategories::EVENTS,
 						'input_schema'        => array(
 							'type'       => 'object',
 							'properties' => array(
-								'apply'          => array( 'type' => 'boolean', 'default' => false ),
-								'cursor'         => array( 'type' => 'integer', 'minimum' => 0, 'default' => 0 ),
-								'review_through' => array( 'type' => 'integer', 'minimum' => 0, 'default' => 0 ),
-								'scan_limit'     => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => self::MAX_SCAN_LIMIT, 'default' => self::DEFAULT_SCAN_LIMIT ),
-								'mutation_limit' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => self::MAX_MUTATIONS, 'default' => self::DEFAULT_MUTATIONS ),
+								'apply'          => array(
+									'type'    => 'boolean',
+									'default' => false,
+								),
+								'cursor'         => array(
+									'type'    => 'integer',
+									'minimum' => 0,
+									'default' => 0,
+								),
+								'review_through' => array(
+									'type'    => 'integer',
+									'minimum' => 0,
+									'default' => 0,
+								),
+								'scan_limit'     => array(
+									'type'    => 'integer',
+									'minimum' => 1,
+									'maximum' => self::MAX_SCAN_LIMIT,
+									'default' => self::DEFAULT_SCAN_LIMIT,
+								),
+								'mutation_limit' => array(
+									'type'    => 'integer',
+									'minimum' => 1,
+									'maximum' => self::MAX_MUTATIONS,
+									'default' => self::DEFAULT_MUTATIONS,
+								),
 							),
 						),
 						'output_schema'       => array( 'type' => 'object' ),
 						'execute_callback'    => array( $this, 'execute' ),
 						'permission_callback' => AbilityPermissions::canWrite(),
 					)
-				);
-			}
-		);
+			);
+		};
+
+		add_action( 'wp_abilities_api_init', $register_callback );
 	}
 
 	/**
@@ -87,7 +107,7 @@ class BatchActionRecoveryAbilities {
 		}
 
 		// The primary-key window bounds rows examined even when hook/status indexes are unhealthy.
-		$sql     = $apply
+		$sql = $apply
 			? $wpdb->prepare(
 				'SELECT action_id, hook, status, claim_id, args FROM %i WHERE action_id > %d AND action_id <= %d ORDER BY action_id ASC LIMIT %d',
 				$actions_table,
@@ -101,12 +121,13 @@ class BatchActionRecoveryAbilities {
 				$cursor,
 				$scan_limit
 			);
-		$wpdb->last_error = '';
-		$actions          = $wpdb->get_results(
+		$wpdb->flush();
+		$actions = $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Both query shapes are prepared directly above.
 			$sql,
 			ARRAY_A
 		);
-		if ( '' !== $wpdb->last_error || ! is_array( $actions ) ) {
+		if ( ! empty( $wpdb->last_error ) || ! is_array( $actions ) ) {
 			return array( 'error' => 'Unable to read the Action Scheduler recovery window.' );
 		}
 
@@ -122,9 +143,9 @@ class BatchActionRecoveryAbilities {
 			}
 			$parent_job_id = (int) $args['parent_job_id'];
 			if ( ! array_key_exists( $parent_job_id, $parent_cache ) ) {
-				$wpdb->last_error               = '';
+				$wpdb->flush();
 				$parent_cache[ $parent_job_id ] = $jobs->get_job( $parent_job_id );
-				if ( '' !== $wpdb->last_error ) {
+				if ( ! empty( $wpdb->last_error ) ) {
 					return array( 'error' => 'Unable to verify a batch parent; no actions were changed.' );
 				}
 			}
@@ -133,23 +154,23 @@ class BatchActionRecoveryAbilities {
 			if ( ! is_array( $parent ) || JobStatus::PROCESSING !== (string) ( $parent['status'] ?? '' ) ) {
 				continue;
 			}
-			$wpdb->last_error              = '';
+			$wpdb->flush();
 			$outstanding[ $parent_job_id ] = $batch_items->first_outstanding_index( (int) $parent_job_id );
-			if ( '' !== $wpdb->last_error ) {
+			if ( ! empty( $wpdb->last_error ) ) {
 				return array( 'error' => 'Unable to verify a batch worklist; no actions were changed.' );
 			}
 		}
 
-		$details        = array();
-		$counts         = array(
-			'rows_scanned'       => count( $actions ),
-			'chunk_actions'      => 0,
-			'claimed_preserved'  => 0,
-			'eligible'           => 0,
-			'deleted'            => 0,
-			'preserved'          => 0,
-			'race_skipped'       => 0,
-			'malformed'          => 0,
+		$details       = array();
+		$counts        = array(
+			'rows_scanned'      => count( $actions ),
+			'chunk_actions'     => 0,
+			'claimed_preserved' => 0,
+			'eligible'          => 0,
+			'deleted'           => 0,
+			'preserved'         => 0,
+			'race_skipped'      => 0,
+			'malformed'         => 0,
 		);
 		$next_cursor   = $apply && empty( $actions ) ? $review_through : $cursor;
 		$limit_reached = false;
@@ -165,7 +186,11 @@ class BatchActionRecoveryAbilities {
 			if ( 0 !== (int) $action['claim_id'] ) {
 				++$counts['claimed_preserved'];
 				++$counts['preserved'];
-				$details[] = array( 'action_id' => $action_id, 'disposition' => 'preserved', 'reason' => 'action_claimed' );
+				$details[] = array(
+					'action_id'   => $action_id,
+					'disposition' => 'preserved',
+					'reason'      => 'action_claimed',
+				);
 				continue;
 			}
 
@@ -173,19 +198,23 @@ class BatchActionRecoveryAbilities {
 			if ( null === $args ) {
 				++$counts['malformed'];
 				++$counts['preserved'];
-				$details[] = array( 'action_id' => $action_id, 'disposition' => 'preserved', 'reason' => 'malformed_args' );
+				$details[] = array(
+					'action_id'   => $action_id,
+					'disposition' => 'preserved',
+					'reason'      => 'malformed_args',
+				);
 				continue;
 			}
 
 			$parent_job_id = (int) $args['parent_job_id'];
-			$parent = $parent_cache[ $parent_job_id ];
+			$parent_job    = $parent_cache[ $parent_job_id ];
 
 			$classification = self::classifyPendingAction(
 				$args,
-				is_array( $parent ) ? $parent : null,
+				is_array( $parent_job ) ? $parent_job : null,
 				$outstanding[ $parent_job_id ] ?? null
 			);
-			$detail = array(
+			$detail         = array(
 				'action_id'     => $action_id,
 				'parent_job_id' => $parent_job_id,
 				'offset'        => (int) $args['offset'],
@@ -276,30 +305,48 @@ class BatchActionRecoveryAbilities {
 	 * Select only paths proven obsolete from durable parent/worklist state.
 	 *
 	 * @param array{parent_job_id:int,offset:int} $args Action arguments.
-	 * @param array<string,mixed>|null            $parent Parent job row.
+	 * @param array<string,mixed>|null            $parent_job Parent job row.
 	 * @return array{eligible:bool,reason:string}
 	 */
-	private static function classifyPendingAction( array $args, ?array $parent, ?int $first_outstanding ): array {
-		if ( null === $parent ) {
-			return array( 'eligible' => true, 'reason' => 'parent_missing' );
+	private static function classifyPendingAction( array $args, ?array $parent_job, ?int $first_outstanding ): array {
+		if ( null === $parent_job ) {
+			return array(
+				'eligible' => true,
+				'reason'   => 'parent_missing',
+			);
 		}
-		$status = (string) ( $parent['status'] ?? '' );
+		$status = (string) ( $parent_job['status'] ?? '' );
 		if ( JobStatus::isStatusFinal( $status ) ) {
-			return array( 'eligible' => true, 'reason' => 'parent_terminal' );
+			return array(
+				'eligible' => true,
+				'reason'   => 'parent_terminal',
+			);
 		}
 		if ( JobStatus::PROCESSING !== $status ) {
-			return array( 'eligible' => false, 'reason' => 'parent_not_processing' );
+			return array(
+				'eligible' => false,
+				'reason'   => 'parent_not_processing',
+			);
 		}
 
-		$engine_data = is_array( $parent['engine_data'] ?? null ) ? $parent['engine_data'] : array();
+		$engine_data = is_array( $parent_job['engine_data'] ?? null ) ? $parent_job['engine_data'] : array();
 		if ( ! empty( $engine_data['batch_state']['worklist_complete'] ) ) {
-			return array( 'eligible' => true, 'reason' => 'worklist_complete' );
+			return array(
+				'eligible' => true,
+				'reason'   => 'worklist_complete',
+			);
 		}
-		$chunk_size = max( 1, (int) ( $parent['engine_data']['batch_chunk_size'] ?? 10 ) );
+		$chunk_size = max( 1, (int) ( $parent_job['engine_data']['batch_chunk_size'] ?? 10 ) );
 		if ( null !== $first_outstanding && $args['offset'] + $chunk_size <= $first_outstanding ) {
-			return array( 'eligible' => true, 'reason' => 'offset_superseded' );
+			return array(
+				'eligible' => true,
+				'reason'   => 'offset_superseded',
+			);
 		}
 
-		return array( 'eligible' => false, 'reason' => null === $first_outstanding ? 'worklist_state_ambiguous' : 'active_or_future_path' );
+		return array(
+			'eligible' => false,
+			'reason'   => null === $first_outstanding ? 'worklist_state_ambiguous' : 'active_or_future_path',
+		);
 	}
 }

@@ -60,7 +60,12 @@ class BatchActionRecoveryCommand {
 			return;
 		}
 		if ( 'json' === $format ) {
-			\WP_CLI::log( wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+			$json = wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+			if ( false === $json ) {
+				\WP_CLI::error( 'Unable to encode recovery output.' );
+				return;
+			}
+			\WP_CLI::log( $json );
 			return;
 		}
 

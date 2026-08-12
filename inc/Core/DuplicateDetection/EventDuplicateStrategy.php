@@ -370,31 +370,31 @@ class EventDuplicateStrategy {
 				// When both sides have venue data, require venue match to avoid
 				// false positives on generic titles at different venues.
 				if ( ! empty( $venue ) || $venue_term ) {
-				// Term-id-aware short-circuit: when the incoming venue resolved
-				// to a term, accept the match if the candidate is tagged with
-				// that same term — regardless of how the venue is spelled in
-				// either post's content.
-				if ( $venue_term ) {
-					$candidate_term_ids = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
-					if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids )
-						&& in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
-						return self::duplicateResult( $post_id, 'date_fuzzy_title_venue_term_id_match' );
+					// Term-id-aware short-circuit: when the incoming venue resolved
+					// to a term, accept the match if the candidate is tagged with
+					// that same term — regardless of how the venue is spelled in
+					// either post's content.
+					if ( $venue_term ) {
+						$candidate_term_ids = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'ids' ) );
+						if ( ! is_wp_error( $candidate_term_ids ) && ! empty( $candidate_term_ids )
+							&& in_array( (int) $venue_term->term_id, array_map( 'intval', $candidate_term_ids ), true ) ) {
+							return self::duplicateResult( $post_id, 'date_fuzzy_title_venue_term_id_match' );
+						}
 					}
-				}
 
-				if ( '' !== $venue ) {
-					$candidate_venues = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'names' ) );
-					$candidate_venue  = ( ! is_wp_error( $candidate_venues ) && ! empty( $candidate_venues ) ) ? $candidate_venues[0] : '';
+					if ( '' !== $venue ) {
+						$candidate_venues = wp_get_post_terms( $post_id, 'venue', array( 'fields' => 'names' ) );
+						$candidate_venue  = ( ! is_wp_error( $candidate_venues ) && ! empty( $candidate_venues ) ) ? $candidate_venues[0] : '';
 
-					if ( ! empty( $candidate_venue ) && ! EventIdentifierGenerator::venuesMatch( $venue, $candidate_venue ) ) {
+						if ( ! empty( $candidate_venue ) && ! EventIdentifierGenerator::venuesMatch( $venue, $candidate_venue ) ) {
+							continue;
+						}
+					} elseif ( $venue_term ) {
+						// Incoming side has a resolved term but the candidate
+						// doesn't share it; skip to avoid cross-venue false
+						// positives on generic titles.
 						continue;
 					}
-				} elseif ( $venue_term ) {
-					// Incoming side has a resolved term but the candidate
-					// doesn't share it; skip to avoid cross-venue false
-					// positives on generic titles.
-					continue;
-				}
 				}
 
 				return self::duplicateResult( $post_id, 'date_fuzzy_title' );

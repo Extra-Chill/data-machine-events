@@ -554,9 +554,9 @@ class EventDateQueryAbilities {
 			// Exact date match takes priority (dedup queries). Use a half-open
 			// datetime range so MySQL can use the start_datetime index.
 			if ( ! empty( $date_match ) ) {
-				$start                 = $date_match . ' 00:00:00';
-				$end                   = gmdate( 'Y-m-d H:i:s', strtotime( $start . ' +1 day' ) );
-				$clauses['where']     .= $wpdb->prepare( ' AND ed.start_datetime >= %s AND ed.start_datetime < %s', $start, $end );
+				$start             = $date_match . ' 00:00:00';
+				$end               = gmdate( 'Y-m-d H:i:s', strtotime( $start . ' +1 day' ) );
+				$clauses['where'] .= $wpdb->prepare( ' AND ed.start_datetime >= %s AND ed.start_datetime < %s', $start, $end );
 			} elseif ( ! empty( $date_start ) || ! empty( $date_end ) ) {
 				// Explicit date range — delegates to UpcomingFilter.
 				if ( ! empty( $date_start ) ) {

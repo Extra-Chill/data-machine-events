@@ -160,7 +160,7 @@ class SquarespaceExtractor extends BaseExtractor {
 	}
 
 	/**
-	 * Fetch the current month's events for native Squarespace Calendar blocks.
+	 * Fetch upcoming events for native Squarespace Calendar blocks.
 	 *
 	 * Calendar blocks contain only a collection ID in static HTML. The browser
 	 * renderer resolves that ID through Squarespace's public monthly endpoint.
@@ -175,17 +175,35 @@ class SquarespaceExtractor extends BaseExtractor {
 		}
 
 		$parsed   = wp_parse_url( $source_url );
-		$base_url = ( $parsed['scheme'] ?? 'https' ) . '://' . ( $parsed['host'] ?? '' );
+		$port     = isset( $parsed['port'] ) ? ':' . $parsed['port'] : '';
+		$base_url = ( $parsed['scheme'] ?? 'https' ) . '://' . ( $parsed['host'] ?? '' ) . $port;
 		$context  = $this->extractContextData( $html );
 		$timezone = $context['website']['timeZone'] ?? 'UTC';
+		$horizon  = $this->getRecurrenceHorizonDays(
+			array(
+				'source_url' => $source_url,
+				'method'     => $this->getMethod(),
+			)
+		);
 
 		try {
-			$month = ( new \DateTimeImmutable( 'now', new \DateTimeZone( $timezone ) ) )->format( 'm-Y' );
+			$calendar_timezone = new \DateTimeZone( $timezone );
 		} catch ( \Exception $e ) {
-			$month = gmdate( 'm-Y' );
+			$calendar_timezone = new \DateTimeZone( 'UTC' );
 		}
 
-		$seen_ids = array();
+		$now          = $this->getCalendarNow( $calendar_timezone );
+		$cutoff       = $now->modify( '+' . $horizon . ' days' );
+		$month_cursor = $now->modify( 'first day of this month' )->setTime( 0, 0 );
+		$months       = array();
+		while ( $month_cursor <= $cutoff ) {
+			$months[]     = $month_cursor->format( 'm-Y' );
+			$month_cursor = $month_cursor->modify( 'first day of next month' );
+		}
+
+		$seen_ids        = array();
+		$seen_event_keys = array();
+		$events          = array();
 		foreach ( $matches[0] as $tag ) {
 			if ( ! preg_match( '/data-block-json=["\']([^"\']+)["\']/i', $tag, $block_match ) ) {
 				continue;
@@ -202,37 +220,81 @@ class SquarespaceExtractor extends BaseExtractor {
 			}
 			$seen_ids[ $collection_id ] = true;
 
-			$url      = add_query_arg(
-				array(
-					'month'        => $month,
-					'collectionId' => $collection_id,
-				),
-				$base_url . '/api/open/GetItemsByMonth'
-			);
-			$response = \DataMachine\Core\HttpClient::get(
-				$url,
-				array(
-					'timeout' => 15,
-					'context' => 'Squarespace Extractor Calendar Block',
-				)
-			);
+			foreach ( $months as $month ) {
+				$url      = add_query_arg(
+					array(
+						'month'        => $month,
+						'collectionId' => $collection_id,
+					),
+					$base_url . '/api/open/GetItemsByMonth'
+				);
+				$response = \DataMachine\Core\HttpClient::get(
+					$url,
+					array(
+						'timeout' => 15,
+						'context' => 'Squarespace Extractor Calendar Block',
+					)
+				);
 
-			if ( empty( $response['success'] ) || empty( $response['data'] ) ) {
-				continue;
-			}
+				if ( empty( $response['success'] ) || empty( $response['data'] ) ) {
+					continue;
+				}
 
-			$items = json_decode( $response['data'], true );
-			if ( ! is_array( $items ) || JSON_ERROR_NONE !== json_last_error() ) {
-				continue;
-			}
+				$items = json_decode( $response['data'], true );
+				if ( ! is_array( $items ) || JSON_ERROR_NONE !== json_last_error() ) {
+					continue;
+				}
 
-			$items = $this->filterEventItems( $items );
-			if ( ! empty( $items ) ) {
-				return $items;
+				foreach ( $this->filterEventItems( $items ) as $item ) {
+					$start = $item['startDate'] ?? $item['structuredContent']['startDate'] ?? null;
+					if ( is_numeric( $start ) ) {
+						$timestamp = (int) $start;
+						if ( $timestamp > 1000000000000 ) {
+							$timestamp = (int) ( $timestamp / 1000 );
+						}
+						if ( $timestamp > $cutoff->getTimestamp() ) {
+							continue;
+						}
+					}
+
+					$event_keys = array(
+						'event:' . md5( (string) wp_json_encode( array( $item['title'] ?? '', $start, $item['endDate'] ?? '' ) ) ),
+					);
+					if ( ! empty( $item['id'] ) ) {
+						$event_keys[] = 'id:' . $item['id'];
+					}
+					if ( ! empty( $item['fullUrl'] ) ) {
+						$event_keys[] = 'url:' . $item['fullUrl'];
+					}
+
+					if ( array_intersect_key( $seen_event_keys, array_fill_keys( $event_keys, true ) ) ) {
+						continue;
+					}
+					foreach ( $event_keys as $event_key ) {
+						$seen_event_keys[ $event_key ] = true;
+					}
+					$events[] = $item;
+				}
 			}
 		}
 
-		return array();
+		return array_slice(
+			$events,
+			0,
+			$this->getMaxScrapeEvents(
+				array(
+					'source_url' => $source_url,
+					'method'     => $this->getMethod(),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Current instant in the calendar's timezone.
+	 */
+	protected function getCalendarNow( \DateTimeZone $timezone ): \DateTimeImmutable {
+		return new \DateTimeImmutable( 'now', $timezone );
 	}
 
 	/**

@@ -34,6 +34,7 @@ class SquarespaceExtractorTest extends WP_UnitTestCase {
 
 	public function tearDown(): void {
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'data_machine_events_scraper_recurrence_horizon_days' );
 		parent::tearDown();
 	}
 
@@ -351,17 +352,28 @@ class SquarespaceExtractorTest extends WP_UnitTestCase {
 		$this->assertSame( '2099-06-01', $events[0]['startDate'] );
 	}
 
-	public function test_native_calendar_block_fetches_browser_visible_month() {
-		$source_url = 'https://www.thewomack.us/calendar';
+	public function test_native_calendar_blocks_fetch_bounded_months_and_dedupe_events() {
+		$source_url = 'https://www.thewomack.us:8443/calendar';
 		$html       = file_get_contents( $this->fixtures_dir . '/womack-calendar-block.html' );
 		$items      = file_get_contents( $this->fixtures_dir . '/womack-calendar-items.json' );
+		$requests   = array();
+
+		$this->extractor = new class() extends SquarespaceExtractor {
+			protected function getCalendarNow( \DateTimeZone $timezone ): \DateTimeImmutable {
+				return ( new \DateTimeImmutable( '2026-08-01 06:30:00', new \DateTimeZone( 'UTC' ) ) )->setTimezone( $timezone );
+			}
+		};
 
 		add_filter(
 			'pre_http_request',
-			static function ( $preempt, $args, $url ) use ( $items ) {
-				if ( 0 === strpos( $url, 'https://www.thewomack.us/api/open/GetItemsByMonth?' ) ) {
+			static function ( $preempt, $args, $url ) use ( $items, &$requests ) {
+				if ( 0 === strpos( $url, 'https://www.thewomack.us:8443/api/open/GetItemsByMonth?' ) ) {
 					parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
-					if ( '6515beb3cb46457500c400c9' === ( $query['collectionId'] ?? '' ) && preg_match( '/^\d{2}-\d{4}$/', $query['month'] ?? '' ) ) {
+					$collection = $query['collectionId'] ?? '';
+					$month      = $query['month'] ?? '';
+					$requests[] = $collection . '|' . $month;
+
+					if ( '6515beb3cb46457500c400c9' === $collection && '08-2026' === $month ) {
 						return array(
 							'headers'  => array(),
 							'body'     => $items,
@@ -373,9 +385,53 @@ class SquarespaceExtractorTest extends WP_UnitTestCase {
 							'filename' => null,
 						);
 					}
+
+					if ( '6515beb3cb46457500c400c9' === $collection && '09-2026' === $month ) {
+						return array(
+							'headers'  => array(),
+							'body'     => '{malformed',
+							'response' => array( 'code' => 200 ),
+						);
+					}
+
+					if ( 'secondary-calendar' === $collection && '08-2026' === $month ) {
+						$secondary = array(
+							json_decode( $items, true )[0],
+							array(
+								'id'         => 'secondary-event',
+								'recordType' => 12,
+								'title'      => 'Secondary Calendar Show',
+								'fullUrl'    => '/womack-events/secondary-calendar-show',
+								'startDate'  => 1788325200000,
+								'endDate'    => 1788332400000,
+							),
+							array(
+								'id'         => 'beyond-horizon',
+								'recordType' => 12,
+								'title'      => 'Beyond Horizon',
+								'startDate'  => 1793491200000,
+							),
+						);
+
+						return array(
+							'headers'  => array(),
+							'body'     => wp_json_encode( $secondary ),
+							'response' => array( 'code' => 200 ),
+						);
+					}
+
+					if ( 'secondary-calendar' === $collection && '09-2026' === $month ) {
+						return new \WP_Error( 'http_request_failed', 'Calendar unavailable' );
+					}
+
+					return array(
+						'headers'  => array(),
+						'body'     => '[]',
+						'response' => array( 'code' => 200 ),
+					);
 				}
 
-				if ( 'https://www.thewomack.us/calendar?format=json' === $url ) {
+				if ( 'https://www.thewomack.us:8443/calendar?format=json' === $url ) {
 					return array(
 						'headers'  => array(),
 						'body'     => '{"collection":{"type":10,"itemCount":0},"mainContent":""}',
@@ -396,11 +452,26 @@ class SquarespaceExtractorTest extends WP_UnitTestCase {
 
 		$events = $this->extractor->extract( $html, $source_url );
 
-		$this->assertCount( 2, $events );
+		$this->assertCount( 3, $events );
 		$this->assertSame( 'ill Vibe', $events[0]['title'] );
 		$this->assertSame( '2026-08-30', $events[0]['startDate'] );
 		$this->assertSame( 'Groove Candy', $events[1]['title'] );
 		$this->assertSame( '/womack-events/3jtw3a6l6tch7bcfkgrzbw64xtnrx3', $events[1]['source_url'] );
+		$this->assertSame( 'Secondary Calendar Show', $events[2]['title'] );
+		$this->assertSame(
+			array(
+				'6515beb3cb46457500c400c9|07-2026',
+				'6515beb3cb46457500c400c9|08-2026',
+				'6515beb3cb46457500c400c9|09-2026',
+				'6515beb3cb46457500c400c9|10-2026',
+				'secondary-calendar|07-2026',
+				'secondary-calendar|08-2026',
+				'secondary-calendar|09-2026',
+				'secondary-calendar|10-2026',
+			),
+			$requests,
+			'Phoenix is still in July when the UTC clock has crossed into August.'
+		);
 	}
 
 	/* ------------------------------------------------------------------ */

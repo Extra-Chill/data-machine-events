@@ -15,6 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class SquarespaceExtractor extends BaseExtractor {
+	private const MAX_CALENDAR_COLLECTIONS = 10;
 
 	public function canExtract( string $html ): bool {
 		return strpos( $html, 'Static.SQUARESPACE_CONTEXT' ) !== false;
@@ -174,12 +175,18 @@ class SquarespaceExtractor extends BaseExtractor {
 			return array();
 		}
 
-		$parsed   = wp_parse_url( $source_url );
-		$port     = isset( $parsed['port'] ) ? ':' . $parsed['port'] : '';
-		$base_url = ( $parsed['scheme'] ?? 'https' ) . '://' . ( $parsed['host'] ?? '' ) . $port;
-		$context  = $this->extractContextData( $html );
-		$timezone = $context['website']['timeZone'] ?? 'UTC';
-		$horizon  = $this->getRecurrenceHorizonDays(
+		$parsed     = wp_parse_url( $source_url );
+		$port       = isset( $parsed['port'] ) ? ':' . $parsed['port'] : '';
+		$base_url   = ( $parsed['scheme'] ?? 'https' ) . '://' . ( $parsed['host'] ?? '' ) . $port;
+		$context    = $this->extractContextData( $html );
+		$timezone   = $context['website']['timeZone'] ?? 'UTC';
+		$horizon    = $this->getRecurrenceHorizonDays(
+			array(
+				'source_url' => $source_url,
+				'method'     => $this->getMethod(),
+			)
+		);
+		$max_events = $this->getMaxScrapeEvents(
 			array(
 				'source_url' => $source_url,
 				'method'     => $this->getMethod(),
@@ -218,6 +225,9 @@ class SquarespaceExtractor extends BaseExtractor {
 			if ( isset( $seen_ids[ $collection_id ] ) ) {
 				continue;
 			}
+			if ( count( $seen_ids ) >= self::MAX_CALENDAR_COLLECTIONS ) {
+				break;
+			}
 			$seen_ids[ $collection_id ] = true;
 
 			foreach ( $months as $month ) {
@@ -246,15 +256,10 @@ class SquarespaceExtractor extends BaseExtractor {
 				}
 
 				foreach ( $this->filterEventItems( $items ) as $item ) {
-					$start = $item['startDate'] ?? $item['structuredContent']['startDate'] ?? null;
-					if ( is_numeric( $start ) ) {
-						$timestamp = (int) $start;
-						if ( $timestamp > 1000000000000 ) {
-							$timestamp = (int) ( $timestamp / 1000 );
-						}
-						if ( $timestamp > $cutoff->getTimestamp() ) {
-							continue;
-						}
+					$start     = $item['startDate'] ?? $item['structuredContent']['startDate'] ?? null;
+					$timestamp = $this->getCalendarItemStartTimestamp( $start, $calendar_timezone );
+					if ( null === $timestamp || $timestamp < $now->getTimestamp() || $timestamp > $cutoff->getTimestamp() ) {
+						continue;
 					}
 
 					$event_keys = array(
@@ -274,6 +279,9 @@ class SquarespaceExtractor extends BaseExtractor {
 						$seen_event_keys[ $event_key ] = true;
 					}
 					$events[] = $item;
+					if ( count( $events ) >= $max_events ) {
+						return $events;
+					}
 				}
 			}
 		}
@@ -281,13 +289,31 @@ class SquarespaceExtractor extends BaseExtractor {
 		return array_slice(
 			$events,
 			0,
-			$this->getMaxScrapeEvents(
-				array(
-					'source_url' => $source_url,
-					'method'     => $this->getMethod(),
-				)
-			)
+			$max_events
 		);
+	}
+
+	/**
+	 * Resolve a Calendar item start value to a Unix timestamp.
+	 *
+	 * @param mixed         $start    Numeric seconds/milliseconds or a date string.
+	 * @param \DateTimeZone $timezone Calendar timezone for strings without an offset.
+	 */
+	private function getCalendarItemStartTimestamp( $start, \DateTimeZone $timezone ): ?int {
+		if ( is_numeric( $start ) ) {
+			$timestamp = (int) $start;
+			return $timestamp > 1000000000000 ? (int) ( $timestamp / 1000 ) : $timestamp;
+		}
+
+		if ( ! is_string( $start ) || '' === trim( $start ) ) {
+			return null;
+		}
+
+		try {
+			return ( new \DateTimeImmutable( $start, $timezone ) )->getTimestamp();
+		} catch ( \Exception $e ) {
+			return null;
+		}
 	}
 
 	/**

@@ -90,6 +90,11 @@ class SquarespaceExtractor extends BaseExtractor {
 		}
 
 		if ( empty( $raw_items ) ) {
+			// Native Calendar blocks load their event collection by month at runtime.
+			$raw_items = $this->parseCalendarBlockCollections( $html, $source_url );
+		}
+
+		if ( empty( $raw_items ) ) {
 			return array();
 		}
 
@@ -152,6 +157,82 @@ class SquarespaceExtractor extends BaseExtractor {
 		}
 
 		return $items;
+	}
+
+	/**
+	 * Fetch the current month's events for native Squarespace Calendar blocks.
+	 *
+	 * Calendar blocks contain only a collection ID in static HTML. The browser
+	 * renderer resolves that ID through Squarespace's public monthly endpoint.
+	 *
+	 * @param string $html       Host page HTML.
+	 * @param string $source_url Source URL used to derive the endpoint origin.
+	 * @return array Raw event items, or an empty array on failure.
+	 */
+	private function parseCalendarBlockCollections( string $html, string $source_url ): array {
+		if ( false === strpos( $html, 'calendar-block' ) || ! preg_match_all( '/<div\b[^>]*class=["\'][^"\']*\bcalendar-block\b[^"\']*["\'][^>]*>/i', $html, $matches ) ) {
+			return array();
+		}
+
+		$parsed   = wp_parse_url( $source_url );
+		$base_url = ( $parsed['scheme'] ?? 'https' ) . '://' . ( $parsed['host'] ?? '' );
+		$context  = $this->extractContextData( $html );
+		$timezone = $context['website']['timeZone'] ?? 'UTC';
+
+		try {
+			$month = ( new \DateTimeImmutable( 'now', new \DateTimeZone( $timezone ) ) )->format( 'm-Y' );
+		} catch ( \Exception $e ) {
+			$month = gmdate( 'm-Y' );
+		}
+
+		$seen_ids = array();
+		foreach ( $matches[0] as $tag ) {
+			if ( ! preg_match( '/data-block-json=["\']([^"\']+)["\']/i', $tag, $block_match ) ) {
+				continue;
+			}
+
+			$block = json_decode( html_entity_decode( $block_match[1], ENT_QUOTES, 'UTF-8' ), true );
+			if ( ! is_array( $block ) || empty( $block['collectionId'] ) ) {
+				continue;
+			}
+
+			$collection_id = (string) $block['collectionId'];
+			if ( isset( $seen_ids[ $collection_id ] ) ) {
+				continue;
+			}
+			$seen_ids[ $collection_id ] = true;
+
+			$url      = add_query_arg(
+				array(
+					'month'        => $month,
+					'collectionId' => $collection_id,
+				),
+				$base_url . '/api/open/GetItemsByMonth'
+			);
+			$response = \DataMachine\Core\HttpClient::get(
+				$url,
+				array(
+					'timeout' => 15,
+					'context' => 'Squarespace Extractor Calendar Block',
+				)
+			);
+
+			if ( empty( $response['success'] ) || empty( $response['data'] ) ) {
+				continue;
+			}
+
+			$items = json_decode( $response['data'], true );
+			if ( ! is_array( $items ) || JSON_ERROR_NONE !== json_last_error() ) {
+				continue;
+			}
+
+			$items = $this->filterEventItems( $items );
+			if ( ! empty( $items ) ) {
+				return $items;
+			}
+		}
+
+		return array();
 	}
 
 	/**

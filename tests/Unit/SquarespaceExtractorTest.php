@@ -351,6 +351,58 @@ class SquarespaceExtractorTest extends WP_UnitTestCase {
 		$this->assertSame( '2099-06-01', $events[0]['startDate'] );
 	}
 
+	public function test_native_calendar_block_fetches_browser_visible_month() {
+		$source_url = 'https://www.thewomack.us/calendar';
+		$html       = file_get_contents( $this->fixtures_dir . '/womack-calendar-block.html' );
+		$items      = file_get_contents( $this->fixtures_dir . '/womack-calendar-items.json' );
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( $items ) {
+				if ( 0 === strpos( $url, 'https://www.thewomack.us/api/open/GetItemsByMonth?' ) ) {
+					parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+					if ( '6515beb3cb46457500c400c9' === ( $query['collectionId'] ?? '' ) && preg_match( '/^\d{2}-\d{4}$/', $query['month'] ?? '' ) ) {
+						return array(
+							'headers'  => array(),
+							'body'     => $items,
+							'response' => array(
+								'code'    => 200,
+								'message' => 'OK',
+							),
+							'cookies'  => array(),
+							'filename' => null,
+						);
+					}
+				}
+
+				if ( 'https://www.thewomack.us/calendar?format=json' === $url ) {
+					return array(
+						'headers'  => array(),
+						'body'     => '{"collection":{"type":10,"itemCount":0},"mainContent":""}',
+						'response' => array(
+							'code'    => 200,
+							'message' => 'OK',
+						),
+						'cookies'  => array(),
+						'filename' => null,
+					);
+				}
+
+				return new \WP_Error( 'http_request_failed', 'Unmocked URL: ' . $url );
+			},
+			10,
+			3
+		);
+
+		$events = $this->extractor->extract( $html, $source_url );
+
+		$this->assertCount( 2, $events );
+		$this->assertSame( 'ill Vibe', $events[0]['title'] );
+		$this->assertSame( '2026-08-30', $events[0]['startDate'] );
+		$this->assertSame( 'Groove Candy', $events[1]['title'] );
+		$this->assertSame( '/womack-events/3jtw3a6l6tch7bcfkgrzbw64xtnrx3', $events[1]['source_url'] );
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* Live fixtures — integration smoke                                  */
 	/* ------------------------------------------------------------------ */

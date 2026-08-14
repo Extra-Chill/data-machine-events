@@ -8,7 +8,7 @@
 /**
  * External dependencies
  */
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import L from 'leaflet'; // eslint-disable-line import/no-unresolved -- Installed by this block package before webpack builds.
+import 'leaflet/dist/leaflet.css'; // eslint-disable-line import/no-unresolved -- Installed by this block package before webpack builds.
 
 window.L = L;

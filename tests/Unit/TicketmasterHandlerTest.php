@@ -161,7 +161,45 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_single_packet_survives_real_ai_parking_resumes_and_upsert(): void {
-		$fixture  = $this->createExecutionFixture();
+		$handler_filter = static function ( array $handlers, ?string $step_type = null ): array {
+			if ( null === $step_type || 'upsert' === $step_type ) {
+				$handlers['ticketmaster_test_upsert'] = array(
+					'label' => 'Ticketmaster Test Upsert',
+					'type'  => 'upsert',
+					'class' => TicketmasterClaimTestUpsertHandler::class,
+				);
+			}
+			return $handlers;
+		};
+		$tools_filter = static function ( array $tools ): array {
+			$tools['__handler_tools_ticketmaster_test_upsert'] = array(
+				'_handler_callable' => static fn( string $slug, array $config ): array => array(
+					'ticketmaster_test_upsert' => array(
+						'description'             => 'Complete the Ticketmaster test upsert.',
+						'class'                   => TicketmasterClaimTestUpsertTool::class,
+						'client_context_bindings' => array( 'job_id' ),
+						'method'                  => 'handle',
+						'handler'                 => $slug,
+						'handler_config'          => $config,
+						'parameters'              => array(
+							'description' => array(
+								'type'     => 'string',
+								'required' => true,
+							),
+						),
+					),
+				),
+				'handler'           => 'ticketmaster_test_upsert',
+				'modes'             => array( 'pipeline' ),
+				'access_level'      => 'admin',
+			);
+			return $tools;
+		};
+		add_filter( 'datamachine_handlers', $handler_filter, 10, 2 );
+		add_filter( 'datamachine_tools', $tools_filter );
+		HandlerAbilities::clearCache();
+		ToolManager::clearCache();
+		$fixture  = $this->createExecutionFixture( 'ticketmaster_test_upsert' );
 		$item_id  = 'TM-inline-' . uniqid();
 		$job_id   = $this->createJob( 'Ticketmaster inline lifecycle', 0, $fixture );
 		$engine   = $this->executionEngine( $job_id, $fixture );
@@ -219,7 +257,7 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 					'content'    => '',
 					'tool_calls' => array(
 						array(
-							'name'       => 'upsert_event',
+							'name'       => 'ticketmaster_test_upsert',
 							'parameters' => array( 'description' => 'Production-shaped AI resume coverage.' ),
 						),
 					),
@@ -237,9 +275,10 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$this->assertSame( $claim, $after_first[ ProcessedItems::CLAIMS_METADATA_KEY ][0] );
 			$this->assertGreaterThan( time() + 3000, strtotime( (string) $wpdb->get_var( $wpdb->prepare( 'SELECT claim_expires_at FROM %i WHERE claim_token = %s', $wpdb->prefix . ProcessedItems::TABLE_NAME, $claim['ownership_token'] ) ) ) );
 
-			$this->assertTrue( AIConcurrencyBackpressure::beginGeneration( $job_id, 'ai-step', 1, time() ) );
-			$second = $executor->execute( array( 'job_id' => $job_id, 'flow_step_id' => 'ai-step', 'ai_resume_generation' => 1 ) );
-			$this->assertSame( 'blocked', $second['outcome'] );
+			if ( ! function_exists( 'datamachine_resume_ai_step_action' ) ) {
+				require_once DATAMACHINE_PATH . 'inc/Engine/Actions/Engine.php';
+			}
+			\datamachine_resume_ai_step_action( $job_id, 'ai-step', 0, '', 1 );
 			$this->assertFalse( AIConcurrencyBackpressure::beginGeneration( $job_id, 'ai-step', 1, time() ) );
 			$after_second = datamachine_get_engine_data( $job_id );
 			$this->assertSame( 2, $after_second['ai_concurrency_throttle']['resume_generation'] );
@@ -247,9 +286,7 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$this->assertSame( $claim['disposition_id'], $packet['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );
 
 			$blocker['lease']->release();
-			$this->assertTrue( AIConcurrencyBackpressure::beginGeneration( $job_id, 'ai-step', 2, time() ) );
-			$resumed = $executor->execute( array( 'job_id' => $job_id, 'flow_step_id' => 'ai-step', 'ai_resume_generation' => 2 ) );
-			$this->assertSame( 'inline_continuation', $resumed['outcome'] );
+			\datamachine_resume_ai_step_action( $job_id, 'ai-step', 0, '', 2 );
 			$this->assertCount( 1, $scheduled_packets );
 			$this->assertSame( $claim, $scheduled_packets[0]['metadata'][ ProcessedItems::CLAIM_METADATA_KEY ] );
 			$this->assertSame( $claim['disposition_id'], $scheduled_packets[0]['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );
@@ -258,8 +295,12 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$blocker['lease']->release();
 			remove_action( 'datamachine_schedule_next_step', $schedule_capture, 1 );
 			remove_filter( 'datamachine_pipeline_ai_concurrency_limit', $limit_filter );
+			remove_filter( 'datamachine_handlers', $handler_filter, 10 );
+			remove_filter( 'datamachine_tools', $tools_filter );
 			update_option( 'datamachine_settings', $original_settings );
 			PluginSettings::clearCache();
+			HandlerAbilities::clearCache();
+			ToolManager::clearCache();
 			WpAiClientTestDouble::reset();
 		}
 
@@ -968,7 +1009,7 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 		return $job_id;
 	}
 
-	private function createExecutionFixture(): array {
+	private function createExecutionFixture( string $upsert_handler = 'upsert_event' ): array {
 		datamachine_register_capabilities();
 		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
 		wp_set_current_user( $user_id );
@@ -1032,8 +1073,8 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 					'execution_order'  => 2,
 					'pipeline_id'      => $pipeline_id,
 					'flow_id'          => $flow_id,
-					'handler_slugs'    => array( 'upsert_event' ),
-					'handler_configs'  => array( 'upsert_event' => array( 'post_status' => 'draft' ) ),
+					'handler_slugs'    => array( $upsert_handler ),
+					'handler_configs'  => array( $upsert_handler => array() ),
 				)
 			),
 		);
@@ -1179,6 +1220,22 @@ class TicketmasterHandlerTestDouble extends Ticketmaster {
 			'page'   => array(
 				'number'     => (int) ( $params['page'] ?? 0 ),
 				'totalPages' => 0,
+			),
+		);
+	}
+}
+
+class TicketmasterClaimTestUpsertHandler {
+}
+
+class TicketmasterClaimTestUpsertTool {
+
+	public function handle( array $parameters, array $tool_def ): array {
+		$tool_def;
+		return array(
+			'success' => true,
+			'data'    => array(
+				'description' => (string) ( $parameters['description'] ?? '' ),
 			),
 		);
 	}

@@ -367,12 +367,23 @@ class Ticketmaster extends EventImportHandler {
 			// revision after the pre-cap check but before this claim was acquired.
 			if ( TicketmasterSourceIdentity::shouldSkip( $item_id, $revision, $context ) ) {
 				if ( false !== ( $claim['persisted'] ?? true ) ) {
-					( new ProcessedItems() )->release_owned_claim(
+					$released = ( new ProcessedItems() )->release_owned_claim(
 						$claim['identity_scope'],
 						$claim['source_type'],
 						$claim['item_identifier'],
 						$claim['ownership_token']
 					);
+					if ( 1 !== $released ) {
+						$context->log(
+							'error',
+							'Ticketmaster: Exact unchanged-revision claim release failed',
+							array(
+								'item_identifier' => $claim['item_identifier'],
+								'disposition_id'  => $claim['disposition_id'],
+							)
+						);
+						throw new \RuntimeException( 'Ticketmaster could not release the exact unchanged-revision claim.' );
+					}
 				}
 				++$pre_fanout_deduped;
 				++$unchanged_count;

@@ -14,6 +14,7 @@ use WP_UnitTestCase;
 use DataMachine\Abilities\Engine\ExecuteStepAbility;
 use DataMachine\Abilities\Engine\PipelineBatchScheduler;
 use DataMachine\Abilities\HandlerAbilities;
+use DataMachine\Abilities\AbilityRegistration;
 use DataMachine\Core\Database\Agents\Agents;
 use DataMachine\Core\Database\BatchItems\BatchItems;
 use DataMachine\Core\Database\Flows\Flows;
@@ -268,6 +269,14 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 
 		try {
 			$executor = new ExecuteStepAbility();
+			if ( ! wp_get_ability( 'datamachine/execute-step' ) ) {
+				$owners          = new \ReflectionProperty( AbilityRegistration::class, 'registration_owners' );
+				$original_owners = $owners->getValue();
+				$owners->setValue( null, array() );
+				( new \ReflectionMethod( $executor, 'registerAbility' ) )->invoke( $executor );
+				$owners->setValue( null, $original_owners );
+			}
+			$this->assertNotNull( wp_get_ability( 'datamachine/execute-step' ) );
 			$first    = $executor->execute( array( 'job_id' => $job_id, 'flow_step_id' => 'ai-step' ) );
 			$this->assertSame( 'blocked', $first['outcome'] );
 			$after_first = datamachine_get_engine_data( $job_id );

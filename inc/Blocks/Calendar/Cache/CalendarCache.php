@@ -26,6 +26,8 @@
 
 namespace DataMachineEvents\Blocks\Calendar\Cache;
 
+use DataMachineEvents\Core\EventDatesTable;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -251,8 +253,62 @@ class CalendarCache {
 	 * @return int TTL seconds.
 	 */
 	public static function ttl_for_envelope( array $envelope ): int {
-		$past = ! empty( $envelope['past'] );
-		return $past ? self::TTL_FULL_PAST : self::TTL_FULL_UPCOMING;
+		if ( ! empty( $envelope['past'] ) ) {
+			return self::TTL_FULL_PAST;
+		}
+
+		$fixed_window = ! empty( $envelope['date_start'] )
+			|| ! empty( $envelope['date_end'] )
+			|| ! empty( $envelope['month'] )
+			|| ! empty( $envelope['scope'] );
+
+		return $fixed_window
+			? self::TTL_FULL_UPCOMING
+			: self::ttl_for_upcoming_transition( self::TTL_FULL_UPCOMING );
+	}
+
+	/**
+	 * Bound a live upcoming cache to the next event eligibility transition.
+	 *
+	 * Events with an end datetime remain upcoming through that value. Events
+	 * without one remain upcoming through their start datetime. Expiring every
+	 * upcoming cache at the earliest such transition keeps independently keyed
+	 * filtered and unfiltered responses on the same canonical time predicate.
+	 *
+	 * @param int $ceiling Maximum cache lifetime in seconds.
+	 * @return int Cache lifetime in seconds.
+	 */
+	public static function ttl_for_upcoming_transition( int $ceiling ): int {
+		global $wpdb;
+
+		$ceiling = max( 1, $ceiling );
+		$now     = current_time( 'mysql' );
+		$table   = EventDatesTable::table_name();
+		$sql     = $wpdb->prepare(
+			"SELECT TIMESTAMPDIFF(SECOND, %s, MIN(transition_datetime))
+			FROM (
+				SELECT MIN(end_datetime) AS transition_datetime
+				FROM %i
+				WHERE post_status = 'publish' AND end_datetime >= %s
+				UNION ALL
+				SELECT MIN(start_datetime) AS transition_datetime
+				FROM %i
+				WHERE post_status = 'publish' AND end_datetime IS NULL AND start_datetime >= %s
+			) upcoming_transitions",
+			$now,
+			$table,
+			$now,
+			$table,
+			$now
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared
+		$seconds = $wpdb->get_var( $sql );
+		if ( null === $seconds ) {
+			return $ceiling;
+		}
+
+		return min( $ceiling, max( 1, (int) $seconds + 1 ) );
 	}
 
 	/**

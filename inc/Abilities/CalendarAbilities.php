@@ -633,6 +633,27 @@ class CalendarAbilities {
 		$has_tax_filter = ( $archive_taxonomy && $archive_term_id )
 			|| self::has_active_tax_filter( $tax_filters );
 
+		$temporal_where_clauses = array();
+		if ( ! empty( $params['user_date_range'] ) ) {
+			if ( ! empty( $params['date_start'] ) ) {
+				$start_dt                 = ! empty( $params['time_start'] )
+					? $params['date_start'] . ' ' . $params['time_start']
+					: $params['date_start'] . ' 00:00:00';
+				$temporal_where_clauses[] = UpcomingFilter::range_start_where( $start_dt );
+			}
+
+			if ( ! empty( $params['date_end'] ) ) {
+				$end_dt                   = ! empty( $params['time_end'] )
+					? $params['date_end'] . ' ' . $params['time_end']
+					: $params['date_end'] . ' 23:59:59';
+				$temporal_where_clauses[] = $wpdb->prepare( 'ed.start_datetime <= %s', $end_dt );
+			}
+		} elseif ( $show_past_param ) {
+			$temporal_where_clauses[] = UpcomingFilter::past_where( $current_time );
+		} else {
+			$temporal_where_clauses[] = UpcomingFilter::upcoming_where( $current_time );
+		}
+
 		// SQL fragment that buckets start_datetime by display date (with
 		// late-night cutoff applied). Identical semantics to
 		// LateNightCutoff::display_date_from_strings() at the PHP layer.
@@ -667,16 +688,8 @@ class CalendarAbilities {
 		// event_dates already carries post_status, so we can aggregate against
 		// the single table + its status_start composite index.
 		if ( ! $has_tax_filter ) {
-			$where_clauses = array( "ed.post_status = 'publish'" );
+			$where_clauses = array_merge( array( "ed.post_status = 'publish'" ), $temporal_where_clauses );
 			$query_values  = array();
-
-			if ( $show_past_param ) {
-				// Keep page buckets aligned with the canonical completed-event
-				// scope used by EventDateQueryAbilities.
-				$where_clauses[] = UpcomingFilter::past_where( $current_time );
-			} else {
-				$where_clauses[] = UpcomingFilter::upcoming_where( $current_time );
-			}
 
 			$where = implode( ' AND ', $where_clauses );
 			$sql   = "SELECT {$start_bucket_sql} AS start_date, DATE(ed.end_datetime) AS end_date, COUNT(*) AS bucket_count
@@ -696,18 +709,15 @@ class CalendarAbilities {
 
 		// Slow path: taxonomy constraints require joining posts + term tables.
 		// Still aggregates via GROUP BY to keep the result set bounded.
-		$where_clauses = array(
-			"p.post_type = 'data_machine_events'",
-			"p.post_status = 'publish'",
+		$where_clauses = array_merge(
+			array(
+				"p.post_type = 'data_machine_events'",
+				"p.post_status = 'publish'",
+			),
+			$temporal_where_clauses
 		);
 		$join_clauses  = array();
 		$query_values  = array();
-
-		if ( $show_past_param ) {
-			$where_clauses[] = UpcomingFilter::past_where( $current_time );
-		} else {
-			$where_clauses[] = UpcomingFilter::upcoming_where( $current_time );
-		}
 
 		if ( $archive_taxonomy && $archive_term_id ) {
 			$join_clauses[]  = "INNER JOIN {$wpdb->term_relationships} tr_archive ON p.ID = tr_archive.object_id";

@@ -539,4 +539,32 @@ class CalendarAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['event_count'] );
 		$this->assertSame( array( $target ), $this->result_post_ids( $result ) );
 	}
+
+	public function test_multiple_matching_taxonomy_rows_render_one_canonical_event(): void {
+		$first_term  = wp_insert_term( 'Calendar multi-term A ' . uniqid(), 'calendar_test_style' );
+		$second_term = wp_insert_term( 'Calendar multi-term B ' . uniqid(), 'calendar_test_style' );
+		$this->assertNotWPError( $first_term );
+		$this->assertNotWPError( $second_term );
+		$date    = current_datetime()->modify( '+75 days' );
+		$post_id = $this->seed_event(
+			'Multi-term canonical event',
+			$date->format( 'Y-m-d 20:00:00' ),
+			$date->format( 'Y-m-d 22:00:00' ),
+			0,
+			array( 'calendar_test_style' => array( (int) $first_term['term_id'], (int) $second_term['term_id'] ) )
+		);
+
+		$result = $this->abilities->executeGetCalendarPage(
+			array(
+				'tax_filter'   => array( 'calendar_test_style' => array( (int) $first_term['term_id'], (int) $second_term['term_id'] ) ),
+				'date_start'  => $date->format( 'Y-m-d' ),
+				'date_end'    => $date->format( 'Y-m-d' ),
+				'include_html' => false,
+			)
+		);
+
+		$this->assertSame( 1, $result['total_event_count'] );
+		$this->assertSame( 1, $result['event_count'] );
+		$this->assertSame( array( $post_id ), $this->result_post_ids( $result ) );
+	}
 }

@@ -75,6 +75,10 @@ class CalendarCache {
 	 * @return string Full cache key.
 	 */
 	public static function generate_key( array $params, string $prefix ): string {
+		$live_upcoming = empty( $params['show_past'] )
+			&& empty( $params['user_date_range'] )
+			&& empty( $params['date_start'] )
+			&& empty( $params['date_end'] );
 		$key_data = array(
 			'show_past'       => $params['show_past'] ?? false,
 			'search_query'    => $params['search_query'] ?? '',
@@ -95,6 +99,7 @@ class CalendarCache {
 			// Bucketing depends on the cutoff hour; fold it into the key so
 			// switching the filter at runtime invalidates stale buckets.
 			'cutoff_hour'     => \DataMachineEvents\Blocks\Calendar\Grouping\LateNightCutoff::cutoff_hour(),
+			'next_transition' => $live_upcoming ? self::next_upcoming_transition() : '',
 		);
 
 		return self::PREFIX . $prefix . '_' . md5( wp_json_encode( $key_data ) );
@@ -113,6 +118,11 @@ class CalendarCache {
 	 * @return string Full cache key.
 	 */
 	public static function generate_full_response_key( array $envelope ): string {
+		$fixed_window = ! empty( $envelope['date_start'] )
+			|| ! empty( $envelope['date_end'] )
+			|| ! empty( $envelope['month'] )
+			|| ! empty( $envelope['scope'] );
+		$live_upcoming = empty( $envelope['past'] ) && ! $fixed_window;
 		$key_data = array(
 			'paged'            => (int) ( $envelope['paged'] ?? 1 ),
 			'past'             => (bool) ( $envelope['past'] ?? false ),
@@ -154,6 +164,7 @@ class CalendarCache {
 			// tokens each get their own bucket; the empty-token (public)
 			// bucket stays isolated from every scoped bucket.
 			'scope_token'      => (string) ( $envelope['scope_token'] ?? '' ),
+			'next_transition'  => $live_upcoming ? self::next_upcoming_transition() : '',
 		);
 
 		return self::FULL_PREFIX . md5( wp_json_encode( $key_data ) );
@@ -279,13 +290,30 @@ class CalendarCache {
 	 * @return int Cache lifetime in seconds.
 	 */
 	public static function ttl_for_upcoming_transition( int $ceiling ): int {
+		$ceiling    = max( 1, $ceiling );
+		$transition = self::next_upcoming_transition();
+		if ( '' === $transition ) {
+			return $ceiling;
+		}
+
+		$transition_time = new \DateTimeImmutable( $transition, wp_timezone() );
+		$seconds         = $transition_time->getTimestamp() - current_datetime()->getTimestamp();
+
+		return min( $ceiling, max( 1, $seconds + 1 ) );
+	}
+
+	/**
+	 * Return the next datetime at which any published event leaves upcoming.
+	 *
+	 * @return string MySQL datetime, or an empty string when no transition exists.
+	 */
+	public static function next_upcoming_transition(): string {
 		global $wpdb;
 
-		$ceiling = max( 1, $ceiling );
-		$now     = current_time( 'mysql' );
-		$table   = EventDatesTable::table_name();
-		$sql     = $wpdb->prepare(
-			"SELECT TIMESTAMPDIFF(SECOND, %s, MIN(transition_datetime))
+		$now   = current_time( 'mysql' );
+		$table = EventDatesTable::table_name();
+		$sql   = $wpdb->prepare(
+			"SELECT MIN(transition_datetime)
 			FROM (
 				SELECT MIN(end_datetime) AS transition_datetime
 				FROM %i
@@ -295,7 +323,6 @@ class CalendarCache {
 				FROM %i
 				WHERE post_status = 'publish' AND end_datetime IS NULL AND start_datetime >= %s
 			) upcoming_transitions",
-			$now,
 			$table,
 			$now,
 			$table,
@@ -303,12 +330,9 @@ class CalendarCache {
 		);
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared
-		$seconds = $wpdb->get_var( $sql );
-		if ( null === $seconds ) {
-			return $ceiling;
-		}
+		$transition = $wpdb->get_var( $sql );
 
-		return min( $ceiling, max( 1, (int) $seconds + 1 ) );
+		return is_string( $transition ) ? $transition : '';
 	}
 
 	/**

@@ -617,10 +617,11 @@ class CalendarAbilities {
 	private static function compute_unique_event_dates( array $params ): array {
 		global $wpdb;
 
-		$show_past_param = $params['show_past'] ?? false;
-		$current_date    = current_time( 'Y-m-d' );
-		$current_time    = current_time( 'mysql' );
-		$ed_table        = EventDatesTable::table_name();
+		$show_past_param    = $params['show_past'] ?? false;
+		$include_past_dates = $show_past_param || ! empty( $params['user_date_range'] );
+		$current_date       = current_time( 'Y-m-d' );
+		$current_time       = current_time( 'mysql' );
+		$ed_table           = EventDatesTable::table_name();
 
 		$archive_taxonomy = $params['archive_taxonomy'] ?? '';
 		$archive_term_id  = $params['archive_term_id'] ?? 0;
@@ -643,7 +644,7 @@ class CalendarAbilities {
 			$matching_sql = $event_query->buildMatchingPostIdsSql( self::build_event_query_input( $params ) );
 
 			if ( '' === $matching_sql ) {
-				return self::expand_date_buckets( array(), $show_past_param, $current_date );
+				return self::expand_date_buckets( array(), $show_past_param, $include_past_dates, $current_date );
 			}
 
 			$boundary_start_bucket_sql = LateNightCutoff::sql_display_date_expression( 'boundary_ed.start_datetime' );
@@ -656,7 +657,7 @@ class CalendarAbilities {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
 			$rows = $wpdb->get_results( $sql );
 
-			return self::expand_date_buckets( $rows, $show_past_param, $current_date );
+			return self::expand_date_buckets( $rows, $show_past_param, $include_past_dates, $current_date );
 		}
 
 		// Fast path: no taxonomy constraint → skip posts/term joins entirely.
@@ -687,7 +688,7 @@ class CalendarAbilities {
 				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				: $wpdb->get_results( $wpdb->prepare( $sql, ...$query_values ) );
 
-			return self::expand_date_buckets( $rows, $show_past_param, $current_date );
+			return self::expand_date_buckets( $rows, $show_past_param, $include_past_dates, $current_date );
 		}
 
 		// Slow path: taxonomy constraints require joining posts + term tables.
@@ -753,7 +754,7 @@ class CalendarAbilities {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
 		$rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$query_values ) );
 
-		return self::expand_date_buckets( $rows, $show_past_param, $current_date );
+		return self::expand_date_buckets( $rows, $show_past_param, $include_past_dates, $current_date );
 	}
 
 	/**
@@ -864,12 +865,12 @@ class CalendarAbilities {
 	 * spanned date after their start.
 	 *
 	 * @param array  $rows            Rows with start_date, end_date, bucket_count.
-	 * @param bool   $show_past_param When true, sort result DESC; also skip the
-	 *                                "drop past dates" filter during expansion.
-	 * @param string $current_date    Today (Y-m-d) for past-date filtering.
+	 * @param bool   $show_past_param   Whether to sort result descending.
+	 * @param bool   $include_past_dates Whether an explicit or past scope retains dates before today.
+	 * @param string $current_date      Today (Y-m-d) for past-date filtering.
 	 * @return array { dates, total_events, events_per_date }
 	 */
-	private static function expand_date_buckets( array $rows, bool $show_past_param, string $current_date ): array {
+	private static function expand_date_buckets( array $rows, bool $show_past_param, bool $include_past_dates, string $current_date ): array {
 		$total_events    = 0;
 		$events_per_date = array();
 
@@ -880,7 +881,7 @@ class CalendarAbilities {
 			}
 			$total_events += $count;
 
-			if ( $show_past_param || $row->start_date >= $current_date ) {
+			if ( $include_past_dates || $row->start_date >= $current_date ) {
 				$events_per_date[ $row->start_date ] = ( $events_per_date[ $row->start_date ] ?? 0 ) + $count;
 			}
 
@@ -893,7 +894,7 @@ class CalendarAbilities {
 				while ( $current <= $end_dt ) {
 					$date = $current->format( 'Y-m-d' );
 
-					if ( ! $show_past_param && $date < $current_date ) {
+					if ( ! $include_past_dates && $date < $current_date ) {
 						$current->modify( '+1 day' );
 						continue;
 					}

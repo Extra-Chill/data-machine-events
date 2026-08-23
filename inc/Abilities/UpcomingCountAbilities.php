@@ -268,20 +268,7 @@ class UpcomingCountAbilities {
 			);
 		}
 
-		if ( empty( $rows ) ) {
-			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$result = array(
-				'success'  => true,
-				'taxonomy' => $taxonomy,
-				'terms'    => array(),
-				'total'    => 0,
-			);
-			if ( '' !== $cache_key ) {
-				CalendarCache::set( $cache_key, $result, CalendarCache::ttl_for_upcoming_transition( CalendarCache::TTL_COUNTS ) );
-			}
-			return $result;
-		}
-
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$terms = array();
 		foreach ( $rows as $row ) {
 			$url = get_term_link( (int) $row->term_id, $taxonomy );

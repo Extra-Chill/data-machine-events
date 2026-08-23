@@ -122,8 +122,12 @@ class EventUpsertTest extends WP_UnitTestCase {
 						'output_schema'       => array( 'type' => 'object' ),
 						'permission_callback' => '__return_true',
 						'execute_callback'    => static function ( array $input ): array {
-							return \DataMachineEvents\Core\DuplicateDetection\EventDuplicateStrategy::check( $input )
-								?? array( 'verdict' => 'clear' );
+							$result = \DataMachineEvents\Core\DuplicateDetection\EventDuplicateStrategy::check( $input );
+							if ( ! is_array( $result ) ) {
+								return array( 'verdict' => 'clear' );
+							}
+							$result['strategy'] = 'event_identity_index';
+							return $result;
 						},
 					)
 				);

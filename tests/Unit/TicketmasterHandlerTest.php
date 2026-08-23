@@ -295,7 +295,15 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$this->assertSame( $claim['disposition_id'], $packet['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );
 
 			$blocker['lease']->release();
-			\datamachine_resume_ai_step_action( $job_id, 'ai-step', 0, '', 2 );
+			$this->assertTrue( AIConcurrencyBackpressure::beginGeneration( $job_id, 'ai-step', 2, time() ) );
+			$resumed = $executor->execute(
+				array(
+					'job_id'               => $job_id,
+					'flow_step_id'          => 'ai-step',
+					'ai_resume_generation' => 2,
+				)
+			);
+			$this->assertSame( 'inline_continuation', $resumed['outcome'] );
 			$this->assertCount( 1, $scheduled_packets );
 			$this->assertSame( $claim, $scheduled_packets[0]['metadata'][ ProcessedItems::CLAIM_METADATA_KEY ] );
 			$this->assertSame( $claim['disposition_id'], $scheduled_packets[0]['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );

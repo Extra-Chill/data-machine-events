@@ -661,7 +661,11 @@ class EventUpsert extends UpsertHandler {
 			)
 		);
 
-		if ( ! ( is_array( $result ) && 'duplicate' === ( $result['verdict'] ?? '' ) ) ) {
+		if (
+			! is_array( $result )
+			|| 'duplicate' !== ( $result['verdict'] ?? '' )
+			|| 'event_identity_index' !== ( $result['strategy'] ?? '' )
+		) {
 			return 0;
 		}
 

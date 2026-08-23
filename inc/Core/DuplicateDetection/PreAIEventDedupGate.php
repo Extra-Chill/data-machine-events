@@ -107,7 +107,11 @@ class PreAIEventDedupGate {
 			),
 		) );
 
-		if ( ! is_array( $match ) || 'duplicate' !== ( $match['verdict'] ?? '' ) ) {
+		if (
+			! is_array( $match )
+			|| 'duplicate' !== ( $match['verdict'] ?? '' )
+			|| 'event_identity_index' !== ( $match['strategy'] ?? '' )
+		) {
 			return null;
 		}
 

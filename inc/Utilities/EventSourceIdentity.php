@@ -122,7 +122,9 @@ class EventSourceIdentity {
 			)
 		);
 
-		return is_array( $result ) && 'duplicate' === ( $result['verdict'] ?? '' );
+		return is_array( $result )
+			&& 'duplicate' === ( $result['verdict'] ?? '' )
+			&& 'event_identity_index' === ( $result['strategy'] ?? '' );
 	}
 
 	/**

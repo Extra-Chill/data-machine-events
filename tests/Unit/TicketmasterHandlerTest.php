@@ -303,7 +303,17 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 					'ai_resume_generation' => 2,
 				)
 			);
-			$this->assertSame( 'inline_continuation', $resumed['outcome'] );
+			$this->assertSame(
+				'inline_continuation',
+				$resumed['outcome'],
+				wp_json_encode(
+					array(
+						'result' => $resumed,
+						'job'    => ( new Jobs() )->get_job( $job_id ),
+						'engine' => datamachine_get_engine_data( $job_id ),
+					)
+				)
+			);
 			$this->assertCount( 1, $scheduled_packets );
 			$this->assertSame( $claim, $scheduled_packets[0]['metadata'][ ProcessedItems::CLAIM_METADATA_KEY ] );
 			$this->assertSame( $claim['disposition_id'], $scheduled_packets[0]['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );

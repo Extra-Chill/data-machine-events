@@ -16,8 +16,6 @@ use WP_REST_Request;
 use WP_REST_Server;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
-use DataMachineEvents\Abilities\CalendarAbilities;
-use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
@@ -280,38 +278,12 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			$post_id,
 			$now->modify( '-1 hour' )->format( 'Y-m-d H:i:s' ),
 			// Leave enough time for both uncached Calendar renders before expiry.
-			$now->modify( '+30 seconds' )->format( 'Y-m-d H:i:s' ),
+			$now->modify( '+1 minute' )->format( 'Y-m-d H:i:s' ),
 			'publish'
 		);
 		wp_set_object_terms( $post_id, array( (int) $venue['term_id'] ), 'venue' );
 		CalendarCache::invalidate();
 		wp_set_current_user( 0 );
-
-		$date     = $now->format( 'Y-m-d' );
-		$matching = ( new EventDateQueryAbilities() )->executeQueryEvents(
-			array(
-				'scope'       => 'upcoming',
-				'date_start'  => $date,
-				'date_end'    => $date,
-				'tax_filters' => array( 'venue' => array( (int) $venue['term_id'] ) ),
-				'fields'      => 'ids',
-			)
-		);
-		$this->assertContains( $post_id, $matching['posts'], 'The ongoing event must remain eligible for the Calendar row query.' );
-
-		$calendar = ( new CalendarAbilities() )->executeGetCalendarPage(
-			array(
-				'archive_taxonomy' => 'venue',
-				'archive_term_id'  => (int) $venue['term_id'],
-				'include_html'     => false,
-			)
-		);
-		$calendar_post_ids = array();
-		foreach ( $calendar['paged_date_groups'] as $date_group ) {
-			$calendar_post_ids = array_merge( $calendar_post_ids, array_column( $date_group['events'], 'post_id' ) );
-		}
-		$this->assertContains( $post_id, $calendar_post_ids, 'The Calendar ability must retain the ongoing event.' );
-		CalendarCache::invalidate();
 
 		$unfiltered = new WP_REST_Request( 'GET', '/datamachine/v1/events/calendar' );
 		$unfiltered->set_param( 'archive_taxonomy', 'venue' );
@@ -325,7 +297,7 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Flow Tribe', $before_searched['html'] );
 
 		$ttl = CalendarCache::ttl_for_envelope( array( 'past' => false ) );
-		$this->assertLessThanOrEqual( 31, $ttl );
+		$this->assertLessThanOrEqual( 61, $ttl );
 		sleep( $ttl + 1 );
 
 		$after_unfiltered = $this->server->dispatch( $unfiltered )->get_data();

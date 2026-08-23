@@ -167,16 +167,21 @@ class EventUpsertTest extends WP_UnitTestCase {
 		$ability  = $registry->unregister( 'datamachine/check-duplicate' );
 		$this->assertNotNull( $ability );
 
-		$method = new \ReflectionMethod( $this->handler, 'findExistingEventViaAbility' );
-		$method->setAccessible( true );
-		$result = $method->invoke( $this->handler, 'Contract Test', 'Test Venue', '2026-10-10', '' );
+		try {
+			$method = new \ReflectionMethod( $this->handler, 'findExistingEventViaAbility' );
+			$method->setAccessible( true );
+			$result = $method->invoke( $this->handler, 'Contract Test', 'Test Venue', '2026-10-10', '' );
 
-		$this->assertWPError( $result );
-		$this->assertSame( 'datamachine_duplicate_contract_unavailable', $result->get_error_code() );
-		$this->assertTrue( $result->get_error_data()['retryable'] );
+			$this->assertWPError( $result );
+			$this->assertSame( 'datamachine_duplicate_contract_unavailable', $result->get_error_code() );
+			$this->assertTrue( $result->get_error_data()['retryable'] );
+		} finally {
+			$registered = new \ReflectionProperty( $registry, 'registered_abilities' );
+			$abilities  = $registered->getValue( $registry );
+			$abilities['datamachine/check-duplicate'] = $ability;
+			$registered->setValue( $registry, $abilities );
+		}
 
-		do_action( 'wp_abilities_api_init' );
-		$this->assertNotNull( wp_get_ability( 'datamachine/check-duplicate' ) );
 	}
 
 	public function test_unchanged_trash_reimport_republishes_the_exact_source_post(): void {

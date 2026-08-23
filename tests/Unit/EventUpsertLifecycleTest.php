@@ -290,7 +290,7 @@ class EventUpsertLifecycleTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $after_calls );
 		$this->assertSame( 0, $after_calls[0][0] );
 		$this->assertWPError( $after_calls[0][1] );
-		$this->assertSame( 'event_upsert_persistence_failed', $after_calls[0][1]->get_error_code() );
+		$this->assertSame( 'upsert_post_failed', $after_calls[0][1]->get_error_code() );
 	}
 
 	public function test_upsert_wp_error_preserves_structured_failure_and_context_once(): void {

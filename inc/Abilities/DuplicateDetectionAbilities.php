@@ -161,7 +161,9 @@ class DuplicateDetectionAbilities {
 			return array( 'found' => false );
 		}
 
-		$ability = function_exists( 'wp_get_ability' ) ? wp_get_ability( 'datamachine/check-duplicate' ) : null;
+		$ability = function_exists( 'wp_has_ability' ) && wp_has_ability( 'datamachine/check-duplicate' )
+			? wp_get_ability( 'datamachine/check-duplicate' )
+			: null;
 		if ( ! $ability ) {
 			throw new \RuntimeException( 'Data Machine 0.39.0 or newer is required: datamachine/check-duplicate is unavailable.' );
 		}

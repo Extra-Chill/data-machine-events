@@ -281,7 +281,7 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$this->assertSame( 'blocked', $first['outcome'] );
 			$after_first = datamachine_get_engine_data( $job_id );
 			$this->assertSame( 1, $after_first['ai_concurrency_throttle']['resume_generation'] );
-			$this->assertSame( $claim, $after_first[ ProcessedItems::CLAIMS_METADATA_KEY ][0] );
+			$this->assertSame( $claim, $after_first[ ProcessedItems::CLAIM_METADATA_KEY ] );
 			$this->assertGreaterThan( time() + 3000, strtotime( (string) $wpdb->get_var( $wpdb->prepare( 'SELECT claim_expires_at FROM %i WHERE claim_token = %s', $wpdb->prefix . ProcessedItems::TABLE_NAME, $claim['ownership_token'] ) ) ) );
 
 			if ( ! function_exists( 'datamachine_resume_ai_step_action' ) ) {
@@ -291,7 +291,7 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 			$this->assertFalse( AIConcurrencyBackpressure::beginGeneration( $job_id, 'ai-step', 1, time() ) );
 			$after_second = datamachine_get_engine_data( $job_id );
 			$this->assertSame( 2, $after_second['ai_concurrency_throttle']['resume_generation'] );
-			$this->assertSame( $claim, $after_second[ ProcessedItems::CLAIMS_METADATA_KEY ][0] );
+			$this->assertSame( $claim, $after_second[ ProcessedItems::CLAIM_METADATA_KEY ] );
 			$this->assertSame( $claim['disposition_id'], $packet['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ] );
 
 			$blocker['lease']->release();

@@ -16,6 +16,7 @@ use WP_REST_Request;
 use WP_REST_Server;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
+use DataMachineEvents\Abilities\CalendarAbilities;
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
@@ -297,6 +298,20 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			)
 		);
 		$this->assertContains( $post_id, $matching['posts'], 'The ongoing event must remain eligible for the Calendar row query.' );
+
+		$calendar = ( new CalendarAbilities() )->executeGetCalendarPage(
+			array(
+				'archive_taxonomy' => 'venue',
+				'archive_term_id'  => (int) $venue['term_id'],
+				'include_html'     => false,
+			)
+		);
+		$calendar_post_ids = array();
+		foreach ( $calendar['paged_date_groups'] as $date_group ) {
+			$calendar_post_ids = array_merge( $calendar_post_ids, array_column( $date_group['events'], 'post_id' ) );
+		}
+		$this->assertContains( $post_id, $calendar_post_ids, 'The Calendar ability must retain the ongoing event.' );
+		CalendarCache::invalidate();
 
 		$unfiltered = new WP_REST_Request( 'GET', '/datamachine/v1/events/calendar' );
 		$unfiltered->set_param( 'archive_taxonomy', 'venue' );

@@ -259,7 +259,10 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 					'tool_calls' => array(
 						array(
 							'name'       => 'ticketmaster_test_upsert',
-							'parameters' => array( 'description' => 'Production-shaped AI resume coverage.' ),
+							'parameters' => array(
+								'description'    => 'Production-shaped AI resume coverage.',
+								'disposition_id' => $claim['disposition_id'],
+							),
 						),
 					),
 					'usage'      => array( 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ),

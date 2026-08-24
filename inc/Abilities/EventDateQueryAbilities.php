@@ -460,7 +460,7 @@ class EventDateQueryAbilities {
 		$base_query_args = $query_args;
 		$query_args      = (array) apply_filters( 'data_machine_events_calendar_query_args', $query_args, $input );
 
-		if ( $query_args === $base_query_args && $this->canUseBoundedTaxonomyCandidates( $input, $tax_filters, $scope, $status, $per_page ) ) {
+		if ( $query_args === $base_query_args && $this->canUseBoundedTaxonomyCandidates( $input, $tax_filters, $scope, $status, $per_page, $page ) ) {
 			remove_filter( 'posts_clauses', $clauses_filter );
 
 			return $this->executeBoundedTaxonomyQuery( $tax_filters, $exclude, $per_page, $page, $fields, $order );
@@ -507,12 +507,14 @@ class EventDateQueryAbilities {
 	 * @param string $scope       Date scope.
 	 * @param mixed  $status      Requested post status.
 	 * @param int    $per_page    Page size.
+	 * @param int    $page        Page number.
 	 * @return bool
 	 */
-	private function canUseBoundedTaxonomyCandidates( array $input, array $tax_filters, string $scope, $status, int $per_page ): bool {
+	private function canUseBoundedTaxonomyCandidates( array $input, array $tax_filters, string $scope, $status, int $per_page, int $page ): bool {
 		return 'upcoming' === $scope
 			&& 'publish' === $status
 			&& $per_page > 0
+			&& 1 === $page
 			&& 1 === count( $tax_filters )
 			&& empty( $input['date_start'] )
 			&& empty( $input['date_end'] )

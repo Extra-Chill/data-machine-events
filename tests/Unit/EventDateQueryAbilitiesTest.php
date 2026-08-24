@@ -340,6 +340,44 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 1, substr_count( $queries[0], (string) $second_term['term_taxonomy_id'] ) );
 	}
 
+	public function test_paginated_upcoming_taxonomy_query_uses_canonical_wp_query(): void {
+		$venue = wp_insert_term( 'Paginated related venue ' . uniqid(), 'venue' );
+		$this->assertNotWPError( $venue );
+		$venue_id = (int) $venue['term_id'];
+		$now      = current_datetime();
+		$this->seed_event( 'First paginated related event', 'publish', $now->modify( '+1 day' )->format( 'Y-m-d H:i:s' ), null, $venue_id );
+		$second = $this->seed_event( 'Second paginated related event', 'publish', $now->modify( '+2 days' )->format( 'Y-m-d H:i:s' ), null, $venue_id );
+
+		$queries  = array();
+		$observer = static function ( string $sql ) use ( &$queries ): string {
+			if ( false !== strpos( $sql, EventDatesTable::table_name() ) ) {
+				$queries[] = $sql;
+			}
+			return $sql;
+		};
+		add_filter( 'query', $observer );
+		try {
+			$result = ( new EventDateQueryAbilities() )->executeQueryEvents(
+				array(
+					'scope'       => 'upcoming',
+					'tax_filters' => array( 'venue' => array( $venue_id ) ),
+					'per_page'    => 1,
+					'page'        => 2,
+					'fields'      => 'ids',
+				)
+			);
+		} finally {
+			remove_filter( 'query', $observer );
+		}
+
+		$this->assertSame( array( $second ), array_map( 'intval', $result['posts'] ) );
+		$this->assertCount( 1, $queries );
+		$this->assertStringContainsString( $GLOBALS['wpdb']->posts, $queries[0] );
+		$this->assertStringContainsString( $GLOBALS['wpdb']->term_relationships, $queries[0] );
+		$this->assertStringNotContainsString( 'FORCE INDEX (term_taxonomy_id)', $queries[0] );
+		$this->assertMatchesRegularExpression( '/LIMIT\s+1\s*,\s*1\b/i', $queries[0] );
+	}
+
 	public function test_count_query_skips_found_rows_and_uses_event_date_status_index(): void {
 		$now = current_datetime();
 		$this->seed_event( 'Published past event', 'publish', $now->modify( '-2 days' )->format( 'Y-m-d H:i:s' ) );

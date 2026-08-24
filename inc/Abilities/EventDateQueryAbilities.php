@@ -460,10 +460,26 @@ class EventDateQueryAbilities {
 		$base_query_args = $query_args;
 		$query_args      = (array) apply_filters( 'data_machine_events_calendar_query_args', $query_args, $input );
 
-		if ( $query_args === $base_query_args && $this->canUseBoundedTaxonomyCandidates( $input, $tax_filters, $scope, $status, $per_page, $page ) ) {
+		if ( $query_args === $base_query_args && $this->canUseBoundedTaxonomyCandidates( $input, $tax_filters, $status, $per_page ) ) {
 			remove_filter( 'posts_clauses', $clauses_filter );
 
-			return $this->executeBoundedTaxonomyQuery( $tax_filters, $exclude, $per_page, $page, $fields, $order );
+			return $this->executeBoundedTaxonomyQuery(
+				$tax_filters,
+				$exclude,
+				$per_page,
+				$page,
+				$fields,
+				$order,
+				array(
+					'scope'      => $scope,
+					'date_start' => $date_start,
+					'date_end'   => $date_end,
+					'date_match' => $date_match,
+					'days_ahead' => $days_ahead,
+					'time_start' => $time_start,
+					'time_end'   => $time_end,
+				)
+			);
 		}
 
 		// Execute query.
@@ -504,23 +520,14 @@ class EventDateQueryAbilities {
 	 *
 	 * @param array  $input       Raw ability input.
 	 * @param array  $tax_filters Taxonomy filters.
-	 * @param string $scope       Date scope.
 	 * @param mixed  $status      Requested post status.
 	 * @param int    $per_page    Page size.
-	 * @param int    $page        Page number.
 	 * @return bool
 	 */
-	private function canUseBoundedTaxonomyCandidates( array $input, array $tax_filters, string $scope, $status, int $per_page, int $page ): bool {
-		return 'upcoming' === $scope
-			&& 'publish' === $status
+	private function canUseBoundedTaxonomyCandidates( array $input, array $tax_filters, $status, int $per_page ): bool {
+		return 'publish' === $status
 			&& $per_page > 0
-			&& 1 === $page
 			&& 1 === count( $tax_filters )
-			&& empty( $input['date_start'] )
-			&& empty( $input['date_end'] )
-			&& empty( $input['date_match'] )
-			&& empty( $input['days_ahead'] )
-			&& empty( $input['time_scope'] )
 			&& empty( $input['search'] )
 			&& empty( $input['geo'] )
 			&& empty( $input['meta_query'] )
@@ -544,9 +551,10 @@ class EventDateQueryAbilities {
 	 * @param int    $page        Page number.
 	 * @param string $fields      all|ids.
 	 * @param string $order       ASC|DESC.
+	 * @param array  $date_query  Normalized date constraints.
 	 * @return array { posts: array, total: int, post_count: int }
 	 */
-	private function executeBoundedTaxonomyQuery( array $tax_filters, array $exclude, int $per_page, int $page, string $fields, string $order ): array {
+	private function executeBoundedTaxonomyQuery( array $tax_filters, array $exclude, int $per_page, int $page, string $fields, string $order, array $date_query ): array {
 		global $wpdb;
 
 		$taxonomy         = sanitize_key( (string) array_key_first( $tax_filters ) );
@@ -568,21 +576,21 @@ class EventDateQueryAbilities {
 
 		$taxonomy_placeholders = implode( ',', array_fill( 0, count( $taxonomy_ids ), '%d' ) );
 		$exclude               = array_values( array_unique( array_filter( array_map( 'absint', $exclude ) ) ) );
+		$date_where            = $this->buildBoundedCandidateDateWhere( $date_query );
 		$exclude_sql           = '';
 		if ( ! empty( $exclude ) ) {
 			$exclude_sql = ' AND tr.object_id NOT IN (' . implode( ',', array_fill( 0, count( $exclude ), '%d' ) ) . ')';
 		}
 
-		$now         = current_time( 'mysql' );
 		$valid_count = 0;
 		do {
-			$params = array_merge( $taxonomy_ids, $exclude, array( $now, $now, self::TAXONOMY_CANDIDATE_BATCH, $candidate_offset ) );
+			$params = array_merge( $taxonomy_ids, $exclude, array( self::TAXONOMY_CANDIDATE_BATCH, $candidate_offset ) );
 			$sql    = "SELECT ed.post_id
 				FROM {$wpdb->term_relationships} tr FORCE INDEX (term_taxonomy_id)
 				INNER JOIN {$table} ed ON ed.post_id = tr.object_id
 				WHERE tr.term_taxonomy_id IN ({$taxonomy_placeholders}){$exclude_sql}
 					AND ed.post_status = 'publish'
-					AND (ed.start_datetime >= %s OR ed.end_datetime >= %s)
+					{$date_where}
 				GROUP BY ed.post_id, ed.start_datetime
 				ORDER BY ed.start_datetime {$order}, ed.post_id {$order}
 				LIMIT %d OFFSET %d";
@@ -633,6 +641,54 @@ class EventDateQueryAbilities {
 			'total'      => count( $posts ),
 			'post_count' => count( $posts ),
 		);
+	}
+
+	/**
+	 * Build the canonical temporal predicate for a bounded candidate query.
+	 *
+	 * @param array $date_query Normalized date constraints.
+	 * @return string SQL beginning with AND, or an empty string for all dates.
+	 */
+	private function buildBoundedCandidateDateWhere( array $date_query ): string {
+		global $wpdb;
+
+		$date_match = $date_query['date_match'] ?? '';
+		$date_start = $date_query['date_start'] ?? '';
+		$date_end   = $date_query['date_end'] ?? '';
+		$time_start = $date_query['time_start'] ?? '';
+		$time_end   = $date_query['time_end'] ?? '';
+		$scope      = $date_query['scope'] ?? 'upcoming';
+		$days_ahead = (int) ( $date_query['days_ahead'] ?? 0 );
+
+		if ( '' !== $date_match ) {
+			$start = $date_match . ' 00:00:00';
+			$end   = gmdate( 'Y-m-d H:i:s', strtotime( $start . ' +1 day' ) );
+			return $wpdb->prepare( 'AND ed.start_datetime >= %s AND ed.start_datetime < %s', $start, $end );
+		}
+
+		$where = array();
+		if ( '' !== $date_start || '' !== $date_end ) {
+			if ( '' !== $date_start ) {
+				$start_dt = '' !== $time_start ? $date_start . ' ' . $time_start : $date_start . ' 00:00:00';
+				$where[]  = UpcomingFilter::range_start_where( $start_dt );
+			}
+			if ( '' !== $date_end ) {
+				$end_dt  = '' !== $time_end ? $date_end . ' ' . $time_end : $date_end . ' 23:59:59';
+				$where[] = $wpdb->prepare( 'ed.start_datetime <= %s', $end_dt );
+			}
+		} elseif ( 'upcoming' === $scope ) {
+			$now = current_time( 'mysql' );
+			if ( $days_ahead > 0 ) {
+				$end_date = current_datetime()->modify( "+{$days_ahead} days" )->setTime( 23, 59, 59 )->format( 'Y-m-d H:i:s' );
+				$where[]  = UpcomingFilter::upcoming_bounded_where( $now, $end_date );
+			} else {
+				$where[] = UpcomingFilter::upcoming_where( $now );
+			}
+		} elseif ( 'past' === $scope ) {
+			$where[] = UpcomingFilter::past_where( current_time( 'mysql' ) );
+		}
+
+		return empty( $where ) ? '' : 'AND ' . implode( ' AND ', $where );
 	}
 
 	/**
@@ -728,6 +784,62 @@ class EventDateQueryAbilities {
 
 		add_filter( 'posts_pre_query', $capture, PHP_INT_MAX, 2 );
 
+		try {
+			$this->executeQueryEvents( $input );
+		} finally {
+			remove_filter( 'posts_pre_query', $capture, PHP_INT_MAX );
+		}
+
+		return $request;
+	}
+
+	/**
+	 * Build canonical SQL that counts matching events by taxonomy term.
+	 *
+	 * The query changes only the captured SELECT/GROUP BY shape. Date, search,
+	 * geo, taxonomy, and consumer constraints still pass through the canonical
+	 * WP_Query path, while the result remains bounded to taxonomy terms rather
+	 * than returning every matching post ID to PHP.
+	 *
+	 * @param array    $input      Query-events ability input.
+	 * @param string[] $taxonomies Taxonomies whose direct term counts are needed.
+	 * @return string SQL selecting taxonomy, term_id, and event_count.
+	 */
+	public function buildMatchingTermCountSql( array $input, array $taxonomies ): string {
+		global $wpdb;
+
+		$taxonomies = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'sanitize_key', $taxonomies ),
+					'taxonomy_exists'
+				)
+			)
+		);
+		if ( empty( $taxonomies ) ) {
+			return '';
+		}
+
+		$taxonomy_sql = $wpdb->prepare(
+			implode( ', ', array_fill( 0, count( $taxonomies ), '%s' ) ),
+			...$taxonomies
+		);
+
+		$request                                    = '';
+		$input['fields']                            = 'ids';
+		$input['per_page']                          = -1;
+		$input[ self::CAPTURE_AGGREGATE_QUERY_VAR ] = array( 'taxonomy_sql' => $taxonomy_sql );
+
+		$capture = static function ( $posts, $query ) use ( &$request ) {
+			if ( ! $query->get( self::CAPTURE_AGGREGATE_QUERY_VAR ) ) {
+				return $posts;
+			}
+
+			$request = $query->request;
+			return array();
+		};
+
+		add_filter( 'posts_pre_query', $capture, PHP_INT_MAX, 2 );
 		try {
 			$this->executeQueryEvents( $input );
 		} finally {
@@ -862,7 +974,13 @@ class EventDateQueryAbilities {
 
 			// Taxonomy and consumer joins may match more than one relationship for
 			// a post. Calendar rows represent canonical events, never join rows.
-			if ( ! empty( $aggregate ) ) {
+			if ( isset( $aggregate['taxonomy_sql'] ) ) {
+				$clauses['join']    .= " INNER JOIN {$wpdb->term_relationships} count_tr ON {$wpdb->posts}.ID = count_tr.object_id";
+				$clauses['join']    .= " INNER JOIN {$wpdb->term_taxonomy} count_tt ON count_tr.term_taxonomy_id = count_tt.term_taxonomy_id AND count_tt.taxonomy IN ({$aggregate['taxonomy_sql']})";
+				$clauses['fields']   = "count_tt.taxonomy, count_tt.term_id, COUNT(DISTINCT {$wpdb->posts}.ID) AS event_count";
+				$clauses['distinct'] = '';
+				$clauses['groupby']  = 'count_tt.taxonomy, count_tt.term_id';
+			} elseif ( ! empty( $aggregate ) ) {
 				$start_expression    = $aggregate['start_expression'];
 				$end_expression      = $aggregate['end_expression'];
 				$bucket_count        = $count_rows_directly ? 'COUNT(*)' : "COUNT(DISTINCT {$wpdb->posts}.ID)";

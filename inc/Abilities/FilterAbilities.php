@@ -17,6 +17,7 @@
 namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Blocks\Calendar\Geo_Query;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Query\ScopeResolver;
 use DataMachineEvents\Core\Event_Post_Type;
 
@@ -266,7 +267,35 @@ class FilterAbilities {
 			) : array(),
 		);
 
-		$taxonomies_data = $this->get_all_taxonomies_with_counts( $active_filters, $date_context, $tax_query_override, $query_context );
+		$cache_generation = CalendarCache::get_generation();
+		$cache_key        = CalendarCache::generate_key(
+			array(
+				'show_past'       => '1' === $date_context['past'],
+				'search_query'    => $query_context['event_search'],
+				'date_start'      => $date_context['date_start'],
+				'date_end'        => $date_context['date_end'],
+				'time_start'      => $date_context['time_start'],
+				'time_end'        => $date_context['time_end'],
+				'tax_filters'     => $active_filters,
+				'archive_taxonomy' => $archive_taxonomy,
+				'archive_term_id' => $archive_term_id,
+				'geo_lat'         => $geo_lat,
+				'geo_lng'         => $geo_lng,
+				'geo_radius'      => $geo_radius,
+				'geo_radius_unit' => $geo_unit,
+				'user_date_range' => '' !== $date_context['date_start'] || '' !== $date_context['date_end'],
+				'scope_token'     => $query_context['scope_token'] . '|terms:' . wp_cache_get_last_changed( 'terms' ),
+			),
+			'filter_options'
+		);
+		$taxonomies_data  = CalendarCache::get( $cache_key, $cache_generation );
+		if ( ! is_array( $taxonomies_data ) ) {
+			$taxonomies_data = $this->get_all_taxonomies_with_counts( $active_filters, $date_context, $tax_query_override, $query_context );
+			$ttl             = '1' !== $date_context['past'] && '' === $date_context['date_start'] && '' === $date_context['date_end']
+				? CalendarCache::ttl_for_upcoming_transition( CalendarCache::TTL_COUNTS )
+				: CalendarCache::TTL_COUNTS;
+			CalendarCache::set( $cache_key, $taxonomies_data, $ttl, $cache_generation );
+		}
 
 		return array(
 			'success'         => true,
@@ -303,12 +332,22 @@ class FilterAbilities {
 
 		$excluded_taxonomies = apply_filters( 'data_machine_events_excluded_taxonomies', array(), 'modal' );
 
+		$included_taxonomies = array();
 		foreach ( $taxonomies as $taxonomy ) {
 			if ( in_array( $taxonomy->name, $excluded_taxonomies, true ) || ! $taxonomy->public ) {
 				continue;
 			}
+			$included_taxonomies[ $taxonomy->name ] = $taxonomy;
+		}
 
-			$terms_hierarchy = $this->get_taxonomy_hierarchy( $taxonomy->name, null, $date_context, $active_filters, $tax_query_override, $query_context );
+		$shared_counts = empty( $active_filters )
+			? $this->get_term_counts( array_keys( $included_taxonomies ), $date_context, array(), $tax_query_override, $query_context )
+			: null;
+
+		foreach ( $included_taxonomies as $taxonomy ) {
+			$taxonomy_counts = is_array( $shared_counts ) ? ( $shared_counts[ $taxonomy->name ] ?? array() ) : null;
+
+			$terms_hierarchy = $this->get_taxonomy_hierarchy( $taxonomy->name, null, $date_context, $active_filters, $tax_query_override, $query_context, $taxonomy_counts );
 
 			if ( ! empty( $terms_hierarchy ) ) {
 				$taxonomies_data[ $taxonomy->name ] = array(
@@ -334,7 +373,7 @@ class FilterAbilities {
 	 * @param array      $query_context   Search, geo, and opaque scope-token context.
 	 * @return array Hierarchical term structure with event counts.
 	 */
-	private function get_taxonomy_hierarchy( $taxonomy_slug, $allowed_term_ids = null, $date_context = array(), $active_filters = array(), $tax_query_override = null, $query_context = array() ) {
+	private function get_taxonomy_hierarchy( $taxonomy_slug, $allowed_term_ids = null, $date_context = array(), $active_filters = array(), $tax_query_override = null, $query_context = array(), ?array $term_counts = null ) {
 		$terms = get_terms(
 			array(
 				'taxonomy'   => $taxonomy_slug,
@@ -352,7 +391,7 @@ class FilterAbilities {
 			return array();
 		}
 
-		$term_counts = $this->get_batch_term_counts( $taxonomy_slug, $date_context, $active_filters, $tax_query_override, $query_context );
+		$term_counts = $term_counts ?? $this->get_batch_term_counts( $taxonomy_slug, $date_context, $active_filters, $tax_query_override, $query_context );
 
 		$terms_with_events = array();
 		foreach ( $terms as $term ) {
@@ -414,6 +453,32 @@ class FilterAbilities {
 			}
 		}
 
+		$counts = $this->get_term_counts( array( $taxonomy_slug ), $date_context, $tax_filters, null, $query_context );
+
+		return $counts[ $taxonomy_slug ] ?? array();
+	}
+
+	/**
+	 * Count matching events directly by taxonomy term.
+	 *
+	 * @param string[]  $taxonomy_slugs    Taxonomies to count.
+	 * @param array     $date_context      Optional date filtering context.
+	 * @param array     $tax_filters       Canonical event taxonomy constraints.
+	 * @param array|null $tax_query_override Optional archive taxonomy constraint.
+	 * @param array     $query_context     Search, geo, and opaque scope-token context.
+	 * @return array<string,array<int,int>> Counts keyed by taxonomy and term ID.
+	 */
+	private function get_term_counts( array $taxonomy_slugs, array $date_context, array $tax_filters, $tax_query_override, array $query_context ): array {
+		global $wpdb;
+
+		foreach ( (array) $tax_query_override as $clause ) {
+			$taxonomy = sanitize_key( $clause['taxonomy'] ?? '' );
+			$terms    = array_map( 'absint', (array) ( $clause['terms'] ?? array() ) );
+			if ( $taxonomy && $terms ) {
+				$tax_filters[ $taxonomy ] = $terms;
+			}
+		}
+
 		$query_input = array(
 			'scope'       => ! empty( $date_context['past'] ) && '1' === $date_context['past'] ? 'past' : 'upcoming',
 			'date_start'  => $date_context['date_start'] ?? '',
@@ -424,24 +489,20 @@ class FilterAbilities {
 			'search'      => $query_context['event_search'] ?? '',
 			'geo'         => $query_context['geo'] ?? array(),
 			'scope_token' => $query_context['scope_token'] ?? '',
-			'fields'      => 'ids',
-			'per_page'    => -1,
 		);
 
-		$result   = ( new EventDateQueryAbilities() )->executeQueryEvents( $query_input );
-		$post_ids = array_map( 'absint', $result['posts'] );
-		$counts   = array();
-		if ( empty( $post_ids ) ) {
-			return $counts;
+		$sql = ( new EventDateQueryAbilities() )->buildMatchingTermCountSql( $query_input, $taxonomy_slugs );
+		if ( '' === $sql ) {
+			return array();
 		}
 
-		$terms = wp_get_object_terms( $post_ids, $taxonomy_slug, array( 'fields' => 'all_with_object_id' ) );
-		if ( is_wp_error( $terms ) ) {
-			return $counts;
-		}
-		foreach ( $terms as $term ) {
-			$term_id            = (int) $term->term_id;
-			$counts[ $term_id ] = ( $counts[ $term_id ] ?? 0 ) + 1;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Canonical captured query with bounded grouped output.
+		$rows   = $wpdb->get_results( $sql );
+		$counts = array();
+		foreach ( $rows as $row ) {
+			$taxonomy                          = sanitize_key( $row->taxonomy );
+			$counts[ $taxonomy ]               = $counts[ $taxonomy ] ?? array();
+			$counts[ $taxonomy ][ (int) $row->term_id ] = (int) $row->event_count;
 		}
 
 		return $counts;

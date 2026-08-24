@@ -10,6 +10,7 @@ namespace DataMachineEvents\Tests\Unit;
 use DateTimeImmutable;
 use WP_UnitTestCase;
 use DataMachineEvents\Abilities\FilterAbilities;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Query\ScopeResolver;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
@@ -33,11 +34,15 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 				register_taxonomy( $taxonomy, Event_Post_Type::POST_TYPE, array( 'public' => true ) );
 			}
 		}
+		if ( ! taxonomy_exists( 'filter_location' ) ) {
+			register_taxonomy( 'filter_location', Event_Post_Type::POST_TYPE, array( 'public' => true, 'hierarchical' => true ) );
+		}
 		if ( ! EventDatesTable::table_exists() ) {
 			EventDatesTable::create_table();
 		}
 
 		$this->abilities = new FilterAbilities();
+		CalendarCache::invalidate();
 	}
 
 	private function seed_event( string $title, string $start, array $terms ): int {
@@ -178,5 +183,54 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		);
 
 		$this->assertSame( 1, $this->term_count( $result, 'filter_kind', $kind_id ) );
+	}
+
+	public function test_hierarchical_archive_counts_group_once_and_reuse_generation_cache(): void {
+		$root = wp_insert_term( 'Filter root ' . uniqid(), 'filter_location' );
+		$this->assertNotWPError( $root );
+		$kind_id = $this->create_term( 'filter_kind' );
+
+		for ( $index = 0; $index < 80; ++$index ) {
+			$child = wp_insert_term(
+				'Filter child ' . $index . ' ' . uniqid(),
+				'filter_location',
+				array( 'parent' => (int) $root['term_id'] )
+			);
+			$this->assertNotWPError( $child );
+			$this->seed_event(
+				'Filter archive event ' . $index,
+				current_datetime()->modify( '+2 days' )->format( 'Y-m-d 20:00:00' ),
+				array(
+					'filter_location' => (int) $child['term_id'],
+					'filter_kind'     => $kind_id,
+				)
+			);
+		}
+
+		$grouped_queries = array();
+		$observer        = static function ( string $sql ) use ( &$grouped_queries ): string {
+			if ( false !== strpos( $sql, 'AS event_count' ) && false !== strpos( $sql, EventDatesTable::table_name() ) ) {
+				$grouped_queries[] = $sql;
+			}
+			return $sql;
+		};
+		$input = array(
+			'archive_taxonomy' => 'filter_location',
+			'archive_term_id'  => (int) $root['term_id'],
+		);
+
+		add_filter( 'query', $observer );
+		try {
+			$first  = $this->abilities->executeGetFilterOptions( $input );
+			$second = $this->abilities->executeGetFilterOptions( $input );
+		} finally {
+			remove_filter( 'query', $observer );
+		}
+
+		$this->assertSame( 80, $this->term_count( $first, 'filter_kind', $kind_id ) );
+		$this->assertSame( $first['taxonomies'], $second['taxonomies'] );
+		$this->assertCount( 1, $grouped_queries, 'All public taxonomy counts share one bounded grouped query and one generation cache entry.' );
+		$this->assertStringContainsString( 'GROUP BY count_tt.taxonomy, count_tt.term_id', $grouped_queries[0] );
+		$this->assertStringNotContainsString( 'FROM (SELECT', $grouped_queries[0] );
 	}
 }

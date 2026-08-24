@@ -13,6 +13,7 @@ use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Blocks\Calendar\Query\ScopeResolver;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 
 class CalendarAbilitiesTest extends WP_UnitTestCase {
 
@@ -38,8 +39,11 @@ class CalendarAbilitiesTest extends WP_UnitTestCase {
 		if ( ! taxonomy_exists( 'calendar_test_style' ) ) {
 			register_taxonomy( 'calendar_test_style', Event_Post_Type::POST_TYPE );
 		}
+		if ( ! taxonomy_exists( 'calendar_test_location' ) ) {
+			register_taxonomy( 'calendar_test_location', Event_Post_Type::POST_TYPE, array( 'public' => true, 'hierarchical' => true ) );
+		}
 		$this->abilities = new CalendarAbilities();
-		delete_transient( 'data-machine_cal_counts' );
+		CalendarCache::invalidate();
 	}
 
 	private function seed_event( string $title, string $start, string $end, int $venue_id = 0, array $terms = array() ): int {
@@ -773,5 +777,86 @@ class CalendarAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( $range_start->format( 'Y-m-d' ), $result['paged_date_groups'][0]['date'] );
 		$this->assertContains( $late_id, array_column( $result['paged_date_groups'][0]['events'], 'post_id' ), 'A 4 AM venue-local event remains grouped under the prior night.' );
 		$this->assertSame( 'America/New_York', $result['paged_date_groups'][0]['events'][0]['event_data']['venueTimezone'] );
+	}
+
+	public function test_high_cardinality_hierarchical_archive_pages_reuse_buckets_and_preserve_exact_results(): void {
+		$root = wp_insert_term( 'Calendar root ' . uniqid(), 'calendar_test_location' );
+		$this->assertNotWPError( $root );
+		$children = array();
+		for ( $index = 0; $index < 80; ++$index ) {
+			$child = wp_insert_term(
+				'Calendar child ' . $index . ' ' . uniqid(),
+				'calendar_test_location',
+				array( 'parent' => (int) $root['term_id'] )
+			);
+			$this->assertNotWPError( $child );
+			$children[] = (int) $child['term_id'];
+		}
+
+		$start        = current_datetime()->modify( '+10 days' );
+		$upcoming_ids = array();
+		for ( $day = 0; $day < 10; ++$day ) {
+			$date = $start->modify( "+{$day} days" );
+			for ( $event = 0; $event < 4; ++$event ) {
+				$upcoming_ids[ $day ][] = $this->seed_event(
+					"Archive upcoming {$day}-{$event}",
+					$date->format( 'Y-m-d 20:00:00' ),
+					$date->format( 'Y-m-d 22:00:00' ),
+					0,
+					array( 'calendar_test_location' => $children[ ( $day * 4 + $event ) % count( $children ) ] )
+				);
+			}
+		}
+		$past_date = current_datetime()->modify( '-5 days' );
+		$past_ids  = array();
+		for ( $event = 0; $event < 3; ++$event ) {
+			$past_ids[] = $this->seed_event(
+				'Archive past ' . $event,
+				$past_date->format( 'Y-m-d 20:00:00' ),
+				$past_date->format( 'Y-m-d 22:00:00' ),
+				0,
+				array( 'calendar_test_location' => $children[40 + $event] )
+			);
+		}
+
+		$bucket_queries    = array();
+		$candidate_queries = array();
+		$observer          = static function ( string $sql ) use ( &$bucket_queries, &$candidate_queries ): string {
+			if ( false !== strpos( $sql, ' AS bucket_count' ) ) {
+				$bucket_queries[] = $sql;
+			}
+			if ( false !== strpos( $sql, 'FORCE INDEX (term_taxonomy_id)' ) && false !== strpos( $sql, EventDatesTable::table_name() ) ) {
+				$candidate_queries[] = $sql;
+			}
+			return $sql;
+		};
+		$base_input = array(
+			'archive_taxonomy' => 'calendar_test_location',
+			'archive_term_id'  => (int) $root['term_id'],
+			'include_html'     => false,
+		);
+
+		add_filter( 'query', $observer );
+		try {
+			$page_one = $this->abilities->executeGetCalendarPage( $base_input );
+			$page_two = $this->abilities->executeGetCalendarPage( array_merge( $base_input, array( 'paged' => 2 ) ) );
+			$past     = $this->abilities->executeGetCalendarPage( array_merge( $base_input, array( 'past' => true ) ) );
+		} finally {
+			remove_filter( 'query', $observer );
+		}
+
+		$this->assertSame( 40, $page_one['total_event_count'] );
+		$this->assertSame( 2, $page_one['max_pages'] );
+		$this->assertSame( array_merge( ...array_slice( $upcoming_ids, 0, 5 ) ), $this->result_post_ids( $page_one ) );
+		$this->assertSame( 2, $page_two['current_page'] );
+		$this->assertSame( array_merge( ...array_slice( $upcoming_ids, 5, 5 ) ), $this->result_post_ids( $page_two ) );
+		$this->assertSame( 3, $past['total_event_count'] );
+		$this->assertSame( array_reverse( $past_ids ), $this->result_post_ids( $past ) );
+		$this->assertCount( 2, $bucket_queries, 'Upcoming pages reuse one page-independent bucket query; past has one separate bucket.' );
+		$this->assertNotEmpty( $candidate_queries );
+		foreach ( $candidate_queries as $sql ) {
+			$this->assertMatchesRegularExpression( '/LIMIT 100 OFFSET \d+/i', $sql );
+			$this->assertStringNotContainsString( $GLOBALS['wpdb']->posts, $sql );
+		}
 	}
 }

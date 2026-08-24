@@ -26,6 +26,9 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		if ( ! taxonomy_exists( 'venue' ) ) {
 			Venue_Taxonomy::register();
 		}
+		if ( ! taxonomy_exists( 'query_test_location' ) ) {
+			register_taxonomy( 'query_test_location', Event_Post_Type::POST_TYPE, array( 'public' => true, 'hierarchical' => true ) );
+		}
 	}
 
 	private function seed_event( string $title, string $status, string $start, ?string $end = null, int $venue_id = 0 ): int {
@@ -340,7 +343,7 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 1, substr_count( $queries[0], (string) $second_term['term_taxonomy_id'] ) );
 	}
 
-	public function test_paginated_upcoming_taxonomy_query_uses_canonical_wp_query(): void {
+	public function test_paginated_upcoming_taxonomy_query_uses_bounded_candidates(): void {
 		$venue = wp_insert_term( 'Paginated related venue ' . uniqid(), 'venue' );
 		$this->assertNotWPError( $venue );
 		$venue_id = (int) $venue['term_id'];
@@ -372,10 +375,79 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertSame( array( $second ), array_map( 'intval', $result['posts'] ) );
 		$this->assertCount( 1, $queries );
-		$this->assertStringContainsString( $GLOBALS['wpdb']->posts, $queries[0] );
 		$this->assertStringContainsString( $GLOBALS['wpdb']->term_relationships, $queries[0] );
-		$this->assertStringNotContainsString( 'FORCE INDEX (term_taxonomy_id)', $queries[0] );
-		$this->assertMatchesRegularExpression( '/LIMIT\s+1\s*,\s*1\b/i', $queries[0] );
+		$this->assertStringContainsString( 'FORCE INDEX (term_taxonomy_id)', $queries[0] );
+		$this->assertStringNotContainsString( $GLOBALS['wpdb']->posts, $queries[0] );
+		$this->assertMatchesRegularExpression( '/ORDER BY ed\.start_datetime ASC, ed\.post_id ASC\s+LIMIT 100 OFFSET 0/i', $queries[0] );
+	}
+
+	public function test_hierarchical_past_date_window_bounds_candidates_and_keeps_exact_order(): void {
+		$root = wp_insert_term( 'Query root ' . uniqid(), 'query_test_location' );
+		$this->assertNotWPError( $root );
+		$children = array();
+		for ( $index = 0; $index < 80; ++$index ) {
+			$child = wp_insert_term(
+				'Query child ' . $index . ' ' . uniqid(),
+				'query_test_location',
+				array( 'parent' => (int) $root['term_id'] )
+			);
+			$this->assertNotWPError( $child );
+			$children[] = (int) $child['term_id'];
+		}
+
+		$date     = current_datetime()->modify( '-3 days' );
+		$post_ids = array();
+		for ( $index = 0; $index < 5; ++$index ) {
+			$post_id = $this->seed_event( 'Hierarchical past ' . $index, 'publish', $date->format( 'Y-m-d 20:00:00' ), $date->format( 'Y-m-d 22:00:00' ) );
+			wp_set_object_terms( $post_id, array( $children[ $index ] ), 'query_test_location' );
+			$post_ids[] = $post_id;
+		}
+
+		$queries  = array();
+		$observer = static function ( string $sql ) use ( &$queries ): string {
+			if ( false !== strpos( $sql, EventDatesTable::table_name() ) ) {
+				$queries[] = $sql;
+			}
+			return $sql;
+		};
+		add_filter( 'query', $observer );
+		try {
+			$result = ( new EventDateQueryAbilities() )->executeQueryEvents(
+				array(
+					'scope'       => 'past',
+					'date_start'  => $date->format( 'Y-m-d' ),
+					'date_end'    => $date->format( 'Y-m-d' ),
+					'tax_filters' => array( 'query_test_location' => array( (int) $root['term_id'] ) ),
+					'per_page'    => 2,
+					'page'        => 2,
+					'fields'      => 'ids',
+					'order'       => 'DESC',
+				)
+			);
+		} finally {
+			remove_filter( 'query', $observer );
+		}
+
+		$this->assertSame( array( $post_ids[2], $post_ids[1] ), array_map( 'intval', $result['posts'] ) );
+		$this->assertCount( 1, $queries );
+		$this->assertStringContainsString( 'FORCE INDEX (term_taxonomy_id)', $queries[0] );
+		$this->assertStringContainsString( 'ed.end_datetime >=', $queries[0] );
+		$this->assertStringContainsString( 'ed.start_datetime <=', $queries[0] );
+		$this->assertStringNotContainsString( $GLOBALS['wpdb']->posts, $queries[0] );
+		$this->assertMatchesRegularExpression( '/ORDER BY ed\.start_datetime DESC, ed\.post_id DESC\s+LIMIT 100 OFFSET 0/i', $queries[0] );
+	}
+
+	public function test_invalid_hierarchical_taxonomy_metadata_fails_closed(): void {
+		$result = ( new EventDateQueryAbilities() )->executeQueryEvents(
+			array(
+				'tax_filters' => array( 'missing_query_taxonomy' => array( 123 ) ),
+				'per_page'    => 20,
+				'fields'      => 'ids',
+			)
+		);
+
+		$this->assertSame( array(), $result['posts'] );
+		$this->assertSame( 0, $result['post_count'] );
 	}
 
 	public function test_count_query_skips_found_rows_and_uses_event_date_status_index(): void {
@@ -486,6 +558,22 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $executed_queries );
 		$this->assertStringContainsString( '17000', $sql );
 		$this->assertStringNotContainsString( '%d', $sql );
+		$this->assertStringNotContainsString( ' LIMIT ', strtoupper( $sql ) );
+	}
+
+	public function test_matching_term_count_sql_groups_directly_without_returning_post_ids(): void {
+		$sql = ( new EventDateQueryAbilities() )->buildMatchingTermCountSql(
+			array(
+				'scope'       => 'upcoming',
+				'tax_filters' => array( 'query_test_location' => array() ),
+			),
+			array( 'venue', 'query_test_location' )
+		);
+
+		$this->assertMatchesRegularExpression( '/SELECT\s+count_tt\.taxonomy,\s*count_tt\.term_id,\s*COUNT\(DISTINCT\s+[^)]+\.ID\) AS event_count/i', $sql );
+		$this->assertStringContainsString( 'GROUP BY count_tt.taxonomy, count_tt.term_id', $sql );
+		$this->assertStringNotContainsString( 'FROM (SELECT', $sql );
+		$this->assertStringNotContainsString( ' ORDER BY ', strtoupper( $sql ) );
 		$this->assertStringNotContainsString( ' LIMIT ', strtoupper( $sql ) );
 	}
 }

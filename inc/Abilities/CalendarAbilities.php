@@ -452,8 +452,9 @@ class CalendarAbilities {
 	 * @return array ['past' => int, 'future' => int]
 	 */
 	private static function compute_event_counts_via_ability(): array {
-		$cache_key = 'data-machine_cal_counts';
-		$cached    = CalendarCache::get( $cache_key );
+		$cache_key   = 'data-machine_cal_counts';
+		$generation  = CalendarCache::get_generation();
+		$cached      = CalendarCache::get( $cache_key, $generation );
 		if ( false !== $cached ) {
 			return $cached;
 		}
@@ -474,7 +475,12 @@ class CalendarAbilities {
 			'future' => $future['total'],
 		);
 
-		CalendarCache::set( $cache_key, $result, 10 * MINUTE_IN_SECONDS );
+		CalendarCache::set(
+			$cache_key,
+			$result,
+			CalendarCache::ttl_for_upcoming_transition( CalendarCache::TTL_COUNTS ),
+			$generation
+		);
 		return $result;
 	}
 

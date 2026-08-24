@@ -104,7 +104,7 @@ class CalendarCache {
 			'next_transition' => $live_upcoming ? self::next_upcoming_transition() : '',
 		);
 
-		return self::PREFIX . $prefix . '_' . md5( wp_json_encode( $key_data ) );
+		return self::PREFIX . $prefix . '_' . md5( (string) wp_json_encode( $key_data ) );
 	}
 
 	/**
@@ -169,7 +169,7 @@ class CalendarCache {
 			'next_transition'  => $live_upcoming ? self::next_upcoming_transition() : '',
 		);
 
-		return self::FULL_PREFIX . md5( wp_json_encode( $key_data ) );
+		return self::FULL_PREFIX . md5( (string) wp_json_encode( $key_data ) );
 	}
 
 	/**

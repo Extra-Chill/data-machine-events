@@ -204,45 +204,35 @@ class CalendarGenerationPublisher extends SystemTask {
 		try {
 			$window        = absint( $params['coalesced_window'] ?? 0 );
 			$latest_window = absint( get_option( self::WINDOW_OPTION, 0 ) );
+			$result        = array(
+				'site_id'    => $site_id,
+				'generation' => $generation,
+			);
 			if ( $window > 0 && $latest_window > $window ) {
-				$this->completeJob(
-					$jobId,
+				$result['skipped'] = 'superseded_window';
+			} else {
+				if ( ! CalendarCache::publish_generation( $generation ) ) {
+					$this->failJob( $jobId, 'Calendar generation could not be published.' );
+					return;
+				}
+				$warmer_job_id = TaskScheduler::schedule(
+					TaxonomyInventoryWarmer::TASK_TYPE,
 					array(
 						'site_id'    => $site_id,
 						'generation' => $generation,
-						'skipped'    => 'superseded_window',
-					)
+					),
+					array(),
+					0,
+					TaxonomyInventoryWarmer::operationKey( $site_id, $generation )
 				);
-				return;
+				if ( false === $warmer_job_id ) {
+					$this->failJob( $jobId, 'Calendar generation published but its taxonomy warmer could not be scheduled.' );
+					return;
+				}
+				$result['warmer_job_id'] = $warmer_job_id;
 			}
 
-			if ( ! CalendarCache::publish_generation( $generation ) ) {
-				$this->failJob( $jobId, 'Calendar generation could not be published.' );
-				return;
-			}
-			$warmer_job_id = TaskScheduler::schedule(
-				TaxonomyInventoryWarmer::TASK_TYPE,
-				array(
-					'site_id'    => $site_id,
-					'generation' => $generation,
-				),
-				array(),
-				0,
-				TaxonomyInventoryWarmer::operationKey( $site_id, $generation )
-			);
-			if ( false === $warmer_job_id ) {
-				$this->failJob( $jobId, 'Calendar generation published but its taxonomy warmer could not be scheduled.' );
-				return;
-			}
-
-			$this->completeJob(
-				$jobId,
-				array(
-					'site_id'       => $site_id,
-					'generation'    => $generation,
-					'warmer_job_id' => $warmer_job_id,
-				)
-			);
+			$this->completeJob( $jobId, $result );
 		} finally {
 			if ( $switched ) {
 				restore_current_blog();

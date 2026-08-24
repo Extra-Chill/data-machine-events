@@ -30,25 +30,21 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 		parent::tearDown();
 	}
 
-	public function test_many_import_requests_keep_one_generation_until_one_bounded_publication(): void {
+	public function test_many_import_requests_keep_one_reusable_generation(): void {
 		$parent_id  = $this->createBatchParent();
 		$generation = CalendarCache::get_generation();
 		$cache_key  = CalendarCache::PREFIX . 'batch-reuse-' . uniqid();
 		CalendarCache::set( $cache_key, 'reused', HOUR_IN_SECONDS, $generation );
 
-		for ( $request = 0; $request < 100; ++$request ) {
-			$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_id ) );
-			CacheInvalidator::defer();
-			try {
-				CacheInvalidator::invalidate_all();
-				CacheInvalidator::invalidate_all();
-			} finally {
-				CacheInvalidator::resume();
-			}
-		}
+		$this->deferImportRequests( $parent_id, 100 );
 
 		$this->assertSame( $generation, CalendarCache::get_generation() );
 		$this->assertSame( 'reused', CalendarCache::get( $cache_key, $generation ) );
+	}
+
+	public function test_terminal_replays_schedule_one_bounded_publication(): void {
+		$parent_id = $this->createBatchParent();
+		$this->deferImportRequests( $parent_id, 2 );
 
 		$scheduled = array();
 		$scheduler = static function ( $task_type, $params, $context, $parent_job_id, $operation_key ) use ( &$scheduled ): int {
@@ -65,6 +61,10 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 		$this->assertSame( 1200, $publication['params']['scheduled_at'] );
 		$this->assertSame( get_current_blog_id(), $publication['params']['site_id'] );
 		$this->assertLessThanOrEqual( CalendarGenerationPublisher::COALESCE_WINDOW, $publication['params']['scheduled_at'] - 1000 );
+	}
+
+	public function test_exact_generation_replay_transitions_once(): void {
+		$target      = hash( 'sha256', 'crash-safe-calendar-generation' );
 
 		$transitions = 0;
 		$observer    = static function () use ( &$transitions ): void {
@@ -72,14 +72,14 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 		};
 		add_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $observer );
 		try {
-			$this->assertTrue( CalendarCache::publish_generation( $publication['params']['generation'] ) );
-			$this->assertTrue( CalendarCache::publish_generation( $publication['params']['generation'] ) );
+			$this->assertTrue( CalendarCache::publish_generation( $target ) );
+			$this->assertTrue( CalendarCache::publish_generation( $target ) );
 		} finally {
 			remove_action( 'update_option_' . CalendarCache::GENERATION_OPTION, $observer );
 		}
 
 		$this->assertSame( 1, $transitions, 'Crash replay must publish the exact target only once.' );
-		$this->assertSame( $publication['params']['generation'], CalendarCache::get_generation() );
+		$this->assertSame( $target, CalendarCache::get_generation() );
 	}
 
 	public function test_failed_durable_setup_falls_back_to_immediate_freshness(): void {
@@ -167,5 +167,18 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 				'batch_completion_strategy' => BatchScheduler::COMPLETION_STRATEGY_CHILDREN_COMPLETE,
 			)
 		);
+	}
+
+	private function deferImportRequests( int $parent_id, int $requests ): void {
+		for ( $request = 0; $request < $requests; ++$request ) {
+			$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_id ) );
+			CacheInvalidator::defer();
+			try {
+				CacheInvalidator::invalidate_all();
+				CacheInvalidator::invalidate_all();
+			} finally {
+				CacheInvalidator::resume();
+			}
+		}
 	}
 }

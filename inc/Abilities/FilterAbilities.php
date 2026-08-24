@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class FilterAbilities {
 
-	private static bool $registered = false;
+	private static bool $registered          = false;
 	private bool $grouped_term_counts_failed = false;
 
 	public function __construct() {
@@ -373,8 +373,10 @@ class FilterAbilities {
 
 			$event_count = $term_counts[ $term->term_id ] ?? 0;
 			if ( $event_count > 0 ) {
-				$term->event_count   = $event_count;
-				$terms_with_events[] = $term;
+				$terms_with_events[] = array(
+					'term'        => $term,
+					'event_count' => $event_count,
+				);
 			}
 		}
 
@@ -388,12 +390,13 @@ class FilterAbilities {
 		}
 
 		return array_map(
-			function ( $term ) {
+			function ( $term_count ) {
+				$term = $term_count['term'];
 				return array(
 					'term_id'     => $term->term_id,
 					'name'        => $term->name,
 					'slug'        => $term->slug,
-					'event_count' => $term->event_count,
+					'event_count' => $term_count['event_count'],
 					'level'       => 0,
 					'children'    => array(),
 				);
@@ -475,8 +478,9 @@ class FilterAbilities {
 	 * @return bool
 	 */
 	private function can_use_grouped_term_counts( array $query_context, array $taxonomies ): bool {
-		$is_sqlite = ( defined( 'DB_ENGINE' ) && 'sqlite' === DB_ENGINE )
-			|| ( defined( 'DATABASE_TYPE' ) && 'sqlite' === DATABASE_TYPE );
+		$db_engine     = defined( 'DB_ENGINE' ) ? strtolower( (string) constant( 'DB_ENGINE' ) ) : '';
+		$database_type = defined( 'DATABASE_TYPE' ) ? strtolower( (string) constant( 'DATABASE_TYPE' ) ) : '';
+		$is_sqlite     = 'sqlite' === $db_engine || 'sqlite' === $database_type;
 
 		if ( $is_sqlite
 			|| $this->grouped_term_counts_failed
@@ -501,7 +505,7 @@ class FilterAbilities {
 	private function has_unsupported_term_customization( array $taxonomies ): bool {
 		global $wp_filter;
 
-		$term_hooks = array(
+		$term_hooks                      = array(
 			'wp_get_object_terms_args',
 			'get_object_terms',
 			'wp_get_object_terms',
@@ -516,9 +520,9 @@ class FilterAbilities {
 			'get_term',
 		);
 		$allow_post_format_compatibility = ! in_array( 'post_format', $taxonomies, true );
-		$core_callbacks                 = array(
+		$core_callbacks                  = array(
 			'wp_get_object_terms' => '_post_format_wp_get_object_terms',
-			'get_terms'            => '_post_format_get_terms',
+			'get_terms'           => '_post_format_get_terms',
 		);
 
 		foreach ( $term_hooks as $hook ) {
@@ -592,8 +596,8 @@ class FilterAbilities {
 
 		$counts = array();
 		foreach ( $rows as $row ) {
-			$taxonomy                          = sanitize_key( $row->taxonomy );
-			$counts[ $taxonomy ]               = $counts[ $taxonomy ] ?? array();
+			$taxonomy                                   = sanitize_key( $row->taxonomy );
+			$counts[ $taxonomy ]                        = $counts[ $taxonomy ] ?? array();
 			$counts[ $taxonomy ][ (int) $row->term_id ] = (int) $row->event_count;
 		}
 
@@ -603,7 +607,7 @@ class FilterAbilities {
 	/**
 	 * Build a nested hierarchy tree from a flat array of terms.
 	 *
-	 * @param array $terms     Flat array of term objects.
+	 * @param array $terms     Flat array of term/count pairs.
 	 * @param int   $parent_id Parent term ID for current level.
 	 * @param int   $level     Current nesting level.
 	 * @return array Nested tree structure.
@@ -612,13 +616,14 @@ class FilterAbilities {
 		$tree = array();
 
 		$term_ids = array_map(
-			function ( $t ) {
-				return $t->term_id;
+			function ( $term_count ) {
+				return $term_count['term']->term_id;
 			},
 			$terms
 		);
 
-		foreach ( $terms as $term ) {
+		foreach ( $terms as $term_count ) {
+			$term             = $term_count['term'];
 			$effective_parent = $term->parent;
 			while ( 0 !== $effective_parent && ! in_array( $effective_parent, $term_ids, true ) ) {
 				$parent_term      = get_term( $effective_parent );
@@ -629,7 +634,7 @@ class FilterAbilities {
 					'term_id'     => $term->term_id,
 					'name'        => $term->name,
 					'slug'        => $term->slug,
-					'event_count' => $term->event_count,
+					'event_count' => $term_count['event_count'],
 					'level'       => $level,
 					'children'    => array(),
 				);

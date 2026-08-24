@@ -10,6 +10,7 @@ namespace DataMachineEvents\Tests\Unit;
 use DateTimeImmutable;
 use WP_UnitTestCase;
 use DataMachineEvents\Abilities\FilterAbilities;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Query\ScopeResolver;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
@@ -21,6 +22,11 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 
 	public function setUp(): void {
 		parent::setUp();
+		global $wpdb;
+
+		wp_cache_flush();
+		CalendarCache::invalidate();
+		$wpdb->last_error = '';
 
 		if ( ! post_type_exists( Event_Post_Type::POST_TYPE ) ) {
 			Event_Post_Type::register();
@@ -41,6 +47,14 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		}
 
 		$this->abilities = new FilterAbilities();
+	}
+
+	public function tearDown(): void {
+		global $wpdb;
+
+		parent::tearDown();
+		wp_cache_flush();
+		$wpdb->last_error = '';
 	}
 
 	private function seed_event( string $title, string $start, array $terms ): int {
@@ -80,27 +94,24 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		$this->seed_event( 'Needle performance', $tomorrow->format( 'Y-m-d 20:00:00' ), array( 'filter_kind' => $term_id ) );
 		$this->seed_event( 'Different performance', $tomorrow->format( 'Y-m-d 21:00:00' ), array( 'filter_kind' => $term_id ) );
 
-		$grouped_queries  = array();
-		$unbounded_queries = array();
-		$observer = static function ( string $sql ) use ( &$grouped_queries, &$unbounded_queries ): string {
-			if ( false !== strpos( $sql, ' AS event_count' ) ) {
-				$grouped_queries[] = $sql;
-			}
-			if ( false !== stripos( $sql, 'SELECT DISTINCT' ) && false !== strpos( $sql, EventDatesTable::table_name() ) ) {
-				$unbounded_queries[] = $sql;
-			}
-			return $sql;
+		$query_args = array();
+		$observer   = static function ( array $args ) use ( &$query_args ): array {
+			$query_args[] = $args;
+			return $args;
 		};
-		add_filter( 'query', $observer );
+		add_filter( 'data_machine_events_calendar_query_args', $observer );
 		try {
 			$result = $this->abilities->executeGetFilterOptions( array( 'event_search' => 'Needle' ) );
 		} finally {
-			remove_filter( 'query', $observer );
+			remove_filter( 'data_machine_events_calendar_query_args', $observer );
 		}
 
 		$this->assertSame( 1, $this->term_count( $result, 'filter_kind', $term_id ) );
-		$this->assertSame( array(), $grouped_queries );
-		$this->assertNotEmpty( $unbounded_queries, 'Search retains the original canonical ID-query fallback.' );
+		$this->assertNotEmpty( $query_args );
+		foreach ( $query_args as $args ) {
+			$this->assertSame( 'ids', $args['fields'] );
+			$this->assertSame( -1, $args['posts_per_page'] );
+		}
 	}
 
 	/**
@@ -190,30 +201,35 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		$tomorrow = current_datetime()->modify( '+1 day' );
 		$this->seed_event( 'SQL fallback event', $tomorrow->format( 'Y-m-d 20:00:00' ), array( 'filter_kind' => $term_id ) );
 
-		$grouped_attempts  = 0;
-		$canonical_queries = array();
-		$observer          = static function ( string $sql ) use ( &$grouped_attempts, &$canonical_queries ): string {
+		$grouped_attempts = 0;
+		$query_args       = array();
+		$observer         = static function ( string $sql ) use ( &$grouped_attempts ): string {
 			if ( false !== strpos( $sql, ' AS event_count' ) ) {
 				++$grouped_attempts;
 				return 'SELECT grouped_count_failure';
 			}
-			if ( false !== stripos( $sql, 'SELECT DISTINCT' ) && false !== strpos( $sql, EventDatesTable::table_name() ) ) {
-				$canonical_queries[] = $sql;
-			}
 			return $sql;
 		};
+		$args_observer = static function ( array $args ) use ( &$query_args ): array {
+			$query_args[] = $args;
+			return $args;
+		};
 
+		$previous_error       = $wpdb->last_error;
 		$previous_suppression = $wpdb->suppress_errors( true );
 		add_filter( 'query', $observer );
+		add_filter( 'data_machine_events_calendar_query_args', $args_observer );
 		try {
 			$result = $this->abilities->executeGetFilterOptions( array() );
 		} finally {
 			remove_filter( 'query', $observer );
+			remove_filter( 'data_machine_events_calendar_query_args', $args_observer );
 			$wpdb->suppress_errors( $previous_suppression );
+			$wpdb->last_error = $previous_error;
 		}
 
 		$this->assertSame( 1, $grouped_attempts );
-		$this->assertNotEmpty( $canonical_queries );
+		$this->assertGreaterThan( 1, count( $query_args ), 'Grouped failure is followed by canonical per-taxonomy queries.' );
 		$this->assertSame( 1, $this->term_count( $result, 'filter_kind', $term_id ) );
 	}
 

@@ -497,6 +497,7 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 			array( 'venue' )
 		);
 
+		$this->assertIsString( $sql );
 		$this->assertMatchesRegularExpression( '/SELECT\s+count_tt\.taxonomy,\s*count_tt\.term_id,\s*COUNT\(DISTINCT\s+[^)]+\.ID\) AS event_count/i', $sql );
 		$this->assertStringContainsString( 'GROUP BY count_tt.taxonomy, count_tt.term_id', $sql );
 		$this->assertStringNotContainsString( 'FROM (SELECT', $sql );

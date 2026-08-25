@@ -28,6 +28,7 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 
 	public function tearDown(): void {
 		$this->resetInvalidationDepth();
+		delete_option( CalendarGenerationFence::OPTION );
 		parent::tearDown();
 	}
 

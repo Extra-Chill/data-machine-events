@@ -34,16 +34,61 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 	public function test_many_import_requests_keep_one_reusable_generation(): void {
 		$parent_id  = $this->createBatchParent();
 		$generation = CalendarCache::get_generation();
+		$revision   = CalendarGenerationFence::currentState()['revision'];
 		$cache_key  = CalendarCache::PREFIX . 'batch-reuse-' . uniqid();
 		CalendarCache::set( $cache_key, 'reused', HOUR_IN_SECONDS, $generation );
 
 		$this->deferImportRequests( $parent_id, 100 );
 
 		$this->assertSame( $generation, CalendarCache::get_generation() );
+		$this->assertSame( $revision, CalendarGenerationFence::currentState()['revision'], 'Batch mutation starts must not participate in publication ordering.' );
 		$this->assertSame( 'reused', CalendarCache::get( $cache_key, $generation ) );
 		$marker = EngineData::retrieve( $parent_id )[ CalendarGenerationPublisher::ENGINE_KEY ];
-		$this->assertGreaterThan( 0, $marker['obligation_revision'] );
+		$this->assertNotSame( '', $marker['obligation_token'] );
 		$this->assertArrayNotHasKey( 'publication_revision', $marker );
+	}
+
+	public function test_many_batch_starts_do_not_advance_publication_fence(): void {
+		$revision = CalendarGenerationFence::currentState()['revision'];
+		$tokens   = array();
+
+		for ( $index = 0; $index < 25; ++$index ) {
+			$parent_id = $this->createBatchParent();
+			$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_id ) );
+			$tokens[] = EngineData::retrieve( $parent_id )[ CalendarGenerationPublisher::ENGINE_KEY ]['obligation_token'];
+		}
+
+		$this->assertSame( $revision, CalendarGenerationFence::currentState()['revision'] );
+		$this->assertCount( 25, array_unique( $tokens ), 'Each parent must retain a unique immutable obligation token.' );
+	}
+
+	public function test_new_batch_start_does_not_starve_scheduled_parent_publication(): void {
+		$parent_a = $this->createBatchParent();
+		$parent_b = $this->createBatchParent();
+		$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_a ) );
+
+		$calls     = array();
+		$scheduler = static function ( $task_type, $params, $context, $parent_job_id, $operation_key ) use ( &$calls ): int {
+			$calls[] = compact( 'task_type', 'params', 'context', 'parent_job_id', 'operation_key' );
+			return count( $calls );
+		};
+		$this->assertTrue( CalendarGenerationPublisher::scheduleForTerminalBatch( $parent_a, $scheduler, 1000 ) );
+		$revision_a = $calls[0]['params']['revision'];
+
+		$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_b ) );
+		$this->assertSame( $revision_a, CalendarGenerationFence::currentState()['revision'], 'Starting parent B must not supersede terminal parent A.' );
+
+		$publisher = new CalendarGenerationPublisher();
+		$result_a  = $publisher->runPublication( 801, $calls[0]['params'], static fn() => 8101 );
+		$this->assertSame( 8101, $result_a['warmer_job_id'] );
+		$this->assertSame( $calls[0]['params']['generation'], CalendarCache::get_generation() );
+
+		$this->assertTrue( CalendarGenerationPublisher::scheduleForTerminalBatch( $parent_b, $scheduler, 1300 ) );
+		$revision_b = $calls[1]['params']['revision'];
+		$this->assertGreaterThan( $revision_a, $revision_b );
+		$result_b = $publisher->runPublication( 802, $calls[1]['params'], static fn() => 8102 );
+		$this->assertSame( 8102, $result_b['warmer_job_id'] );
+		$this->assertSame( $calls[1]['params']['generation'], CalendarCache::get_generation() );
 	}
 
 	public function test_terminal_replays_reuse_revision_specific_operation(): void {
@@ -206,7 +251,7 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 		$after = EngineData::retrieve( $parent_id )[ CalendarGenerationPublisher::ENGINE_KEY ];
 
 		$this->assertSame( $current_site, $after['site_id'] );
-		$this->assertSame( $before['obligation_revision'], $after['obligation_revision'] );
+		$this->assertSame( $before['obligation_token'], $after['obligation_token'] );
 		$this->assertNotSame( $other_site, $after['site_id'] );
 	}
 
@@ -219,7 +264,7 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 		$this->assertSame( $generation, CalendarCache::get_generation() );
 	}
 
-	public function test_failed_revision_reservation_falls_back_to_immediate_freshness(): void {
+	public function test_failed_obligation_marker_falls_back_to_immediate_freshness(): void {
 		$parent_id = $this->createBatchParent();
 		$before    = CalendarCache::get_generation();
 
@@ -228,6 +273,16 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( $before, CalendarCache::get_generation() );
 		$this->assertArrayNotHasKey( CalendarGenerationPublisher::ENGINE_KEY, EngineData::retrieve( $parent_id ) );
+	}
+
+	public function test_terminal_revision_reservation_failure_requests_replay(): void {
+		$parent_id = $this->createBatchParent();
+		$this->assertTrue( CalendarGenerationPublisher::deferBatch( $parent_id ) );
+
+		$this->assertFalse( CalendarGenerationPublisher::scheduleForTerminalBatch( $parent_id, static fn() => 1, 1000, static fn() => false ) );
+		$marker = EngineData::retrieve( $parent_id )[ CalendarGenerationPublisher::ENGINE_KEY ];
+		$this->assertArrayNotHasKey( 'publication_revision', $marker );
+		$this->assertNotSame( '', $marker['obligation_token'] );
 	}
 
 	public function test_exhausted_cas_uses_row_locked_immediate_transition(): void {

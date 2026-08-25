@@ -55,7 +55,7 @@ class CalendarGenerationPublisher extends SystemTask {
 	 *
 	 * Failure deliberately leaves immediate invalidation enabled.
 	 */
-	public static function deferBatch( int $parent_job_id, ?callable $revision_reserver = null ): bool {
+	public static function deferBatch( int $parent_job_id, ?callable $token_generator = null ): bool {
 		if ( $parent_job_id <= 0 ) {
 			return false;
 		}
@@ -73,30 +73,30 @@ class CalendarGenerationPublisher extends SystemTask {
 		$existing = is_array( $parent[ self::ENGINE_KEY ] ?? null ) ? $parent[ self::ENGINE_KEY ] : array();
 		if ( ! empty( $existing ) ) {
 			return (int) ( $existing['site_id'] ?? 0 ) === $site_id
-				&& (int) ( $existing['obligation_revision'] ?? 0 ) > 0;
+				&& '' !== (string) ( $existing['obligation_token'] ?? '' );
 		}
 		if ( ! CalendarGenerationFence::isSupported() ) {
 			return false;
 		}
 
-		$revision_reserver = $revision_reserver ?? array( CalendarCache::class, 'reserve_revision' );
-		$revision          = $revision_reserver();
-		if ( ! is_int( $revision ) || $revision <= 0 ) {
+		$token_generator = $token_generator ?? 'wp_generate_uuid4';
+		$token           = $token_generator();
+		if ( ! is_string( $token ) || '' === $token ) {
 			return false;
 		}
 
 		$mutation = EngineData::mutate(
 			$parent_job_id,
-			static function ( array $current ) use ( $site_id, $revision ): array {
+			static function ( array $current ) use ( $site_id, $token ): array {
 				$existing = is_array( $current[ self::ENGINE_KEY ] ?? null ) ? $current[ self::ENGINE_KEY ] : array();
 				if ( ! empty( $existing ) ) {
 					return $current;
 				}
 
 				$current[ self::ENGINE_KEY ] = array(
-					'site_id'             => $site_id,
-					'obligation_revision' => $revision,
-					'dirty_at'            => current_time( 'mysql', true ),
+					'site_id'          => $site_id,
+					'obligation_token' => $token,
+					'dirty_at'         => current_time( 'mysql', true ),
 				);
 				return $current;
 			},
@@ -106,7 +106,7 @@ class CalendarGenerationPublisher extends SystemTask {
 		$stored = is_array( $mutation['snapshot'][ self::ENGINE_KEY ] ?? null ) ? $mutation['snapshot'][ self::ENGINE_KEY ] : array();
 		return ! empty( $mutation['success'] )
 			&& (int) ( $stored['site_id'] ?? 0 ) === $site_id
-			&& (int) ( $stored['obligation_revision'] ?? 0 ) > 0;
+			&& '' !== (string) ( $stored['obligation_token'] ?? '' );
 	}
 
 	/** Schedule one publisher for the terminal batch's site and time window. */
@@ -126,7 +126,7 @@ class CalendarGenerationPublisher extends SystemTask {
 		$engine  = EngineData::retrieve( $job_id );
 		$marker  = is_array( $engine[ self::ENGINE_KEY ] ?? null ) ? $engine[ self::ENGINE_KEY ] : array();
 		$site_id = absint( $marker['site_id'] ?? 0 );
-		if ( $site_id <= 0 || (int) ( $marker['obligation_revision'] ?? 0 ) <= 0 || ! get_site( $site_id ) ) {
+		if ( $site_id <= 0 || '' === (string) ( $marker['obligation_token'] ?? '' ) || ! get_site( $site_id ) ) {
 			return true;
 		}
 

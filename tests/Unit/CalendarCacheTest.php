@@ -17,6 +17,7 @@ use WP_REST_Server;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
 use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
+use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
@@ -288,6 +289,8 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		CalendarCache::invalidate();
 		$this->assertNotSame( $generation, CalendarCache::get_generation() );
 		$this->assertNotNull( EventDatesTable::get( $post_id ) );
+		$direct = ( new EventDateQueryAbilities() )->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'ids' ) );
+		$this->assertContains( $post_id, $direct['posts'] );
 		wp_set_current_user( 0 );
 
 		$unfiltered = new WP_REST_Request( 'GET', '/datamachine/v1/events/calendar' );

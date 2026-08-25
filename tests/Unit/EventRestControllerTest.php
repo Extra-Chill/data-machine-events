@@ -18,6 +18,7 @@ use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
+use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use const DataMachineEvents\Api\API_NAMESPACE;
 
 class EventRestControllerTest extends WP_UnitTestCase {
@@ -117,6 +118,8 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		CalendarCache::invalidate();
 		$this->assertNotSame( $generation, CalendarCache::get_generation() );
 		$this->assertNotNull( EventDatesTable::get( $post_id ) );
+		$direct = ( new EventDateQueryAbilities() )->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'ids' ) );
+		$this->assertContains( $post_id, $direct['posts'] );
 
 		$request  = $this->calendar_request();
 		$request->set_param( 'format', 'data' );
@@ -148,6 +151,8 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		CalendarCache::invalidate();
 		$this->assertNotSame( $generation, CalendarCache::get_generation() );
 		$this->assertNotNull( EventDatesTable::get( $post_id ) );
+		$direct = ( new EventDateQueryAbilities() )->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'ids' ) );
+		$this->assertContains( $post_id, $direct['posts'] );
 
 		$request = $this->calendar_request();
 		$request->set_param( 'event_search', $unique_term );

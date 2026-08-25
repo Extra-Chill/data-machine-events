@@ -293,31 +293,35 @@ class EventUpsertSourceIdentityRecoveryTest extends TestCase {
 	}
 
 	private function wait_for_child( int $pid ): int {
-		$deadline = microtime( true ) + self::CHILD_TIMEOUT_SECONDS;
-		do {
-			$waited = pcntl_waitpid( $pid, $status, WNOHANG );
-			if ( $pid === $waited ) {
-				unset( $this->children[ $pid ] );
-				return $status;
-			}
-			usleep( 10000 );
-		} while ( microtime( true ) < $deadline );
+		$status = $this->wait_until( $pid, microtime( true ) + self::CHILD_TIMEOUT_SECONDS );
+		if ( null !== $status ) {
+			return $status;
+		}
 
 		posix_kill( $pid, SIGTERM );
-		$deadline = microtime( true ) + 1.0;
-		do {
-			$waited = pcntl_waitpid( $pid, $status, WNOHANG );
-			if ( $pid === $waited ) {
-				unset( $this->children[ $pid ] );
-				return $status;
-			}
-			usleep( 10000 );
-		} while ( microtime( true ) < $deadline );
+		$status = $this->wait_until( $pid, microtime( true ) + 1.0 );
+		if ( null !== $status ) {
+			return $status;
+		}
 
 		posix_kill( $pid, SIGKILL );
 		pcntl_waitpid( $pid, $status );
 		unset( $this->children[ $pid ] );
 		return $status;
+	}
+
+	/** Poll one child until it exits or the deadline passes. */
+	private function wait_until( int $pid, float $deadline ): ?int {
+		do {
+			$waited = pcntl_waitpid( $pid, $status, WNOHANG );
+			if ( $pid === $waited ) {
+				unset( $this->children[ $pid ] );
+				return $status;
+			}
+			usleep( 10000 );
+		} while ( microtime( true ) < $deadline );
+
+		return null;
 	}
 
 	private function terminate_children(): void {

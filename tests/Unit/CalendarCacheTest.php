@@ -18,6 +18,7 @@ use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
 use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
+use DataMachineEvents\Blocks\Calendar\Grouping\LateNightCutoff;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
@@ -131,6 +132,20 @@ class CalendarCacheTest extends WP_UnitTestCase {
 		$this->assertNotSame( $key, CalendarCache::generate_key( $other_lat, 'dates' ) );
 		$this->assertNotSame( $key, CalendarCache::generate_key( $other_radius, 'dates' ) );
 		$this->assertNotSame( $key, CalendarCache::generate_key( $other_time, 'dates' ) );
+	}
+
+	public function test_display_date_range_expands_to_cutoff_aware_raw_bounds(): void {
+		$bounds = LateNightCutoff::query_bounds_for_display_range( '2026-08-31', '2026-08-31' );
+
+		$this->assertSame(
+			array(
+				'date_start' => '2026-08-31',
+				'time_start' => '05:00:00',
+				'date_end'   => '2026-09-01',
+				'time_end'   => '04:59:59',
+			),
+			$bounds
+		);
 	}
 
 	/**

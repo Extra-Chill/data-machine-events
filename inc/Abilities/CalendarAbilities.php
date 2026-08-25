@@ -306,8 +306,10 @@ class CalendarAbilities {
 				$range_start = $show_past ? $date_boundaries['end_date'] : $date_boundaries['start_date'];
 				$range_end   = $show_past ? $date_boundaries['start_date'] : $date_boundaries['end_date'];
 
-				$query_params['date_start'] = $range_start;
-				$query_params['date_end']   = $range_end;
+				$query_params = array_merge(
+					$query_params,
+					LateNightCutoff::query_bounds_for_display_range( $range_start, $range_end )
+				);
 			}
 
 			// Determine progressive rendering: only query the first day's events
@@ -354,8 +356,8 @@ class CalendarAbilities {
 		$paged_date_groups = DateGrouper::group_events_by_date(
 			$paged_events,
 			$show_past,
-			$query_params['date_start'],
-			$query_params['date_end']
+			$range_start,
+			$range_end
 		);
 
 		$gaps_detected = array();
@@ -665,7 +667,7 @@ class CalendarAbilities {
 		// and second event-date join.
 		if ( self::requires_canonical_boundary_query( $params ) ) {
 			$event_query = new EventDateQueryAbilities();
-			$sql = $event_query->buildMatchingEventDateAggregateSql(
+			$sql         = $event_query->buildMatchingEventDateAggregateSql(
 				self::build_event_query_input( $params ),
 				$start_bucket_sql,
 				'DATE(ed.end_datetime)'
@@ -888,7 +890,7 @@ class CalendarAbilities {
 			}
 			$total_events += $count;
 
-			if ( $include_past_dates || $row->start_date >= $current_date ) {
+			if ( $include_past_dates || $row->start_date >= $current_date || ( $row->end_date && $row->end_date >= $current_date ) ) {
 				$events_per_date[ $row->start_date ] = ( $events_per_date[ $row->start_date ] ?? 0 ) + $count;
 			}
 

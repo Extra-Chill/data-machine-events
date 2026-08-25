@@ -32,6 +32,7 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		}
 
 		parent::setUp();
+		wp_cache_flush();
 		delete_option( CalendarGenerationFence::OPTION );
 		delete_option( CalendarCache::GENERATION_OPTION );
 		wp_cache_flush();
@@ -112,7 +113,10 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		// Set event datetime in the future (table is the query source of truth).
 		$future_datetime = current_datetime()->modify( '+1 week' )->format( 'Y-m-d H:i:s' );
 		$this->assertTrue( EventDatesTable::upsert( $post_id, $future_datetime ) );
+		$generation = CalendarCache::get_generation();
 		CalendarCache::invalidate();
+		$this->assertNotSame( $generation, CalendarCache::get_generation() );
+		$this->assertNotNull( EventDatesTable::get( $post_id ) );
 
 		$request  = $this->calendar_request();
 		$request->set_param( 'format', 'data' );
@@ -140,7 +144,10 @@ class EventRestControllerTest extends WP_UnitTestCase {
 
 		$future_datetime = current_datetime()->modify( '+1 week' )->format( 'Y-m-d H:i:s' );
 		$this->assertTrue( EventDatesTable::upsert( $post_id, $future_datetime ) );
+		$generation = CalendarCache::get_generation();
 		CalendarCache::invalidate();
+		$this->assertNotSame( $generation, CalendarCache::get_generation() );
+		$this->assertNotNull( EventDatesTable::get( $post_id ) );
 
 		$request = $this->calendar_request();
 		$request->set_param( 'event_search', $unique_term );

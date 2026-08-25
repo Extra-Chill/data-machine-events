@@ -27,6 +27,7 @@ class CalendarCacheTest extends WP_UnitTestCase {
 
 	public function setUp(): void {
 		parent::setUp();
+		wp_cache_flush();
 		delete_option( CalendarGenerationFence::OPTION );
 		delete_option( CalendarCache::GENERATION_OPTION );
 		wp_cache_flush();
@@ -283,7 +284,10 @@ class CalendarCacheTest extends WP_UnitTestCase {
 			'publish'
 		);
 		wp_set_object_terms( $post_id, array( (int) $venue['term_id'] ), 'venue' );
+		$generation = CalendarCache::get_generation();
 		CalendarCache::invalidate();
+		$this->assertNotSame( $generation, CalendarCache::get_generation() );
+		$this->assertNotNull( EventDatesTable::get( $post_id ) );
 		wp_set_current_user( 0 );
 
 		$unfiltered = new WP_REST_Request( 'GET', '/datamachine/v1/events/calendar' );

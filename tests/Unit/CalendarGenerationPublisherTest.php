@@ -22,13 +22,19 @@ class CalendarGenerationPublisherTest extends WP_UnitTestCase {
 	public function setUp(): void {
 		parent::setUp();
 		$this->resetInvalidationDepth();
+		wp_cache_flush();
 		delete_option( CalendarGenerationFence::OPTION );
+		delete_option( CalendarCache::GENERATION_OPTION );
+		wp_cache_flush();
 		CalendarCache::get_generation();
 	}
 
 	public function tearDown(): void {
 		$this->resetInvalidationDepth();
+		wp_cache_flush();
 		delete_option( CalendarGenerationFence::OPTION );
+		delete_option( CalendarCache::GENERATION_OPTION );
+		wp_cache_flush();
 		parent::tearDown();
 	}
 

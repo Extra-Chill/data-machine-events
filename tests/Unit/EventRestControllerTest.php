@@ -18,6 +18,7 @@ use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
+use DataMachineEvents\Abilities\CalendarAbilities;
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use const DataMachineEvents\Api\API_NAMESPACE;
 
@@ -120,6 +121,20 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		$this->assertNotNull( EventDatesTable::get( $post_id ) );
 		$direct = ( new EventDateQueryAbilities() )->executeQueryEvents( array( 'scope' => 'upcoming', 'fields' => 'ids' ) );
 		$this->assertContains( $post_id, $direct['posts'] );
+		$params = array(
+			'show_past'       => false,
+			'search_query'    => '',
+			'date_start'      => '',
+			'date_end'        => '',
+			'tax_filters'     => array(),
+			'archive_taxonomy' => '',
+			'archive_term_id' => 0,
+			'user_date_range' => false,
+		);
+		$compute_dates = new \ReflectionMethod( CalendarAbilities::class, 'compute_unique_event_dates' );
+		$cached_dates  = new \ReflectionMethod( CalendarAbilities::class, 'get_unique_event_dates' );
+		$this->assertContains( substr( $future_datetime, 0, 10 ), $compute_dates->invoke( null, $params )['dates'] );
+		$this->assertContains( substr( $future_datetime, 0, 10 ), $cached_dates->invoke( null, $params )['dates'] );
 
 		$request  = $this->calendar_request();
 		$request->set_param( 'format', 'data' );

@@ -20,11 +20,10 @@ class CalendarGenerationFence {
 	/** Whether the active database supports the conditional owner transition. */
 	public static function isSupported(): bool {
 		global $wpdb;
+		$db_engine     = defined( 'DB_ENGINE' ) ? strtolower( (string) constant( 'DB_ENGINE' ) ) : '';
+		$database_type = defined( 'DATABASE_TYPE' ) ? strtolower( (string) constant( 'DATABASE_TYPE' ) ) : '';
 
-		if (
-			( defined( 'DB_ENGINE' ) && 'sqlite' === strtolower( (string) DB_ENGINE ) )
-			|| ( defined( 'DATABASE_TYPE' ) && 'sqlite' === strtolower( (string) DATABASE_TYPE ) )
-		) {
+		if ( 'sqlite' === $db_engine || 'sqlite' === $database_type ) {
 			return false;
 		}
 

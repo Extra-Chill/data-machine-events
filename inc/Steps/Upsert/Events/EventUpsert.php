@@ -615,7 +615,14 @@ class EventUpsert extends UpsertHandler {
 			return 0;
 		}
 
-		$claimant_ids = array_values( array_unique( array_map( 'absint', $query->posts ) ) );
+		$claimant_ids = array_values(
+			array_unique(
+				array_map(
+					static fn( $post ): int => absint( $post instanceof \WP_Post ? $post->ID : $post ),
+					$query->posts
+				)
+			)
+		);
 		if ( count( $claimant_ids ) > 1 ) {
 			sort( $claimant_ids, SORT_NUMERIC );
 			return new \WP_Error(

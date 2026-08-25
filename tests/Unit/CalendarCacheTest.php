@@ -15,6 +15,7 @@ use WP_UnitTestCase;
 use WP_REST_Request;
 use WP_REST_Server;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
 use DataMachineEvents\Blocks\Calendar\Cache\CacheInvalidator;
 use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
@@ -26,7 +27,10 @@ class CalendarCacheTest extends WP_UnitTestCase {
 
 	public function setUp(): void {
 		parent::setUp();
+		delete_option( CalendarGenerationFence::OPTION );
+		delete_option( CalendarCache::GENERATION_OPTION );
 		wp_cache_flush();
+		CalendarCache::get_generation();
 
 		global $wp_rest_server;
 		$this->server = $wp_rest_server = new WP_REST_Server();

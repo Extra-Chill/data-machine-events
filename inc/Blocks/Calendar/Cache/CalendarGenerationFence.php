@@ -37,8 +37,8 @@ class CalendarGenerationFence {
 		}
 
 		self::ensureState();
-		$state = get_option( self::OPTION, false );
-		return self::normalizeState( $state );
+		$current = self::readRawState();
+		return false === $current ? false : $current['state'];
 	}
 
 	/** Reserve the next globally monotonic site revision without rotating the generation. */
@@ -279,9 +279,10 @@ class CalendarGenerationFence {
 
 	/** Create the non-autoloaded state row once, preserving the existing generation. */
 	private static function ensureState(): void {
-		if ( false !== get_option( self::OPTION, false ) ) {
+		if ( false !== self::readRawState() ) {
 			return;
 		}
+		self::clearOptionCaches();
 
 		$generation = (string) get_option( CalendarCache::GENERATION_OPTION, '' );
 		if ( '' === $generation ) {
@@ -300,6 +301,7 @@ class CalendarGenerationFence {
 			'',
 			false
 		);
+		self::clearOptionCaches();
 	}
 
 	private static function normalizeState( $state ): array|false {

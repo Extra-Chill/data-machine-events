@@ -17,6 +17,7 @@ use DataMachineEvents\Core\Event_Post_Type;
 use DataMachineEvents\Core\EventDatesTable;
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Blocks\Calendar\Cache\CalendarCache;
+use DataMachineEvents\Blocks\Calendar\Cache\CalendarGenerationFence;
 use const DataMachineEvents\Api\API_NAMESPACE;
 
 class EventRestControllerTest extends WP_UnitTestCase {
@@ -31,7 +32,10 @@ class EventRestControllerTest extends WP_UnitTestCase {
 		}
 
 		parent::setUp();
+		delete_option( CalendarGenerationFence::OPTION );
+		delete_option( CalendarCache::GENERATION_OPTION );
 		wp_cache_flush();
+		CalendarCache::get_generation();
 		$this->original_user_id = get_current_user_id();
 		wp_set_current_user( 0 );
 

@@ -308,7 +308,7 @@ class CalendarAbilities {
 
 				$query_params = array_merge(
 					$query_params,
-					LateNightCutoff::query_bounds_for_display_range( $range_start, $range_end )
+					self::query_bounds_for_display_range( $range_start, $range_end, $show_past )
 				);
 			}
 
@@ -334,10 +334,9 @@ class CalendarAbilities {
 
 				if ( $page_event_total >= EventRenderer::PROGRESSIVE_THRESHOLD && count( $page_dates ) > 1 ) {
 					// Query only the first day.
-					$first_date                 = $page_dates[0];
-					$query_params['date_start'] = $first_date;
-					$query_params['date_end']   = $first_date;
-					$deferred_dates             = array_slice( $page_dates, 1 );
+					$first_date     = $page_dates[0];
+					$query_params   = array_merge( $query_params, self::query_bounds_for_display_range( $first_date, $first_date, $show_past ) );
+					$deferred_dates = array_slice( $page_dates, 1 );
 				}
 			}
 		}
@@ -890,7 +889,7 @@ class CalendarAbilities {
 			}
 			$total_events += $count;
 
-			if ( $include_past_dates || $row->start_date >= $current_date || ( $row->end_date && $row->end_date >= $current_date ) ) {
+			if ( $include_past_dates || $row->start_date >= $current_date ) {
 				$events_per_date[ $row->start_date ] = ( $events_per_date[ $row->start_date ] ?? 0 ) + $count;
 			}
 
@@ -925,6 +924,18 @@ class CalendarAbilities {
 			'total_events'    => $total_events,
 			'events_per_date' => $events_per_date,
 		);
+	}
+
+	/** Convert display dates to raw bounds while retaining currently ongoing events. */
+	private static function query_bounds_for_display_range( string $start_date, string $end_date, bool $show_past ): array {
+		$bounds = LateNightCutoff::query_bounds_for_display_range( $start_date, $end_date );
+		if ( ! $show_past && current_time( 'Y-m-d' ) === $start_date ) {
+			$now                  = current_datetime();
+			$bounds['date_start'] = $now->format( 'Y-m-d' );
+			$bounds['time_start'] = $now->format( 'H:i:s' );
+		}
+
+		return $bounds;
 	}
 
 	/**

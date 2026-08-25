@@ -789,7 +789,7 @@ class EventDateQueryAbilities {
 				return '';
 			}
 			$start          = $input['date_match'] . ' 00:00:00';
-			$end            = gmdate( 'Y-m-d H:i:s', strtotime( $start . ' +1 day' ) );
+			$end            = ( new \DateTimeImmutable( $start ) )->modify( '+1 day' )->format( 'Y-m-d H:i:s' );
 			$where[]        = 'ed.start_datetime >= %s AND ed.start_datetime < %s';
 			$where_values[] = $start;
 			$where_values[] = $end;

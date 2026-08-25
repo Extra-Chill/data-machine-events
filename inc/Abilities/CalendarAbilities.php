@@ -679,7 +679,6 @@ class CalendarAbilities {
 		// the single table + its status_start composite index.
 		if ( empty( $params['archive_taxonomy'] ) && ! self::has_active_tax_filter( $params['tax_filters'] ?? array() ) ) {
 			$where_clauses = array_merge( array( "ed.post_status = 'publish'" ), $temporal_where_clauses );
-			$query_values  = array();
 
 			$where = implode( ' AND ', $where_clauses );
 			$sql   = "SELECT {$start_bucket_sql} AS start_date, DATE(ed.end_datetime) AS end_date, COUNT(*) AS bucket_count
@@ -688,10 +687,7 @@ class CalendarAbilities {
 					GROUP BY {$start_bucket_sql}, DATE(ed.end_datetime)";
 
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$rows = empty( $query_values )
-				? $wpdb->get_results( $sql )
-				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				: $wpdb->get_results( $wpdb->prepare( $sql, ...$query_values ) );
+			$rows = $wpdb->get_results( $sql );
 
 			return self::expand_date_buckets( $rows, $show_past_param, $include_past_dates, $current_date );
 		}

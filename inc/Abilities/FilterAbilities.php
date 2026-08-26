@@ -527,7 +527,7 @@ class FilterAbilities {
 			return $cached;
 		}
 
-		$wpdb->last_error = '';
+		$wpdb->flush();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared bounded grouped aggregate cached below.
 		$rows      = $wpdb->get_results( $sql );
 		$new_error = (string) $wpdb->last_error;

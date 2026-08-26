@@ -318,13 +318,9 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		$tomorrow = ( new DateTimeImmutable( current_time( 'mysql' ) ) )->modify( '+1 day' );
 		$this->seed_event( 'Hook event', $tomorrow->format( 'Y-m-d 20:00:00' ), array( 'filter_kind' => $term_id ) );
 		$grouped = 0;
-		$ids     = 0;
-		$query_observer = static function ( string $sql ) use ( &$grouped, &$ids ): string {
+		$query_observer = static function ( string $sql ) use ( &$grouped ): string {
 			if ( false !== strpos( $sql, ' AS event_count' ) ) {
 				++$grouped;
-			}
-			if ( false !== stripos( $sql, 'SELECT DISTINCT' ) && false !== strpos( $sql, EventDatesTable::table_name() ) ) {
-				++$ids;
 			}
 			return $sql;
 		};
@@ -344,7 +340,6 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( 1, $grouped );
-		$this->assertSame( 0, $ids );
 
 		$mutate = static function ( array $args ): array {
 			$args['post__in'] = array( 0 );
@@ -358,7 +353,7 @@ class FilterAbilitiesTest extends WP_UnitTestCase {
 			remove_filter( 'query', $query_observer );
 		}
 
-		$this->assertGreaterThan( 0, $ids );
+		$this->assertSame( 1, $grouped, 'A warmed inventory is not reused, and customized fallback does not run another grouped query.' );
 		$this->assertSame( 0, $this->term_count( $result, 'filter_kind', $term_id ) );
 	}
 

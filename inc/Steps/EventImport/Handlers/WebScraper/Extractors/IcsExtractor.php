@@ -122,27 +122,19 @@ class IcsExtractor extends BaseExtractor {
 	 * would look stable while changing whenever the content it was derived
 	 * from changed.
 	 *
-	 * @param array $event Normalized event array.
+	 * @param string $uid           Feed-authored UID.
+	 * @param string $recurrence_id Occurrence override id, when present.
+	 * @param string $start_date    Occurrence start date.
 	 * @return string Stable occurrence identity, or empty string.
 	 */
-	private function buildOccurrenceIdentity( array $event ): string {
-		$uid = (string) ( $event['uid'] ?? '' );
-
+	private function buildOccurrenceIdentity( string $uid, string $recurrence_id, string $start_date ): string {
 		if ( '' === $uid ) {
 			return '';
 		}
 
-		$discriminator = (string) ( $event['recurrenceId'] ?? '' );
+		$discriminator = '' !== $recurrence_id ? $recurrence_id : $start_date;
 
-		if ( '' === $discriminator ) {
-			$discriminator = (string) ( $event['startDate'] ?? '' );
-		}
-
-		if ( '' === $discriminator ) {
-			return $uid;
-		}
-
-		return $uid . '::' . $discriminator;
+		return '' !== $discriminator ? $uid . '::' . $discriminator : $uid;
 	}
 
 	public function getMethod(): string {
@@ -182,7 +174,11 @@ class IcsExtractor extends BaseExtractor {
 		$this->parseEndDateTime( $event, $ical_event, $calendar_timezone, $event_timezone );
 		$this->parseLocation( $event, $ical_event );
 
-		$event['occurrenceIdentity'] = $this->buildOccurrenceIdentity( $event );
+		$event['occurrenceIdentity'] = $this->buildOccurrenceIdentity(
+			(string) $event['uid'],
+			(string) $event['recurrenceId'],
+			(string) $event['startDate']
+		);
 
 		return $event;
 	}

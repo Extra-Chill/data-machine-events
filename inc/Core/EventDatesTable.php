@@ -225,7 +225,7 @@ class EventDatesTable {
 			$wpdb->prepare( "SELECT start_datetime, end_datetime, post_status FROM {$table} WHERE post_id = %d", $post_id )
 		);
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Subsequent queries use the same internally generated table identifier.
-		return $row ?: null;
+		return $row ? $row : null;
 	}
 
 	/**
@@ -442,7 +442,7 @@ class EventDatesTable {
 				$written = self::upsert(
 					(int) $row->post_id,
 					$row->start_datetime,
-					$row->end_datetime ?: null,
+					$row->end_datetime ? $row->end_datetime : null,
 					$row->post_status
 				);
 				if ( $written ) {

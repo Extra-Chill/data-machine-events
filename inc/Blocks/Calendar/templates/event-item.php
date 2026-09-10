@@ -20,9 +20,9 @@ $price                  = $display_vars['price'] ?? '';
 // Empty when the ticket URL is an affiliate/redirect wrapper — see
 // DisplayVars::build(). The gated ref (the event's own post ID) is used
 // instead so the affiliate URL never appears in raw HTML (issue #816).
-$ticket_url             = $display_vars['ticket_url'] ?? '';
-$is_affiliate_ticket    = ! empty( $display_vars['is_affiliate_ticket'] );
-$iso_start_date         = $display_vars['iso_start_date'] ?? '';
+$ticket_url          = $display_vars['ticket_url'] ?? '';
+$is_affiliate_ticket = ! empty( $display_vars['is_affiliate_ticket'] );
+$iso_start_date      = $display_vars['iso_start_date'] ?? '';
 
 $show_performer   = $display_vars['show_performer'] ?? true;
 $show_price       = $display_vars['show_price'] ?? true;

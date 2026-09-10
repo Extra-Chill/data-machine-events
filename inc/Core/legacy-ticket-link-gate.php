@@ -87,20 +87,40 @@ function data_machine_events_rewrite_affiliate_anchors( string $content, int $po
 
 	while ( $processor->next_tag( 'A' ) ) {
 		$href = $processor->get_attribute( 'href' );
-		if ( ! is_string( $href ) || '' === $href ) {
-			continue;
-		}
-		if ( ! data_machine_events_is_affiliate_ticket_url( $href ) ) {
+		if ( ! is_string( $href ) || '' === $href || ! data_machine_events_is_affiliate_ticket_url( $href ) ) {
 			continue;
 		}
 
-		$processor->remove_attribute( 'href' );
-		$processor->set_attribute( 'data-ticket-ref', (string) $post_id );
-		$processor->set_attribute( 'role', 'button' );
-		$processor->set_attribute( 'tabindex', '0' );
-		$processor->set_attribute( 'rel', 'noopener nofollow' );
+		data_machine_events_gate_anchor_attributes( $processor, $post_id );
 		$changed = true;
 	}
 
 	return $changed ? $processor->get_updated_html() : $content;
+}
+
+/**
+ * Rewrite a single matched anchor's attributes into the gated form.
+ *
+ * Split out from the loop above as a plain, non-branching attribute
+ * mutation so the caller reads as "find a candidate, then mutate it" in
+ * two distinct steps. Deliberately NOT folded into a shared "iterate and
+ * accumulate" helper with unrelated loop-based functions elsewhere in
+ * this codebase (e.g. `DateGrouper::build_paged_events()`, which walks a
+ * `WP_Query` to build an array of event structs) — an HTML-attribute
+ * rewrite over a `WP_HTML_Tag_Processor` cursor and a `WP_Query` ->
+ * struct-array accumulation share nothing beyond "a while loop with a
+ * conditional," which is too generic a control-flow shape to be a real
+ * reusable primitive. Forcing a shared abstraction between an HTML
+ * rewriter and a date-grouping query walker would produce a helper with
+ * no coherent single responsibility — see PR #820.
+ *
+ * @param \WP_HTML_Tag_Processor $processor Positioned at a matched `<a>` tag.
+ * @param int                    $post_id   Current post ID, used as the ticket ref.
+ */
+function data_machine_events_gate_anchor_attributes( \WP_HTML_Tag_Processor $processor, int $post_id ): void {
+	$processor->remove_attribute( 'href' );
+	$processor->set_attribute( 'data-ticket-ref', (string) $post_id );
+	$processor->set_attribute( 'role', 'button' );
+	$processor->set_attribute( 'tabindex', '0' );
+	$processor->set_attribute( 'rel', 'noopener nofollow' );
 }

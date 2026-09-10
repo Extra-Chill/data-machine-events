@@ -28,8 +28,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ResolveTicketDestinationAbilities {
 
-	private const BLOCK_NAME = 'data-machine-events/event-details';
-
 	private static bool $registered = false;
 
 	public function __construct() {
@@ -127,24 +125,37 @@ class ResolveTicketDestinationAbilities {
 	/**
 	 * Resolve the ticket URL for an event.
 	 *
-	 * Prefers the normalized `_datamachine_ticket_url` meta (kept in sync on
-	 * every save by event-dates-sync.php — see `EVENT_TICKET_URL_META_KEY`),
-	 * falling back to parsing the Event Details block directly for posts
-	 * written by a path that hasn't run the meta sync (mirrors
-	 * `TicketUrlResyncAbilities::extractTicketUrl()`).
+	 * Prefers parsing the Event Details block directly (mirrors
+	 * `TicketUrlResyncAbilities::extractTicketUrl()`) — that is the
+	 * complete, as-authored URL, query string and all.
+	 *
+	 * Falls back to the `_datamachine_ticket_url` meta
+	 * (`EVENT_TICKET_URL_META_KEY`) only when the post has no parseable
+	 * Event Details block. That meta is NOT interchangeable with the block
+	 * value: `datamachine_normalize_ticket_url()` (event-dates-sync.php)
+	 * intentionally strips non-identity query parameters — UTM tags,
+	 * `utm_medium=affiliate`, etc. — keeping only `u`/`e`, because every
+	 * other consumer of this meta key (duplicate detection, merge
+	 * decisions) only needs a stable comparison key, never a URL a real
+	 * visitor is redirected to. Preferring the meta here would silently
+	 * drop affiliate-network tracking parameters on every click-through —
+	 * this ability is the one consumer where that fallback's lossiness
+	 * actually matters, so it is deliberately the fallback, not the
+	 * primary source. See the discussion on PR #820.
 	 *
 	 * @param int      $event_id Event post ID.
 	 * @param \WP_Post $post     Event post object.
 	 * @return string Ticket URL, or empty string when none is set.
 	 */
 	private function resolveTicketUrl( int $event_id, \WP_Post $post ): string {
-		$meta_url = get_post_meta( $event_id, EVENT_TICKET_URL_META_KEY, true );
-		if ( is_string( $meta_url ) && '' !== $meta_url ) {
-			return $meta_url;
+		$blocks    = parse_blocks( $post->post_content );
+		$block_url = $this->findTicketUrlInBlocks( $blocks );
+		if ( '' !== $block_url ) {
+			return $block_url;
 		}
 
-		$blocks = parse_blocks( $post->post_content );
-		return $this->findTicketUrlInBlocks( $blocks );
+		$meta_url = get_post_meta( $event_id, EVENT_TICKET_URL_META_KEY, true );
+		return is_string( $meta_url ) ? $meta_url : '';
 	}
 
 	/**
@@ -155,7 +166,7 @@ class ResolveTicketDestinationAbilities {
 	 */
 	private function findTicketUrlInBlocks( array $blocks ): string {
 		foreach ( $blocks as $block ) {
-			if ( self::BLOCK_NAME === ( $block['blockName'] ?? '' ) ) {
+			if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === ( $block['blockName'] ?? '' ) ) {
 				return (string) ( $block['attrs']['ticketUrl'] ?? '' );
 			}
 			if ( ! empty( $block['innerBlocks'] ) ) {

@@ -170,14 +170,26 @@ class IcsBuilder {
 		$window_start = $start->modify( '-1 year' )->getTimestamp();
 		$window_end   = $end->modify( '+1 year' )->getTimestamp();
 
-		$transitions = $tz->getTransitions( $window_start, $window_end );
 		// `getTransitions()` returns `false` — not an empty array — for
 		// fixed-offset zones with no transition data (e.g. a "+00:00"
 		// timezone produced by `wp_timezone_string()` when the site sets a
 		// numeric UTC offset instead of a literal "UTC"/named timezone
-		// string; also possible for other fixed-offset identifiers). Treat
-		// that identically to "no DST in this window": fall back to plain
-		// UTC DTSTART/DTEND rather than fatal on `count( false )`.
+		// string; also possible for other fixed-offset identifiers),
+		// confirmed empirically: `(new DateTimeZone('+00:00'))->getTransitions(...)`
+		// returns `bool(false)` on PHP 8.4, matching the PHP manual's
+		// documented `array|false` return type. PHPStan's bundled stub
+		// narrows this to plain `array` (dropping the `|false`), so any
+		// type-narrowing check against the raw call result — a literal
+		// `false === $transitions` comparison, or an `! is_array()` guard —
+		// gets flagged as unreachable dead code by a different rule
+		// (`identical.alwaysFalse` / `function.alreadyNarrowedType`
+		// respectively), even though the branch is reachable at runtime.
+		// The `@var` override below corrects PHPStan's type information for
+		// this variable at the source, matching the documented return type,
+		// rather than suppressing whichever downstream rule the incorrect
+		// narrowing trips next.
+		/** @var list<array{ts: int, time: string, offset: int, isdst: bool, abbr: string}>|false $transitions */
+		$transitions = $tz->getTransitions( $window_start, $window_end );
 		if ( false === $transitions || count( $transitions ) < 2 ) {
 			// `getTransitions()` always returns at least a synthetic "window
 			// start" snapshot entry as element 0. We need at least one real

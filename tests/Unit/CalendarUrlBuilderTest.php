@@ -5,9 +5,10 @@
  * Ticketmaster (and other vendors) wrap outbound ticket links in affiliate
  * redirectors that must not be recoverable from a static fetch — see #817.
  * These tests assert the Google Calendar `details` and Outlook `body`
- * deeplink params never embed the raw ticket URL, only the event permalink,
- * and that the "Tickets:" line is omitted entirely when no permalink is
- * available.
+ * deeplink params never embed the raw ticket URL, only the event permalink
+ * — exactly once, labelled "Tickets:" when a ticket URL exists or
+ * "More info:" otherwise, never both — and that no permalink line is
+ * emitted at all when no permalink is available.
  *
  * @package DataMachineEvents\Tests\Unit
  * @since 0.62.0
@@ -88,7 +89,7 @@ class CalendarUrlBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( get_permalink( $post_id ), $body );
 	}
 
-	public function test_google_details_includes_tickets_line_pointing_at_permalink() {
+	public function test_google_details_includes_tickets_line_pointing_at_permalink_exactly_once() {
 		$post_id = $this->create_event_post( 'affiliate-leak-test-event-tickets-line' );
 		$event   = array_merge( $this->base_event_fields(), array( 'post_id' => $post_id ) );
 
@@ -96,12 +97,17 @@ class CalendarUrlBuilderTest extends WP_UnitTestCase {
 
 		$permalink = get_permalink( $post_id );
 		$this->assertStringContainsString( 'Tickets: ' . $permalink, $details );
+		// With a ticket URL present, "Tickets:" wins and "More info:" must not
+		// also appear — the permalink is the same destination either way, so
+		// it must not be duplicated under two labels.
+		$this->assertStringNotContainsString( 'More info:', $details );
+		$this->assertSame( 1, substr_count( $details, $permalink ), 'Permalink must appear exactly once in the description.' );
 	}
 
 	public function test_tickets_line_is_omitted_when_no_permalink_is_available() {
 		// post_id is 0 (unknown post) -> get_permalink() has nothing to resolve,
-		// so the "Tickets:" line must be omitted rather than falling back to
-		// the raw (possibly affiliate-wrapped) ticket URL.
+		// so no permalink line must be emitted at all, rather than falling
+		// back to the raw (possibly affiliate-wrapped) ticket URL.
 		$event = array_merge( $this->base_event_fields(), array( 'post_id' => 0, 'title' => 'Untracked Event' ) );
 
 		$details = $this->extract_query_param( CalendarUrlBuilder::google( $event ), 'details' );
@@ -111,7 +117,7 @@ class CalendarUrlBuilderTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'evyy.net', $details );
 	}
 
-	public function test_tickets_line_is_omitted_when_ticket_url_is_absent() {
+	public function test_more_info_line_is_used_when_ticket_url_is_absent() {
 		$post_id = $this->create_event_post( 'affiliate-leak-test-event-no-ticket' );
 		$fields  = $this->base_event_fields();
 		unset( $fields['ticketUrl'] );
@@ -119,9 +125,12 @@ class CalendarUrlBuilderTest extends WP_UnitTestCase {
 
 		$details = $this->extract_query_param( CalendarUrlBuilder::google( $event ), 'details' );
 
+		$permalink = get_permalink( $post_id );
+		// No ticket URL -> falls back to "More info:", and "Tickets:" must
+		// not appear since there was never a ticket URL to label.
 		$this->assertStringNotContainsString( 'Tickets:', $details );
-		// "More info:" (the permalink) is unaffected by ticketUrl presence.
-		$this->assertStringContainsString( 'More info: ' . get_permalink( $post_id ), $details );
+		$this->assertStringContainsString( 'More info: ' . $permalink, $details );
+		$this->assertSame( 1, substr_count( $details, $permalink ), 'Permalink must appear exactly once in the description.' );
 	}
 
 	/**

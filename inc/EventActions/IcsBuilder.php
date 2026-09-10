@@ -336,15 +336,22 @@ class IcsBuilder {
 	 * The ticket URL itself is never embedded here. Some ticket vendors wrap
 	 * outbound links in affiliate redirectors, and the .ics DESCRIPTION field
 	 * is served from a public endpoint with no JS required — a crawler that
-	 * fetches the file recovers any embedded URL intact. The "Tickets:" line
+	 * fetches the file recovers any embedded URL intact. The permalink line
 	 * instead points at the event permalink, where the gated ticket button
 	 * handles the actual click-through (see #817). This is unconditional —
 	 * not limited to affiliate hosts — because a calendar entry pointing
 	 * back at our own event page is better UX regardless of ticket vendor
 	 * (the page carries venue, time, and lineup context a raw vendor link
 	 * does not), and it keeps this builder free of any affiliate-host
-	 * knowledge. When no permalink is available, the "Tickets:" line is
-	 * omitted entirely rather than falling back to the raw ticket URL.
+	 * knowledge.
+	 *
+	 * Exactly one permalink line is emitted, labelled by intent: when the
+	 * event has a ticket URL the line reads "Tickets:" (the permalink is
+	 * where the actual ticket purchase happens); otherwise it reads
+	 * "More info:". The two labels are never both printed — same
+	 * destination, no reason to duplicate it. When no permalink is
+	 * available, no line is emitted at all, rather than falling back to the
+	 * raw ticket URL.
 	 *
 	 * @param array $event
 	 * @param int   $post_id
@@ -366,11 +373,8 @@ class IcsBuilder {
 		$permalink = $post_id > 0 ? get_permalink( $post_id ) : '';
 
 		if ( $permalink ) {
-			$parts[] = __( 'More info:', 'data-machine-events' ) . ' ' . $permalink;
-		}
-
-		if ( ! empty( $event['ticketUrl'] ) && $permalink ) {
-			$parts[] = __( 'Tickets:', 'data-machine-events' ) . ' ' . $permalink;
+			$label   = ! empty( $event['ticketUrl'] ) ? __( 'Tickets:', 'data-machine-events' ) : __( 'More info:', 'data-machine-events' );
+			$parts[] = $label . ' ' . $permalink;
 		}
 
 		/** This filter is documented in inc/EventActions/CalendarUrlBuilder.php */

@@ -5,8 +5,10 @@
  * The .ics endpoint is public and fetchable without JS or interaction, so
  * any affiliate-wrapped ticket URL embedded in the VEVENT DESCRIPTION is
  * recoverable by a crawler — see #817. These tests assert the DESCRIPTION
- * field never embeds the raw ticket URL, only the event permalink, and that
- * the "Tickets:" line is omitted entirely when no permalink is available.
+ * field never embeds the raw ticket URL, only the event permalink — exactly
+ * once, labelled "Tickets:" when a ticket URL exists or "More info:"
+ * otherwise, never both — and that no permalink line is emitted at all when
+ * no permalink is available.
  *
  * @package DataMachineEvents\Tests\Unit
  * @since 0.62.0
@@ -88,6 +90,11 @@ class IcsBuilderTest extends WP_UnitTestCase {
 
 		$permalink = get_permalink( $post_id );
 		$this->assertStringContainsString( 'Tickets: ' . $permalink, $description );
+		// With a ticket URL present, "Tickets:" wins and "More info:" must not
+		// also appear — the permalink is the same destination either way, so
+		// it must not be duplicated under two labels.
+		$this->assertStringNotContainsString( 'More info:', $description );
+		$this->assertSame( 1, substr_count( $description, $permalink ), 'Permalink must appear exactly once in the description.' );
 	}
 
 	public function test_ics_url_property_is_never_the_affiliate_url() {
@@ -112,7 +119,7 @@ class IcsBuilderTest extends WP_UnitTestCase {
 		$this->fail( 'Expected a URL: property in the generated .ics' );
 	}
 
-	public function test_tickets_line_is_omitted_when_ticket_url_is_absent() {
+	public function test_more_info_line_is_used_when_ticket_url_is_absent() {
 		$post_id = $this->create_event_post(
 			array(
 				'startDate' => '2026-09-23',
@@ -122,7 +129,12 @@ class IcsBuilderTest extends WP_UnitTestCase {
 		);
 
 		$description = $this->extract_description( IcsBuilder::build( $post_id ) );
+		$permalink   = get_permalink( $post_id );
 
+		// No ticket URL -> falls back to "More info:", and "Tickets:" must
+		// not appear since there was never a ticket URL to label.
 		$this->assertStringNotContainsString( 'Tickets:', $description );
+		$this->assertStringContainsString( 'More info: ' . $permalink, $description );
+		$this->assertSame( 1, substr_count( $description, $permalink ), 'Permalink must appear exactly once in the description.' );
 	}
 }

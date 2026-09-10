@@ -398,3 +398,36 @@ if ( ! function_exists( 'data_machine_events_is_affiliate_ticket_url' ) ) {
 		return \DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url( $url );
 	}
 }
+
+if ( ! function_exists( 'datamachine_unwrap_affiliate_url' ) ) {
+	/**
+	 * Unwrap an affiliate/redirect ticket URL to its canonical destination.
+	 *
+	 * Companion to `data_machine_events_is_affiliate_ticket_url()` above —
+	 * the two are meant to be used together (check, then unwrap) and are
+	 * kept adjacent here for that reason. See the internal
+	 * `datamachine_unwrap_affiliate_url()` in `inc/Core/event-dates-sync.php`,
+	 * which shares the same affiliate host list via
+	 * `data_machine_events_affiliate_ticket_hosts()` (filterable). Downstream
+	 * plugins (e.g. extrachill-seo's JSON-LD `offers.url`) should call this
+	 * instead of maintaining their own `?u=`-style redirect-param unwrapping.
+	 *
+	 * @since 0.62.0
+	 *
+	 * @param string $url Possibly affiliate-wrapped ticket URL.
+	 * @return string Unwrapped destination URL, or the original `$url`
+	 *                unchanged when it isn't an affiliate wrapper, its
+	 *                redirect parameter can't be recovered, or the internal
+	 *                implementation is unavailable. Callers should treat an
+	 *                unchanged return value as "could not unwrap" — this
+	 *                function never returns an empty string for a non-empty
+	 *                input.
+	 */
+	function datamachine_unwrap_affiliate_url( string $url ): string {
+		if ( ! function_exists( '\DataMachineEvents\Core\datamachine_unwrap_affiliate_url' ) ) {
+			return $url;
+		}
+
+		return \DataMachineEvents\Core\datamachine_unwrap_affiliate_url( $url );
+	}
+}

@@ -37,8 +37,8 @@
 ( function () {
 	'use strict';
 
-	var REF_ATTR = 'data-ticket-ref';
-	var GATE_SELECTOR = '[' + REF_ATTR + ']';
+	const REF_ATTR = 'data-ticket-ref';
+	const GATE_SELECTOR = '[' + REF_ATTR + ']';
 
 	/**
 	 * Build the first-party redirect URL for a ticket ref.
@@ -52,7 +52,7 @@
 	 * @return {string} First-party redirect URL, or "" if the localized REST base is unavailable.
 	 */
 	function resolveHref( ref ) {
-		var config = window.dataMachineEventsTicketLinkGate;
+		const config = window.dataMachineEventsTicketLinkGate;
 		if ( ! config || ! config.restBase ) {
 			return '';
 		}
@@ -85,11 +85,11 @@
 		if ( element.hasAttribute( 'href' ) ) {
 			return true;
 		}
-		var ref = element.getAttribute( REF_ATTR );
+		const ref = element.getAttribute( REF_ATTR );
 		if ( ! ref ) {
 			return false;
 		}
-		var href = resolveHref( ref );
+		const href = resolveHref( ref );
 		if ( ! href ) {
 			return false;
 		}
@@ -98,7 +98,7 @@
 	}
 
 	function handlePointerOrClick( event ) {
-		var element = findGatedElement( event.target );
+		const element = findGatedElement( event.target );
 		if ( ! element ) {
 			return;
 		}
@@ -106,10 +106,14 @@
 	}
 
 	function handleKeydown( event ) {
-		if ( 'Enter' !== event.key && ' ' !== event.key && 'Spacebar' !== event.key ) {
+		if (
+			'Enter' !== event.key &&
+			' ' !== event.key &&
+			'Spacebar' !== event.key
+		) {
 			return;
 		}
-		var element = findGatedElement( event.target );
+		const element = findGatedElement( event.target );
 		if ( ! element ) {
 			return;
 		}

@@ -77,42 +77,60 @@ function data_machine_events_gate_legacy_affiliate_ticket_links( string $content
  * the matched anchor's attributes and leaves every other byte of the
  * (possibly malformed, AI-generated) markup untouched.
  *
+ * Deliberately holds no loop itself — see `data_machine_events_gate_matching_anchors()`
+ * for why this is split out as its own step rather than inlined here or
+ * merged with unrelated loop-based functions elsewhere in this codebase.
+ *
  * @param string $content Post content containing at least one affiliate host string.
  * @param int    $post_id Current post ID, used as the ticket ref.
  * @return string Rewritten content, or the original if nothing matched.
  */
 function data_machine_events_rewrite_affiliate_anchors( string $content, int $post_id ): string {
-	$processor = new \WP_HTML_Tag_Processor( $content );
-	$changed   = false;
+	$processor     = new \WP_HTML_Tag_Processor( $content );
+	$gated_anchors = data_machine_events_gate_matching_anchors( $processor, $post_id );
 
-	while ( $processor->next_tag( 'A' ) ) {
+	return $gated_anchors > 0 ? $processor->get_updated_html() : $content;
+}
+
+/**
+ * Walk a positioned `WP_HTML_Tag_Processor` and gate every affiliate anchor.
+ *
+ * Mutates `$processor` in place (its own streaming-cursor contract) and
+ * returns a count rather than an array or a boolean, which is the actual,
+ * substantive difference from a "collect matching items" accumulator like
+ * `DateGrouper::build_paged_events()`: that function guards on an empty
+ * result and returns a fully-built array of composite event structs
+ * assembled via a second data-fetch step (`EventHydrator::parse_event_data()`)
+ * per iteration, plus a post-loop `wp_reset_postdata()` cleanup call this
+ * function has no equivalent of. This function does a single void mutation
+ * call per match and tallies how many happened — no struct assembly, no
+ * guard clause, no post-loop cleanup. An HTML-attribute rewrite over a
+ * `WP_HTML_Tag_Processor` cursor and a `WP_Query`-to-struct-array
+ * accumulation are different operations on different iterator protocols;
+ * forcing them into one shared helper for the sake of a duplication
+ * detector would produce a helper with no coherent single responsibility.
+ * See the discussion on PR #820.
+ *
+ * @param \WP_HTML_Tag_Processor $processor Tag processor to walk.
+ * @param int                    $post_id   Current post ID, used as the ticket ref.
+ * @return int Number of anchors gated.
+ */
+function data_machine_events_gate_matching_anchors( \WP_HTML_Tag_Processor $processor, int $post_id ): int {
+	$gated = 0;
+
+	while ( $processor->next_tag( array( 'tag_name' => 'A' ) ) ) {
 		$href = $processor->get_attribute( 'href' );
-		if ( ! is_string( $href ) || '' === $href || ! data_machine_events_is_affiliate_ticket_url( $href ) ) {
-			continue;
+		if ( is_string( $href ) && '' !== $href && data_machine_events_is_affiliate_ticket_url( $href ) ) {
+			data_machine_events_gate_anchor_attributes( $processor, $post_id );
+			++$gated;
 		}
-
-		data_machine_events_gate_anchor_attributes( $processor, $post_id );
-		$changed = true;
 	}
 
-	return $changed ? $processor->get_updated_html() : $content;
+	return $gated;
 }
 
 /**
  * Rewrite a single matched anchor's attributes into the gated form.
- *
- * Split out from the loop above as a plain, non-branching attribute
- * mutation so the caller reads as "find a candidate, then mutate it" in
- * two distinct steps. Deliberately NOT folded into a shared "iterate and
- * accumulate" helper with unrelated loop-based functions elsewhere in
- * this codebase (e.g. `DateGrouper::build_paged_events()`, which walks a
- * `WP_Query` to build an array of event structs) — an HTML-attribute
- * rewrite over a `WP_HTML_Tag_Processor` cursor and a `WP_Query` ->
- * struct-array accumulation share nothing beyond "a while loop with a
- * conditional," which is too generic a control-flow shape to be a real
- * reusable primitive. Forcing a shared abstraction between an HTML
- * rewriter and a date-grouping query walker would produce a helper with
- * no coherent single responsibility — see PR #820.
  *
  * @param \WP_HTML_Tag_Processor $processor Positioned at a matched `<a>` tag.
  * @param int                    $post_id   Current post ID, used as the ticket ref.

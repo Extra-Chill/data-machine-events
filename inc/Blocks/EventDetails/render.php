@@ -260,7 +260,7 @@ $event_schema     = EventSchemaProvider::generateSchemaOrg( $event_data, $venue_
 					<?php echo esc_html( $ticket_button_text ); ?>
 				</a>
 				<noscript>
-					<a href="<?php echo esc_url( get_permalink( $post_id ) ); ?>" class="<?php echo esc_attr( implode( ' ', $ticket_classes ) ); ?> ticket-button--noscript">
+					<a href="<?php echo esc_url( (string) get_permalink( $post_id ) ); ?>" class="<?php echo esc_attr( implode( ' ', $ticket_classes ) ); ?> ticket-button--noscript">
 						<?php echo esc_html( $ticket_button_text ); ?>
 					</a>
 				</noscript>

@@ -44,7 +44,7 @@ class ResolveTicketDestinationAbilities {
 				array(
 					'label'               => __( 'Resolve Ticket Destination', 'data-machine-events' ),
 					'description'         => __( 'Resolve a published event post ID to its ticket destination URL and whether it is an affiliate/redirect wrapper. Backs the public first-party ticket redirect so affiliate URLs never appear in page source.', 'data-machine-events' ),
-					'category'            => 'datamachine-events-events',
+					'category'            => AbilityCategories::EVENTS,
 					'input_schema'        => array(
 						'type'                 => 'object',
 						'required'             => array( 'event_id' ),
@@ -141,7 +141,10 @@ class ResolveTicketDestinationAbilities {
 	 * drop affiliate-network tracking parameters on every click-through —
 	 * this ability is the one consumer where that fallback's lossiness
 	 * actually matters, so it is deliberately the fallback, not the
-	 * primary source. See the discussion on PR #820.
+	 * primary source. See the discussion on PR #820 and the follow-up
+	 * tracking issue #821 (the meta key's lossy shape is a footgun for
+	 * any future consumer, even though every consumer audited today is
+	 * dedup-only and unaffected).
 	 *
 	 * @param int      $event_id Event post ID.
 	 * @param \WP_Post $post     Event post object.
@@ -150,12 +153,61 @@ class ResolveTicketDestinationAbilities {
 	private function resolveTicketUrl( int $event_id, \WP_Post $post ): string {
 		$blocks    = parse_blocks( $post->post_content );
 		$block_url = $this->findTicketUrlInBlocks( $blocks );
+
 		if ( '' !== $block_url ) {
-			return $block_url;
+			return $this->normalizeResolvedUrl( $block_url );
 		}
 
 		$meta_url = get_post_meta( $event_id, EVENT_TICKET_URL_META_KEY, true );
-		return is_string( $meta_url ) ? $meta_url : '';
+		return $this->normalizeResolvedUrl( is_string( $meta_url ) ? $meta_url : '' );
+	}
+
+	/**
+	 * Normalize a resolved ticket URL for use as a redirect destination.
+	 *
+	 * Guarantee: returns the stored URL verbatim except for reversing HTML
+	 * entity encoding introduced by however it was authored into
+	 * `post_content` (`&amp;` -> `&`, etc.) — no path/host rewriting, no
+	 * query reordering, no affiliate unwrapping.
+	 *
+	 * Roughly 54% of this network's ~74,600 published events with an
+	 * affiliate ticket URL store it with the ampersand HTML-entity-encoded
+	 * (`&amp;utm_medium=affiliate`) — correct for embedding in an `href`
+	 * attribute, where browsers decode entities before following the
+	 * link, but WRONG for a value assembled into an HTTP `Location`
+	 * header, which is sent byte-for-byte with no entity decoding. Left
+	 * un-normalized, the affiliate network receives a literal
+	 * `amp;utm_medium` parameter name instead of `utm_medium`, silently
+	 * breaking attribution on tens of thousands of events — the opposite
+	 * of what this ability exists to protect. See PR #820.
+	 *
+	 * `wp_specialchars_decode( $url, ENT_QUOTES )` — not a hand-rolled
+	 * `str_replace()` — reverses exactly the small, fixed set of entities
+	 * `esc_html()`/`esc_attr()`-family functions produce (`&amp;` `&lt;`
+	 * `&gt;` `&quot;` `&#039;` and their numeric forms), and is a no-op on
+	 * an already-raw `&` (it only replaces matched entity substrings; a
+	 * bare `&` never matches one). That makes it safe to call
+	 * unconditionally regardless of which stored shape a given URL is in.
+	 * Only single-level entity encoding was observed in production; this
+	 * does not attempt to unwind double-encoding (`&amp;amp;`), for which
+	 * there is no evidence in the current catalogue.
+	 *
+	 * @param string $url Raw ticket URL as stored (block content or meta).
+	 * @return string Normalized URL suitable for a redirect `Location` header.
+	 */
+	private function normalizeResolvedUrl( string $url ): string {
+		if ( '' === $url ) {
+			return $url;
+		}
+
+		// A handful of legacy-imported posts store a literal six-character
+		// `\u0026` JSON-escape sequence inside the ticketUrl string itself
+		// (double-JSON-encoded at import time) rather than an actual
+		// backslash-u character in the decoded value. wp_specialchars_decode()
+		// does not recognize it, so normalize it to a literal ampersand first.
+		$url = str_replace( '\u0026', '&', $url );
+
+		return wp_specialchars_decode( $url, ENT_QUOTES );
 	}
 
 	/**

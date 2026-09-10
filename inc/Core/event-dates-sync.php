@@ -26,11 +26,23 @@ const EVENT_TICKET_URL_META_KEY = '_datamachine_ticket_url';
  * - 'u' = redirect URL (Ticketmaster affiliate via evyy.net)
  * - 'e' = event ID (DoStuff, some redirect services)
  *
- * @since 0.8.39 Original implementation (stripped all query params - bug)
+ * The `_datamachine_ticket_url` meta this writes (`EVENT_TICKET_URL_META_KEY`)
+ * is a DEDUP COMPARISON KEY, not a redirect-safe canonical URL — every
+ * existing consumer of that meta only ever compares/matches it, never sends
+ * a real visitor to it. Do not read that meta expecting the complete,
+ * as-authored ticket URL (query string and all); parse the Event Details
+ * block's `ticketUrl` attribute directly instead. See
+ * https://github.com/Extra-Chill/data-machine-events/issues/816 (the bug
+ * this exact confusion caused) and
+ * https://github.com/Extra-Chill/data-machine-events/issues/821 (tracking
+ * the footgun this meta key's name/shape presents to future consumers).
+ *
+ * @since 0.8.39  Original implementation (stripped all query params - bug)
  * @since 0.10.11 Fixed to preserve identity parameters for affiliate URLs
  *
  * @param string $url Raw ticket URL
- * @return string Normalized URL (scheme + host + path + identity params)
+ * @return string Normalized URL (scheme + host + path + identity params) — a
+ *                comparison key, not a URL to redirect a visitor to.
  */
 function datamachine_normalize_ticket_url( string $url ): string {
 	if ( empty( $url ) ) {
@@ -215,7 +227,7 @@ function data_machine_events_sync_datetime_meta( $post_id, $post, $update ) {
 	$event_details_found = false;
 
 	foreach ( $blocks as $block ) {
-		if ( 'data-machine-events/event-details' === $block['blockName'] ) {
+		if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === $block['blockName'] ) {
 			$event_details_found = true;
 			$start_date          = $block['attrs']['startDate'] ?? '';
 			$start_time          = $block['attrs']['startTime'] ?? '';

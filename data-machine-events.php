@@ -672,7 +672,7 @@ class DATAMACHINE_Events {
 			return $allowed_block_types;
 		}
 
-		$allowed_block_types[] = 'data-machine-events/event-details';
+		$allowed_block_types[] = \DataMachineEvents\Core\Event_Post_Type::EVENT_DETAILS_BLOCK_NAME;
 		$allowed_block_types[] = 'data-machine-events/calendar';
 		$allowed_block_types[] = 'data-machine-events/events-map';
 
@@ -795,7 +795,7 @@ add_filter(
 		$blocks = parse_blocks( $post->post_content );
 
 		foreach ( $blocks as $block ) {
-			if ( 'data-machine-events/event-details' !== $block['blockName'] ) {
+			if ( \DataMachineEvents\Core\Event_Post_Type::EVENT_DETAILS_BLOCK_NAME !== $block['blockName'] ) {
 				continue;
 			}
 

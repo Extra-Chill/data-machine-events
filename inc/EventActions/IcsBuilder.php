@@ -171,7 +171,14 @@ class IcsBuilder {
 		$window_end   = $end->modify( '+1 year' )->getTimestamp();
 
 		$transitions = $tz->getTransitions( $window_start, $window_end );
-		if ( count( $transitions ) < 2 ) {
+		// `getTransitions()` returns `false` — not an empty array — for
+		// fixed-offset zones with no transition data (e.g. a "+00:00"
+		// timezone produced by `wp_timezone_string()` when the site sets a
+		// numeric UTC offset instead of a literal "UTC"/named timezone
+		// string; also possible for other fixed-offset identifiers). Treat
+		// that identically to "no DST in this window": fall back to plain
+		// UTC DTSTART/DTEND rather than fatal on `count( false )`.
+		if ( false === $transitions || count( $transitions ) < 2 ) {
 			// `getTransitions()` always returns at least a synthetic "window
 			// start" snapshot entry as element 0. We need at least one real
 			// transition AFTER it to build a meaningful VTIMEZONE.

@@ -333,6 +333,19 @@ class IcsBuilder {
 	/**
 	 * Build the description body shared with the Google/Outlook URL builders.
 	 *
+	 * The ticket URL itself is never embedded here. Some ticket vendors wrap
+	 * outbound links in affiliate redirectors, and the .ics DESCRIPTION field
+	 * is served from a public endpoint with no JS required — a crawler that
+	 * fetches the file recovers any embedded URL intact. The "Tickets:" line
+	 * instead points at the event permalink, where the gated ticket button
+	 * handles the actual click-through (see #817). This is unconditional —
+	 * not limited to affiliate hosts — because a calendar entry pointing
+	 * back at our own event page is better UX regardless of ticket vendor
+	 * (the page carries venue, time, and lineup context a raw vendor link
+	 * does not), and it keeps this builder free of any affiliate-host
+	 * knowledge. When no permalink is available, the "Tickets:" line is
+	 * omitted entirely rather than falling back to the raw ticket URL.
+	 *
 	 * @param array $event
 	 * @param int   $post_id
 	 * @return string
@@ -350,15 +363,14 @@ class IcsBuilder {
 			$parts[] = sprintf( __( 'Performer: %s', 'data-machine-events' ), wp_strip_all_tags( $performer ) );
 		}
 
-		if ( $post_id > 0 ) {
-			$permalink = get_permalink( $post_id );
-			if ( $permalink ) {
-				$parts[] = __( 'More info:', 'data-machine-events' ) . ' ' . $permalink;
-			}
+		$permalink = $post_id > 0 ? get_permalink( $post_id ) : '';
+
+		if ( $permalink ) {
+			$parts[] = __( 'More info:', 'data-machine-events' ) . ' ' . $permalink;
 		}
 
-		if ( ! empty( $event['ticketUrl'] ) ) {
-			$parts[] = __( 'Tickets:', 'data-machine-events' ) . ' ' . (string) $event['ticketUrl'];
+		if ( ! empty( $event['ticketUrl'] ) && $permalink ) {
+			$parts[] = __( 'Tickets:', 'data-machine-events' ) . ' ' . $permalink;
 		}
 
 		/** This filter is documented in inc/EventActions/CalendarUrlBuilder.php */

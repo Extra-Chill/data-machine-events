@@ -726,6 +726,20 @@ class DATAMACHINE_Events {
 			(string) filemtime( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'assets/js/ticket-link-gate.js' ),
 			true
 		);
+		// Localize the REST base rather than hardcoding `/wp-json/` in the
+		// script: rest_url() respects the site's actual permalink structure
+		// (pretty vs ?rest_route=) and current-blog context, instead of
+		// assuming WordPress lives at the domain root. This is already
+		// public information (see every page's <link rel="https://api.w.org/">
+		// discovery tag) — the affiliate URL and affiliate ID are never
+		// localized, only this REST root.
+		wp_localize_script(
+			'data-machine-events-ticket-link-gate',
+			'dataMachineEventsTicketLinkGate',
+			array(
+				'restBase' => rest_url( 'extrachill/v1/events/tickets/' ),
+			)
+		);
 
 		register_block_type( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Blocks/Calendar' );
 		register_block_type( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Blocks/EventDetails' );

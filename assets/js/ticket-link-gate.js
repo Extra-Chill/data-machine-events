@@ -8,9 +8,18 @@
  * the only thing that ever assembles one, and only in response to a real
  * pointer or keyboard interaction.
  *
- * This script never knows the destination URL or any affiliate ID — only
- * the event's post ID (the "ref"). The real destination is resolved
- * server-side, first-party, at `/wp-json/extrachill/v1/events/tickets/<ref>/go`.
+ * This script never knows the destination URL or any affiliate ID — the
+ * ONLY thing it is ever handed is the REST API root (already public
+ * information — it's the same URL exposed in every page's
+ * `<link rel="https://api.w.org/">` discovery tag), localized via
+ * `wp_localize_script()` as `window.dataMachineEventsTicketLinkGate.restBase`,
+ * plus the event's own post ID (the "ref") already present in the markup
+ * as `data-ticket-ref`. The real destination is resolved server-side,
+ * first-party, by concatenating the ref onto that localized base — never
+ * from a hardcoded path. That keeps this working regardless of permalink
+ * structure, subdirectory installs, or which multisite blog rendered the
+ * button, instead of assuming the REST API lives at `/wp-json/` on the
+ * domain root.
  *
  * Gating is keyed on `pointerdown` (not `click`) so the href exists by the
  * time the browser evaluates the click/auxclick default action. That is
@@ -34,11 +43,20 @@
 	/**
 	 * Build the first-party redirect URL for a ticket ref.
 	 *
+	 * Reads the REST base from the localized `dataMachineEventsTicketLinkGate`
+	 * global on every call (never cached at load time) rather than assuming
+	 * a hardcoded `/wp-json/` root, so a missing/misconfigured localization
+	 * bails out cleanly instead of building a broken href.
+	 *
 	 * @param {string} ref Event post ID.
-	 * @return {string} First-party redirect path.
+	 * @return {string} First-party redirect URL, or "" if the localized REST base is unavailable.
 	 */
 	function resolveHref( ref ) {
-		return '/wp-json/extrachill/v1/events/tickets/' + encodeURIComponent( ref ) + '/go';
+		var config = window.dataMachineEventsTicketLinkGate;
+		if ( ! config || ! config.restBase ) {
+			return '';
+		}
+		return config.restBase + encodeURIComponent( ref ) + '/go';
 	}
 
 	/**
@@ -71,7 +89,11 @@
 		if ( ! ref ) {
 			return false;
 		}
-		element.setAttribute( 'href', resolveHref( ref ) );
+		var href = resolveHref( ref );
+		if ( ! href ) {
+			return false;
+		}
+		element.setAttribute( 'href', href );
 		return true;
 	}
 

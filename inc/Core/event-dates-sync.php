@@ -134,43 +134,24 @@ function datamachine_extract_ticket_identity( string $url ): string {
 /**
  * Unwrap affiliate/redirect URLs to extract the canonical ticket URL.
  *
- * Known affiliate wrappers:
- * - evyy.net (Ticketmaster affiliate): ?u=<encoded_url>
- * - redirect.viglink.com: ?u=<encoded_url>
- * - click.linksynergy.com: ?u=<encoded_url>
+ * Delegates the "is this an affiliate wrapper?" question to
+ * `data_machine_events_is_affiliate_ticket_url()` (see affiliate-links.php) —
+ * the single source of truth for the affiliate host list, shared with the
+ * ticket-link JS-gating surface. This function only owns the ?u=-style
+ * redirect-parameter unwrapping, not the host match.
+ *
+ * @since 0.62.0 Host list extracted to `data_machine_events_is_affiliate_ticket_url()`.
  *
  * @param string $url Possibly wrapped URL
  * @return string Unwrapped URL, or original if not an affiliate wrapper
  */
 function datamachine_unwrap_affiliate_url( string $url ): string {
-	$parsed = wp_parse_url( $url );
-	if ( ! $parsed || empty( $parsed['host'] ) || empty( $parsed['query'] ) ) {
+	if ( ! data_machine_events_is_affiliate_ticket_url( $url ) ) {
 		return $url;
 	}
 
-	// Known affiliate/redirect hosts that wrap ticket URLs in a ?u= parameter
-	$affiliate_hosts = array(
-		'evyy.net',
-		'viglink.com',
-		'linksynergy.com',
-		'shareasale.com',
-		'anrdoezrs.net',
-		'jdoqocy.com',
-		'dpbolvw.net',
-		'kqzyfj.com',
-		'tkqlhce.com',
-	);
-
-	$host         = strtolower( $parsed['host'] );
-	$is_affiliate = false;
-	foreach ( $affiliate_hosts as $affiliate_host ) {
-		if ( $host === $affiliate_host || str_ends_with( $host, '.' . $affiliate_host ) ) {
-			$is_affiliate = true;
-			break;
-		}
-	}
-
-	if ( ! $is_affiliate ) {
+	$parsed = wp_parse_url( $url );
+	if ( ! $parsed || empty( $parsed['query'] ) ) {
 		return $url;
 	}
 

@@ -1,0 +1,170 @@
+<?php
+/**
+ * Resolve Ticket Destination Ability
+ *
+ * Resolves a published event post ID to its ticket destination URL and
+ * whether that URL is an affiliate/redirect wrapper. Backs the public,
+ * first-party ticket redirect endpoint (`extrachill-api`, sibling issue)
+ * so affiliate URLs and affiliate IDs never need to appear in page source
+ * or in any JS bundle — the client only ever knows the event's post ID.
+ *
+ * `show_in_rest` is intentionally false: this ability's REST surface is a
+ * dedicated public redirect route, not the generic ability runner. See
+ * https://github.com/Extra-Chill/data-machine-events/issues/816.
+ *
+ * @package DataMachineEvents\Abilities
+ * @since   0.62.0
+ */
+
+namespace DataMachineEvents\Abilities;
+
+use DataMachineEvents\Core\Event_Post_Type;
+use function DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url;
+use const DataMachineEvents\Core\EVENT_TICKET_URL_META_KEY;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+class ResolveTicketDestinationAbilities {
+
+	private const BLOCK_NAME = 'data-machine-events/event-details';
+
+	private static bool $registered = false;
+
+	public function __construct() {
+		if ( ! self::$registered ) {
+			$this->registerAbility();
+			self::$registered = true;
+		}
+	}
+
+	private function registerAbility(): void {
+		$register_callback = function () {
+			wp_register_ability(
+				'data-machine-events/resolve-ticket-destination',
+				array(
+					'label'               => __( 'Resolve Ticket Destination', 'data-machine-events' ),
+					'description'         => __( 'Resolve a published event post ID to its ticket destination URL and whether it is an affiliate/redirect wrapper. Backs the public first-party ticket redirect so affiliate URLs never appear in page source.', 'data-machine-events' ),
+					'category'            => 'datamachine-events-events',
+					'input_schema'        => array(
+						'type'                 => 'object',
+						'required'             => array( 'event_id' ),
+						'additionalProperties' => false,
+						'properties'           => array(
+							'event_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Published event post ID.', 'data-machine-events' ),
+							),
+						),
+					),
+					'output_schema'       => array(
+						'type'       => 'object',
+						'properties' => array(
+							'url'          => array( 'type' => 'string' ),
+							'is_affiliate' => array( 'type' => 'boolean' ),
+						),
+					),
+					'execute_callback'    => array( $this, 'executeResolveTicketDestination' ),
+					// Public read: this backs a public ticket redirect with no
+					// auth. It leaks nothing beyond what the event's own
+					// published page already discloses.
+					'permission_callback' => '__return_true',
+					'meta'                => array(
+						'show_in_rest' => false,
+						'annotations'  => array(
+							'readonly'   => true,
+							'idempotent' => true,
+						),
+					),
+				)
+			);
+		};
+
+		add_action( 'wp_abilities_api_init', $register_callback );
+	}
+
+	/**
+	 * Execute resolve-ticket-destination ability.
+	 *
+	 * @param array $input Input parameters (`event_id`).
+	 * @return array{url:string,is_affiliate:bool}|\WP_Error
+	 */
+	public function executeResolveTicketDestination( array $input ): array|\WP_Error {
+		$event_id = (int) ( $input['event_id'] ?? 0 );
+		if ( $event_id <= 0 ) {
+			return new \WP_Error(
+				'invalid_event_id',
+				__( 'event_id must be a positive integer.', 'data-machine-events' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$post = get_post( $event_id );
+		if ( ! $post || Event_Post_Type::POST_TYPE !== $post->post_type || 'publish' !== $post->post_status ) {
+			return new \WP_Error(
+				'event_not_found',
+				__( 'No published event found for the given ID.', 'data-machine-events' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$ticket_url = $this->resolveTicketUrl( $event_id, $post );
+		if ( '' === $ticket_url ) {
+			return new \WP_Error(
+				'no_ticket_url',
+				__( 'This event has no ticket URL.', 'data-machine-events' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		return array(
+			'url'          => $ticket_url,
+			'is_affiliate' => data_machine_events_is_affiliate_ticket_url( $ticket_url ),
+		);
+	}
+
+	/**
+	 * Resolve the ticket URL for an event.
+	 *
+	 * Prefers the normalized `_datamachine_ticket_url` meta (kept in sync on
+	 * every save by event-dates-sync.php — see `EVENT_TICKET_URL_META_KEY`),
+	 * falling back to parsing the Event Details block directly for posts
+	 * written by a path that hasn't run the meta sync (mirrors
+	 * `TicketUrlResyncAbilities::extractTicketUrl()`).
+	 *
+	 * @param int      $event_id Event post ID.
+	 * @param \WP_Post $post     Event post object.
+	 * @return string Ticket URL, or empty string when none is set.
+	 */
+	private function resolveTicketUrl( int $event_id, \WP_Post $post ): string {
+		$meta_url = get_post_meta( $event_id, EVENT_TICKET_URL_META_KEY, true );
+		if ( is_string( $meta_url ) && '' !== $meta_url ) {
+			return $meta_url;
+		}
+
+		$blocks = parse_blocks( $post->post_content );
+		return $this->findTicketUrlInBlocks( $blocks );
+	}
+
+	/**
+	 * Recursively search blocks for the Event Details ticketUrl attribute.
+	 *
+	 * @param array $blocks Block array.
+	 * @return string Ticket URL or empty string.
+	 */
+	private function findTicketUrlInBlocks( array $blocks ): string {
+		foreach ( $blocks as $block ) {
+			if ( self::BLOCK_NAME === ( $block['blockName'] ?? '' ) ) {
+				return (string) ( $block['attrs']['ticketUrl'] ?? '' );
+			}
+			if ( ! empty( $block['innerBlocks'] ) ) {
+				$result = $this->findTicketUrlInBlocks( $block['innerBlocks'] );
+				if ( '' !== $result ) {
+					return $result;
+				}
+			}
+		}
+		return '';
+	}
+}

@@ -373,3 +373,28 @@ if ( ! function_exists( 'data_machine_events_get_timing' ) ) {
 		return datamachine_get_event_timing( $post_id );
 	}
 }
+
+if ( ! function_exists( 'data_machine_events_is_affiliate_ticket_url' ) ) {
+	/**
+	 * Whether a ticket URL is a known affiliate/redirect wrapper.
+	 *
+	 * Single source of truth for "is this an affiliate ticket URL?" — see
+	 * the internal `data_machine_events_is_affiliate_ticket_url()` helper in
+	 * `inc/Core/affiliate-links.php`, filterable via
+	 * `data_machine_events_affiliate_ticket_hosts`. Downstream plugins (e.g.
+	 * extrachill-seo's JSON-LD `offers.url`) should call this instead of
+	 * maintaining a second copy of the affiliate host list.
+	 *
+	 * @since 0.62.0
+	 *
+	 * @param string $url Ticket URL to check.
+	 * @return bool True when the URL's host is a known affiliate/redirect wrapper.
+	 */
+	function data_machine_events_is_affiliate_ticket_url( string $url ): bool {
+		if ( ! function_exists( '\DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url' ) ) {
+			return false;
+		}
+
+		return \DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url( $url );
+	}
+}

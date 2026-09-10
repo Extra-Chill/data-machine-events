@@ -59,9 +59,19 @@ require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/public-api.php';
 // Add-to-Calendar button + dropdown for single-event pages (issue #312).
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Blocks/EventDetails/add-to-calendar-button.php';
 
+// Affiliate ticket-link detection — single source of truth for the affiliate
+// host list, consumed by the ticket URL unwrapper below and the JS-gated
+// ticket button surfaces (issue #816). Must load before event-dates-sync.php.
+require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/affiliate-links.php';
+
 // Load event dates sync (monitors Event Details block saves → datamachine_event_dates table).
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/event-dates-sync.php';
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventDatesTable.php';
+
+// Rewrites legacy inline affiliate ticket-link anchors in post_content into
+// the same JS-gated form as the Event Details block's ticket button. Covers
+// events imported before this compliance pass without a DB migration.
+require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/legacy-ticket-link-gate.php';
 
 // Global alias — event-dates-sync.php is namespaced so this makes the public API accessible globally.
 if ( ! function_exists( 'datamachine_get_event_dates' ) ) {
@@ -267,6 +277,7 @@ class DATAMACHINE_Events {
 			\DataMachineEvents\Abilities\VenueMapAbilities::class,
 			\DataMachineEvents\Abilities\CalendarAbilities::class,
 			\DataMachineEvents\Abilities\TicketUrlResyncAbilities::class,
+			\DataMachineEvents\Abilities\ResolveTicketDestinationAbilities::class,
 			\DataMachineEvents\Abilities\BatchActionRecoveryAbilities::class,
 			\DataMachineEvents\Abilities\TicketmasterTest::class,
 			\DataMachineEvents\Abilities\DiceFmTest::class,
@@ -420,6 +431,11 @@ class DATAMACHINE_Events {
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/TicketUrlResyncAbilities.php' ) ) {
 			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/TicketUrlResyncAbilities.php';
 			new \DataMachineEvents\Abilities\TicketUrlResyncAbilities();
+		}
+
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/ResolveTicketDestinationAbilities.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/ResolveTicketDestinationAbilities.php';
+			new \DataMachineEvents\Abilities\ResolveTicketDestinationAbilities();
 		}
 
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/BatchActionRecoveryAbilities.php' ) ) {
@@ -697,6 +713,17 @@ class DATAMACHINE_Events {
 			DATA_MACHINE_EVENTS_PLUGIN_URL . 'assets/js/venue-map.js',
 			array( 'leaflet' ),
 			(string) filemtime( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'assets/js/venue-map.js' ),
+			true
+		);
+
+		// Ticket link gate — assembles the first-party ticket redirect href
+		// on genuine user interaction for JS-gated affiliate ticket buttons.
+		// Enqueued only where a gated button actually renders (issue #816).
+		wp_register_script(
+			'data-machine-events-ticket-link-gate',
+			DATA_MACHINE_EVENTS_PLUGIN_URL . 'assets/js/ticket-link-gate.js',
+			array(),
+			(string) filemtime( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'assets/js/ticket-link-gate.js' ),
 			true
 		);
 

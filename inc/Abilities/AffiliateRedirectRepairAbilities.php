@@ -45,6 +45,32 @@ class AffiliateRedirectRepairAbilities {
 		}
 	}
 
+	/**
+	 * Output-schema shape shared by `changes` and `skipped`: both are lists
+	 * of per-row objects that always carry `post_id`/`title`/`attribute`
+	 * plus a small set of row-specific properties.
+	 *
+	 * @param array $extra_properties Row-specific properties appended after
+	 *                                the shared `post_id`/`title`/`attribute` set.
+	 * @return array JSON-schema fragment for an array of row objects.
+	 */
+	private static function rowListSchema( array $extra_properties ): array {
+		return array(
+			'type'  => 'array',
+			'items' => array(
+				'type'       => 'object',
+				'properties' => array_merge(
+					array(
+						'post_id'   => array( 'type' => 'integer' ),
+						'title'     => array( 'type' => 'string' ),
+						'attribute' => array( 'type' => 'string' ),
+					),
+					$extra_properties
+				),
+			),
+		);
+	}
+
 	private function registerAbility(): void {
 		$register_callback = function () {
 			wp_register_ability(
@@ -52,7 +78,7 @@ class AffiliateRedirectRepairAbilities {
 				array(
 					'label'               => __( 'Repair Affiliate Redirects', 'data-machine-events' ),
 					'description'         => __( 'Reconstruct punctuation-stripped affiliate redirect destinations on published events (dry run by default)', 'data-machine-events' ),
-					'category'            => 'datamachine-events-events',
+					'category'            => AbilityCategories::EVENTS,
 					'input_schema'        => array(
 						'type'       => 'object',
 						'properties' => array(
@@ -81,32 +107,18 @@ class AffiliateRedirectRepairAbilities {
 							'scanned'           => array( 'type' => 'integer' ),
 							'repaired'          => array( 'type' => 'integer' ),
 							'skipped_ambiguous' => array( 'type' => 'integer' ),
-							'changes'           => array(
-								'type'  => 'array',
-								'items' => array(
-									'type'       => 'object',
-									'properties' => array(
-										'post_id'     => array( 'type' => 'integer' ),
-										'title'       => array( 'type' => 'string' ),
-										'attribute'   => array( 'type' => 'string' ),
-										'old'         => array( 'type' => 'string' ),
-										'new'         => array( 'type' => 'string' ),
-										'destination' => array( 'type' => 'string' ),
-									),
-								),
+							'changes'           => self::rowListSchema(
+								array(
+									'old'         => array( 'type' => 'string' ),
+									'new'         => array( 'type' => 'string' ),
+									'destination' => array( 'type' => 'string' ),
+								)
 							),
-							'skipped'           => array(
-								'type'  => 'array',
-								'items' => array(
-									'type'       => 'object',
-									'properties' => array(
-										'post_id'   => array( 'type' => 'integer' ),
-										'title'     => array( 'type' => 'string' ),
-										'attribute' => array( 'type' => 'string' ),
-										'value'     => array( 'type' => 'string' ),
-										'reason'    => array( 'type' => 'string' ),
-									),
-								),
+							'skipped'           => self::rowListSchema(
+								array(
+									'value'  => array( 'type' => 'string' ),
+									'reason' => array( 'type' => 'string' ),
+								)
 							),
 							'message'           => array( 'type' => 'string' ),
 						),

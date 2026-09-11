@@ -18,6 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Core\Promoter_Taxonomy;
 use DataMachineEvents\Core\EventSchemaProvider;
+use DataMachineEvents\Blocks\EventDetails\ProseSections;
 use function DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url;
 
 $decode_unicode = function ( $str ) {
@@ -345,6 +346,18 @@ $event_schema     = EventSchemaProvider::generateSchemaOrg( $event_data, $venue_
 			}
 		}
 	}
+	?>
+	<?php
+	// Issue #830: derivable in-content prose sections (ad-insertion <p> slots).
+	// Each section degrades to zero bytes when its data is missing, and the
+	// whole render is served from a generation-keyed transient on cache hits.
+	echo ProseSections::render(
+		(int) $post_id,
+		array(
+			'venue_term_id' => ( ! is_wp_error( $venue_terms ) && ! empty( $venue_terms[0]->term_id ) ) ? (int) $venue_terms[0]->term_id : 0,
+			'venue_data'    => is_array( $venue_data ) ? $venue_data : array(),
+		)
+	); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Every dynamic piece is escaped inside ProseSections before assembly.
 	?>
 
 </div>

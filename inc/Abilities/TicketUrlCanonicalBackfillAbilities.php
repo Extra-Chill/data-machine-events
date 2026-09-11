@@ -72,15 +72,20 @@ class TicketUrlCanonicalBackfillAbilities {
 	}
 
 	private function registerAbility(): void {
-		// Shared prefix for the two item schemas below (`changes` and
-		// `report` both key on the same post, just with different trailing
-		// fields) — extracted once so the schema isn't duplicated verbatim.
-		$post_and_title_schema = array(
-			'post_id' => array( 'type' => 'integer' ),
-			'title'   => array( 'type' => 'string' ),
+		$changes_item_schema = self::buildPostKeyedItemSchema(
+			array(
+				'old' => array( 'type' => 'string' ),
+				'new' => array( 'type' => 'string' ),
+			)
+		);
+		$report_item_schema  = self::buildPostKeyedItemSchema(
+			array(
+				'reason' => array( 'type' => 'string' ),
+				'url'    => array( 'type' => 'string' ),
+			)
 		);
 
-		$register_callback = function () use ( $post_and_title_schema ) {
+		$register_callback = function () use ( $changes_item_schema, $report_item_schema ) {
 			wp_register_ability(
 				'data-machine-events/backfill-canonical-ticket-urls',
 				array(
@@ -120,29 +125,11 @@ class TicketUrlCanonicalBackfillAbilities {
 							'mangled'                    => array( 'type' => 'integer' ),
 							'changes'                    => array(
 								'type'  => 'array',
-								'items' => array(
-									'type'       => 'object',
-									'properties' => array_merge(
-										$post_and_title_schema,
-										array(
-											'old' => array( 'type' => 'string' ),
-											'new' => array( 'type' => 'string' ),
-										)
-									),
-								),
+								'items' => $changes_item_schema,
 							),
 							'report'                     => array(
 								'type'  => 'array',
-								'items' => array(
-									'type'       => 'object',
-									'properties' => array_merge(
-										$post_and_title_schema,
-										array(
-											'reason' => array( 'type' => 'string' ),
-											'url'    => array( 'type' => 'string' ),
-										)
-									),
-								),
+								'items' => $report_item_schema,
 							),
 							'message'                    => array( 'type' => 'string' ),
 						),
@@ -155,6 +142,38 @@ class TicketUrlCanonicalBackfillAbilities {
 		};
 
 		add_action( 'wp_abilities_api_init', $register_callback );
+	}
+
+	/**
+	 * Build a JSON Schema `items` shape keyed on `post_id`/`title` plus
+	 * caller-supplied trailing fields.
+	 *
+	 * `changes` and `report` in the output_schema below are both arrays of
+	 * objects that identify the same post the same way, differing only in
+	 * which extra fields they carry (`old`/`new` vs `reason`/`url`). A
+	 * single builder — rather than two literal array blocks — is what
+	 * keeps that shared shape from being duplicated in source.
+	 *
+	 * @param array<string, array<string, string>> $trailing_fields Extra
+	 *                                                               JSON
+	 *                                                               Schema
+	 *                                                               property
+	 *                                                               definitions
+	 *                                                               beyond
+	 *                                                               `post_id`/`title`.
+	 * @return array<string, mixed> A JSON Schema object shape.
+	 */
+	private static function buildPostKeyedItemSchema( array $trailing_fields ): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array_merge(
+				array(
+					'post_id' => array( 'type' => 'integer' ),
+					'title'   => array( 'type' => 'string' ),
+				),
+				$trailing_fields
+			),
+		);
 	}
 
 	/**

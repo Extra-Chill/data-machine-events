@@ -72,7 +72,15 @@ class TicketUrlCanonicalBackfillAbilities {
 	}
 
 	private function registerAbility(): void {
-		$register_callback = function () {
+		// Shared prefix for the two item schemas below (`changes` and
+		// `report` both key on the same post, just with different trailing
+		// fields) — extracted once so the schema isn't duplicated verbatim.
+		$post_and_title_schema = array(
+			'post_id' => array( 'type' => 'integer' ),
+			'title'   => array( 'type' => 'string' ),
+		);
+
+		$register_callback = function () use ( $post_and_title_schema ) {
 			wp_register_ability(
 				'data-machine-events/backfill-canonical-ticket-urls',
 				array(
@@ -114,11 +122,12 @@ class TicketUrlCanonicalBackfillAbilities {
 								'type'  => 'array',
 								'items' => array(
 									'type'       => 'object',
-									'properties' => array(
-										'post_id' => array( 'type' => 'integer' ),
-										'title'   => array( 'type' => 'string' ),
-										'old'     => array( 'type' => 'string' ),
-										'new'     => array( 'type' => 'string' ),
+									'properties' => array_merge(
+										$post_and_title_schema,
+										array(
+											'old' => array( 'type' => 'string' ),
+											'new' => array( 'type' => 'string' ),
+										)
 									),
 								),
 							),
@@ -126,11 +135,12 @@ class TicketUrlCanonicalBackfillAbilities {
 								'type'  => 'array',
 								'items' => array(
 									'type'       => 'object',
-									'properties' => array(
-										'post_id' => array( 'type' => 'integer' ),
-										'title'   => array( 'type' => 'string' ),
-										'reason'  => array( 'type' => 'string' ),
-										'url'     => array( 'type' => 'string' ),
+									'properties' => array_merge(
+										$post_and_title_schema,
+										array(
+											'reason' => array( 'type' => 'string' ),
+											'url'    => array( 'type' => 'string' ),
+										)
 									),
 								),
 							),

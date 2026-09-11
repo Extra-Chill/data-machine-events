@@ -351,12 +351,19 @@ class TicketUrlCanonicalBackfillAbilities {
 			return false;
 		}
 
-		// array_merge keeps the attrs array generically typed — a literal-key
-		// sub-assignment makes PHPStan narrow the block shape and reject the
-		// serialize_blocks() call below.
-		$blocks[ $block_index ]['attrs'] = array_merge(
-			(array) $blocks[ $block_index ]['attrs'],
-			array( 'ticketUrl' => $canonical )
+		// Rebuild the block array with all five keys explicit rather than
+		// mutating the 'attrs' offset in place: assigning into a single
+		// offset of a variable-indexed array-shape union (parse_blocks()'s
+		// return type) makes PHPStan lose track of the block's other keys,
+		// so it can no longer prove the mutated element still matches the
+		// shape serialize_blocks() requires.
+		$block                  = $blocks[ $block_index ];
+		$blocks[ $block_index ] = array(
+			'blockName'    => $block['blockName'],
+			'attrs'        => array_merge( (array) $block['attrs'], array( 'ticketUrl' => $canonical ) ),
+			'innerBlocks'  => $block['innerBlocks'],
+			'innerHTML'    => $block['innerHTML'],
+			'innerContent' => $block['innerContent'],
 		);
 
 		$new_content = serialize_blocks( $blocks );

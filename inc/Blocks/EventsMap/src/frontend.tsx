@@ -959,12 +959,51 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 		};
 
 		document.addEventListener( 'data-machine-map-recenter', handler );
+
+		// Self-heal for the mount race (#832): a consumer may have written
+		// a pending centre to the root container's dataset and dispatched
+		// `data-machine-map-recenter` while these listeners were not yet
+		// attached, so the event was lost. near-me.js (and any consumer
+		// following the same contract) writes `centerLat`/`centerLon`
+		// before dispatching, so if the dataset now differs from the props
+		// the component mounted with, replay it as a user-location
+		// recenter.
+		const rootContainer = containerRef.current
+			? containerRef.current.closest< HTMLElement >(
+					'.data-machine-events-map-root'
+			  )
+			: null;
+		if ( rootContainer ) {
+			const pendingLat = parseFloat(
+				rootContainer.dataset.centerLat || ''
+			);
+			const pendingLng = parseFloat(
+				rootContainer.dataset.centerLon || ''
+			);
+			if (
+				Number.isFinite( pendingLat ) &&
+				Number.isFinite( pendingLng ) &&
+				( pendingLat !== centerLat || pendingLng !== centerLon )
+			) {
+				handler(
+					new CustomEvent( 'data-machine-map-recenter', {
+						detail: {
+							lat: pendingLat,
+							lng: pendingLng,
+							authority: 'user-location',
+						},
+					} )
+				);
+			}
+		}
+
 		return () => {
 			document.removeEventListener(
 				'data-machine-map-recenter',
 				handler
 			);
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ syncId ] );
 
 	/* --- listen for external user-location updates (e.g. geolocation) --- */
@@ -1011,13 +1050,73 @@ export function EventsMap( props: MapProps ): JSX.Element | null {
 			'data-machine-map-set-user-location',
 			handler
 		);
+
+		// Self-heal for the mount race (#832): replay a user location the
+		// consumer wrote to the root container's dataset (`userLat`/
+		// `userLon`) while this listener was not yet attached, so the blue
+		// dot appears even though the `data-machine-map-set-user-location`
+		// event was lost.
+		const rootContainer = containerRef.current
+			? containerRef.current.closest< HTMLElement >(
+					'.data-machine-events-map-root'
+			  )
+			: null;
+		if ( rootContainer ) {
+			const pendingLat = parseFloat(
+				rootContainer.dataset.userLat || ''
+			);
+			const pendingLng = parseFloat(
+				rootContainer.dataset.userLon || ''
+			);
+			if (
+				Number.isFinite( pendingLat ) &&
+				Number.isFinite( pendingLng ) &&
+				( pendingLat !== userLat || pendingLng !== userLon )
+			) {
+				handler(
+					new CustomEvent( 'data-machine-map-set-user-location', {
+						detail: { lat: pendingLat, lng: pendingLng },
+					} )
+				);
+			}
+		}
+
 		return () => {
 			document.removeEventListener(
 				'data-machine-map-set-user-location',
 				handler
 			);
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ syncId ] );
+
+	/* --- signal readiness once external-event listeners are attached --- */
+	// #832: `data-initialized="1"` is the public contract consumers use to
+	// decide "safe to dispatch data-machine-map-* events instead of writing
+	// data attributes" (e.g. extrachill-events near-me.js). It must only be
+	// set once the recenter and set-user-location listeners above have
+	// attached, which is guaranteed here because effects run in declaration
+	// order. The bubbling `data-machine-map-ready` event carries `{ syncId }`
+	// so consumers can wait for readiness instead of polling the attribute.
+	// The mount-time idempotency guard lives separately on `data-mounting`
+	// (see mountMap).
+	useEffect( () => {
+		const rootContainer =
+			containerRef.current?.closest< HTMLElement >(
+				'.data-machine-events-map-root'
+			) ?? containerRef.current;
+		if ( ! rootContainer ) {
+			return;
+		}
+		rootContainer.dataset.initialized = '1';
+		rootContainer.dispatchEvent(
+			new CustomEvent( 'data-machine-map-ready', {
+				bubbles: true,
+				detail: { syncId },
+			} )
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [] );
 
 	/* --- update markers when venues change (with diffing) --- */
 	useEffect( () => {
@@ -1348,20 +1447,28 @@ function parseMapProps( container: HTMLElement ): MapProps {
 /**
  * Mount the React map into its root container exactly once.
  *
- * Idempotent via the `initialized` dataset flag so the deferred-expand path
- * and the normal path can both call it safely.
+ * Idempotent via the internal `data-mounting` flag so the deferred-expand
+ * path and the normal path can both call it safely. The public
+ * `data-initialized="1"` contract is deliberately NOT set here: it is set by
+ * the component's ready effect once the recenter / set-user-location
+ * listeners are attached (#832), so `data-initialized` reliably means
+ * "safe to dispatch data-machine-map-* events" to consumers.
  *
  * @param container Map root container.
+ * @return The React root (for tests to unmount), or null when already mounted.
  */
-function mountMap( container: HTMLElement ): void {
-	if ( container.dataset.initialized === '1' ) {
-		return;
+export function mountMap(
+	container: HTMLElement
+): ReturnType< typeof createRoot > | null {
+	if ( container.dataset.mounting === '1' ) {
+		return null;
 	}
-	container.dataset.initialized = '1';
+	container.dataset.mounting = '1';
 
 	const props = parseMapProps( container );
 	const root = createRoot( container );
 	root.render( <EventsMap { ...props } /> );
+	return root;
 }
 
 /**
@@ -1386,8 +1493,10 @@ export function setupCollapsible( container: HTMLElement ): boolean {
 		return false;
 	}
 	if ( container.dataset.collapsibleBound === '1' ) {
-		// Already wired; report current defer state.
-		return container.dataset.initialized !== '1';
+		// Already wired; report current defer state via the internal mount
+		// guard (`data-initialized` only flips later, once the component's
+		// listeners are attached — see the ready effect).
+		return container.dataset.mounting !== '1';
 	}
 	container.dataset.collapsibleBound = '1';
 
@@ -1427,7 +1536,7 @@ export function setupCollapsible( container: HTMLElement ): boolean {
 
 		if ( expanded ) {
 			// Mount on first expand (deferred init), else just re-measure.
-			if ( container.dataset.initialized !== '1' ) {
+			if ( container.dataset.mounting !== '1' ) {
 				mountMap( container );
 			} else {
 				container.dispatchEvent(
@@ -1454,7 +1563,13 @@ function initEventsMap(): void {
 	);
 
 	containers.forEach( ( container ) => {
-		if ( container.dataset.initialized === '1' ) {
+		// `data-initialized` flips only when the component's listeners are
+		// attached (ready effect); `data-mounting` is the synchronous
+		// mountMap guard. Together they cover the whole mount window.
+		if (
+			container.dataset.initialized === '1' ||
+			container.dataset.mounting === '1'
+		) {
 			return;
 		}
 

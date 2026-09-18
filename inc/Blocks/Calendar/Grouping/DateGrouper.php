@@ -127,7 +127,7 @@ class DateGrouper {
 					$start_date,
 					$event_data['startTime'] ?? ''
 				);
-				$event_dates = array( $effective_start_date );
+				$event_dates          = array( $effective_start_date );
 			}
 
 			// Filter out past dates when show_past is false.

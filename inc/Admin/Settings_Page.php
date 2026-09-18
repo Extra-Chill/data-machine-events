@@ -234,6 +234,8 @@ class Settings_Page {
 		 *
 		 * @param string $cutoff Cutoff time (default: stored setting, 05:00).
 		 */
+
+		/** @var mixed $filtered The stub types this as string, but a filter callback may return anything at runtime — validate before trusting. */
 		$filtered = apply_filters( 'data_machine_events_next_day_cutoff', $cutoff );
 
 		if ( is_string( $filtered ) && preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', $filtered ) ) {

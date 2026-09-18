@@ -83,7 +83,7 @@ class DisplayVars {
 						$end_datetime_obj->format( 'M j' )
 					);
 				} else {
-					$multi_day_label        = sprintf(
+					$multi_day_label = sprintf(
 						__( 'through %s', 'data-machine-events' ),
 						$end_datetime_obj->format( 'M j' )
 					);

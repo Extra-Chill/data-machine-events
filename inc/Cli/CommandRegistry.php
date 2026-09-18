@@ -149,7 +149,7 @@ class CommandRegistry {
 				'file'  => $cli . 'AffiliateRedirectRepairCommand.php',
 				'class' => AffiliateRedirectRepairCommand::class,
 			),
-			'data-machine-events repair-series-ends'     => array(
+			'data-machine-events repair-series-ends'      => array(
 				'file'  => $cli . 'SeriesEndRepairCommand.php',
 				'class' => SeriesEndRepairCommand::class,
 			),

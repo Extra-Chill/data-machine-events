@@ -115,10 +115,10 @@ class SeriesEndRepairCommand {
 			$rows = array();
 			foreach ( $result['changes'] as $change ) {
 				$rows[] = array(
-					'ID'     => $change['post_id'] ?? 0,
-					'Title'  => mb_substr( (string) ( $change['title'] ?? '' ), 0, 45 ),
-					'Strip'  => (string) ( $change['stripped_end'] ?? '' ),
-					'Hours'  => (int) ( $change['span_hours'] ?? 0 ),
+					'ID'    => $change['post_id'] ?? 0,
+					'Title' => mb_substr( (string) ( $change['title'] ?? '' ), 0, 45 ),
+					'Strip' => (string) ( $change['stripped_end'] ?? '' ),
+					'Hours' => (int) ( $change['span_hours'] ?? 0 ),
 				);
 			}
 			\WP_CLI\Utils\format_items( 'table', $rows, array( 'ID', 'Title', 'Strip', 'Hours' ) );

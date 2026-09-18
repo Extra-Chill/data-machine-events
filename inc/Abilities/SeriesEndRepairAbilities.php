@@ -88,10 +88,10 @@ class SeriesEndRepairAbilities {
 								'items' => array(
 									'type'       => 'object',
 									'properties' => array(
-										'post_id'        => array( 'type' => 'integer' ),
-										'title'          => array( 'type' => 'string' ),
-										'stripped_end'   => array( 'type' => 'string' ),
-										'span_hours'     => array( 'type' => 'integer' ),
+										'post_id'      => array( 'type' => 'integer' ),
+										'title'        => array( 'type' => 'string' ),
+										'stripped_end' => array( 'type' => 'string' ),
+										'span_hours'   => array( 'type' => 'integer' ),
 									),
 								),
 							),
@@ -159,7 +159,7 @@ class SeriesEndRepairAbilities {
 				continue;
 			}
 
-			$attrs = $blocks[ $block_index ]['attrs'] ?? array();
+			$attrs = (array) $blocks[ $block_index ]['attrs'];
 
 			// occurrenceDates carries explicit per-occurrence dates; a long
 			// envelope around them is the designed recurring representation,

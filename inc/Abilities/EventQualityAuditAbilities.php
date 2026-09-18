@@ -25,8 +25,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class EventQualityAuditAbilities {
 
-	private const DEFAULT_LIMIT      = 25;
-	private const DEFAULT_DAYS_AHEAD = 90;
+	private const DEFAULT_LIMIT          = 25;
+	private const DEFAULT_DAYS_AHEAD     = 90;
 	private const DEFAULT_MAX_SPAN_HOURS = 48;
 
 	private static bool $registered = false;
@@ -209,10 +209,10 @@ class EventQualityAuditAbilities {
 			if ( null !== $long_span ) {
 				$long_span_events[] = array_merge(
 					array(
-						'id'      => $event->ID,
-						'title'   => $event->post_title,
-						'venue'   => $venue_name,
-						'flow_id' => $flow_id,
+						'id'        => $event->ID,
+						'title'     => $event->post_title,
+						'venue'     => $venue_name,
+						'flow_id'   => $flow_id,
 						'flow_name' => $info['flow_name'],
 					),
 					$long_span

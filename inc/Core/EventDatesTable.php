@@ -334,7 +334,7 @@ class EventDatesTable {
 	 */
 	public static function repair_status_drift_row( int $post_id ): string {
 		global $wpdb;
-		$table          = self::table_name();
+		$table = self::table_name();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 		$indexed_status = $wpdb->get_var(
 			$wpdb->prepare( "SELECT post_status FROM {$table} WHERE post_id = %d", $post_id )

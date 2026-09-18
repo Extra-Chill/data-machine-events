@@ -81,8 +81,8 @@ class SeriesEndRepairAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	public function test_dry_run_reports_changes_without_mutating_anything(): void {
-		$post_id = $this->insert_leaked_event();
-		$before  = get_post( $post_id )->post_content;
+		$post_id    = $this->insert_leaked_event();
+		$before     = get_post( $post_id )->post_content;
 		$before_row = EventDatesTable::get( $post_id );
 
 		$result = ( new SeriesEndRepairAbilities() )->executeRepair(

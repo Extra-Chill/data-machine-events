@@ -154,13 +154,14 @@ class CheckQualityCommand {
 			) );
 			$span_rows = array();
 			foreach ( $result['long_span_no_occurrences']['events'] as $event ) {
+				$flow_id     = (int) ( $event['flow_id'] ?? 0 );
 				$span_rows[] = array(
-					'ID'     => $event['id'] ?? 0,
-					'Title'  => mb_substr( (string) ( $event['title'] ?? '' ), 0, 40 ),
-					'Start'  => (string) ( $event['start_datetime'] ?? '' ),
-					'End'    => (string) ( $event['end_datetime'] ?? '' ),
-					'Hours'  => (int) ( $event['span_hours'] ?? 0 ),
-					'Flow'   => (int) ( $event['flow_id'] ?? 0 ) ?: '—',
+					'ID'    => $event['id'] ?? 0,
+					'Title' => mb_substr( (string) ( $event['title'] ?? '' ), 0, 40 ),
+					'Start' => (string) ( $event['start_datetime'] ?? '' ),
+					'End'   => (string) ( $event['end_datetime'] ?? '' ),
+					'Hours' => (int) ( $event['span_hours'] ?? 0 ),
+					'Flow'  => $flow_id > 0 ? $flow_id : '—',
 				);
 			}
 			\WP_CLI\Utils\format_items( 'table', $span_rows, array( 'ID', 'Title', 'Start', 'End', 'Hours', 'Flow' ) );

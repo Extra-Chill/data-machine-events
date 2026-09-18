@@ -57,10 +57,10 @@ class EventQualityAuditLongSpanTest extends WP_UnitTestCase {
 
 		$result = ( new EventQualityAuditAbilities() )->executeAudit(
 			array(
-				'scope'            => 'upcoming',
-				'days_ahead'       => 30,
-				'issue'            => 'long_span_no_occurrences',
-				'max_span_hours'   => 48,
+				'scope'          => 'upcoming',
+				'days_ahead'     => 30,
+				'issue'          => 'long_span_no_occurrences',
+				'max_span_hours' => 48,
 			)
 		);
 

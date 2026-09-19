@@ -94,7 +94,7 @@ class EntityTitleRepairAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	public function test_execute_decodes_numeric_entities_and_dashes(): void {
-		$post_id = $this->insert_event( "Sam&#8217;s Grill &#8211; Live &#038; Local" );
+		$post_id = $this->insert_event( 'Sam&#8217;s Grill &#8211; Live &#038; Local' );
 
 		( new EntityTitleRepairAbilities() )->executeRepair(
 			array(

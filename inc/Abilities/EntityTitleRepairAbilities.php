@@ -79,11 +79,11 @@ class EntityTitleRepairAbilities {
 					'output_schema'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'dry_run'              => array( 'type' => 'boolean' ),
-							'scanned'              => array( 'type' => 'integer' ),
-							'repaired'             => array( 'type' => 'integer' ),
-							'identity_hash_drift'  => array( 'type' => 'integer' ),
-							'changes'              => array(
+							'dry_run'             => array( 'type' => 'boolean' ),
+							'scanned'             => array( 'type' => 'integer' ),
+							'repaired'            => array( 'type' => 'integer' ),
+							'identity_hash_drift' => array( 'type' => 'integer' ),
+							'changes'             => array(
 								'type'  => 'array',
 								'items' => array(
 									'type'       => 'object',
@@ -95,7 +95,7 @@ class EntityTitleRepairAbilities {
 									),
 								),
 							),
-							'message'              => array( 'type' => 'string' ),
+							'message'             => array( 'type' => 'string' ),
 						),
 					),
 					'execute_callback'    => array( $this, 'executeRepair' ),
@@ -184,12 +184,12 @@ class EntityTitleRepairAbilities {
 		}
 
 		return array(
-			'dry_run'              => (bool) $dry_run,
-			'scanned'              => $scanned,
-			'repaired'             => $repaired,
-			'identity_hash_drift'  => $identity_hash_drift,
-			'changes'              => $changes,
-			'message'              => $message,
+			'dry_run'             => (bool) $dry_run,
+			'scanned'             => $scanned,
+			'repaired'            => $repaired,
+			'identity_hash_drift' => $identity_hash_drift,
+			'changes'             => $changes,
+			'message'             => $message,
 		);
 	}
 

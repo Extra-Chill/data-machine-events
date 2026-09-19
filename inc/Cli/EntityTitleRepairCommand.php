@@ -103,10 +103,10 @@ class EntityTitleRepairCommand {
 			$rows = array();
 			foreach ( $result['changes'] as $change ) {
 				$rows[] = array(
-					'ID'       => $change['post_id'] ?? 0,
-					'Old'      => mb_substr( (string) ( $change['old_title'] ?? '' ), 0, 45 ),
-					'New'      => mb_substr( (string) ( $change['new_title'] ?? '' ), 0, 45 ),
-					'Hash OK'  => ( $change['hash_stable'] ?? false ) ? 'yes' : 'DRIFT',
+					'ID'      => $change['post_id'] ?? 0,
+					'Old'     => mb_substr( (string) ( $change['old_title'] ?? '' ), 0, 45 ),
+					'New'     => mb_substr( (string) ( $change['new_title'] ?? '' ), 0, 45 ),
+					'Hash OK' => ( $change['hash_stable'] ?? false ) ? 'yes' : 'DRIFT',
 				);
 			}
 			\WP_CLI\Utils\format_items( 'table', $rows, array( 'ID', 'Old', 'New', 'Hash OK' ) );

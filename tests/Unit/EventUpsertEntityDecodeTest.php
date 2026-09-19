@@ -93,10 +93,17 @@ class EventUpsertEntityDecodeTest extends WP_UnitTestCase {
 							}
 
 							if ( is_wp_error( $result ) ) {
-								return array( 'success' => false, 'error' => $result->get_error_message() );
+								return array(
+									'success' => false,
+									'error'   => $result->get_error_message(),
+								);
 							}
 
-							return array( 'success' => true, 'post_id' => (int) $result, 'action' => $action );
+							return array(
+								'success' => true,
+								'post_id' => (int) $result,
+								'action'  => $action,
+							);
 						},
 					)
 				);

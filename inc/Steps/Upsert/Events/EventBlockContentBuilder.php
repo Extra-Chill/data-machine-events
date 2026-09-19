@@ -76,7 +76,7 @@ class EventBlockContentBuilder {
 		$block_attributes['showPrice']      = true;
 		$block_attributes['showTicketLink'] = true;
 
-		$block_json  = wp_json_encode( $block_attributes, JSON_UNESCAPED_UNICODE );
+		$block_json = wp_json_encode( $block_attributes, JSON_UNESCAPED_UNICODE );
 		// Decode entities before kses (issue #844): source-fed descriptions
 		// carry the same encoded text as titles, and wp_kses_post normalizes
 		// rather than removes entities. Decoding first stores literal

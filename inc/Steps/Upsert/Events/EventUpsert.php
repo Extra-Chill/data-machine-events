@@ -139,11 +139,11 @@ class EventUpsert extends UpsertHandler {
 		// strips it. The decoded title is written back onto $parameters so
 		// every downstream consumer (validation gate, advisory-lock keys,
 		// duplicate detection, buildEventData) keys on the same canonical form.
-		$title                = sanitize_text_field( TextNormalization::decode_entities( (string) ( $parameters['title'] ?? $engine->get( 'title' ) ?? '' ) ) );
+		$title               = sanitize_text_field( TextNormalization::decode_entities( (string) ( $parameters['title'] ?? $engine->get( 'title' ) ?? '' ) ) );
 		$parameters['title'] = $title;
-		$venue     = VenueParameterProvider::resolveField( 'venue', $parameters, $engine->all() );
-		$startDate = $engine->get( 'startDate' ) ?? $parameters['startDate'] ?? '';
-		$ticketUrl = $engine->get( 'ticketUrl' ) ?? $parameters['ticketUrl'] ?? '';
+		$venue               = VenueParameterProvider::resolveField( 'venue', $parameters, $engine->all() );
+		$startDate           = $engine->get( 'startDate' ) ?? $parameters['startDate'] ?? '';
+		$ticketUrl           = $engine->get( 'ticketUrl' ) ?? $parameters['ticketUrl'] ?? '';
 
 		// Run the consolidated pre-publish validation gate before any write.
 		//

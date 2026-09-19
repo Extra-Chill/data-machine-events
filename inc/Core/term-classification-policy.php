@@ -39,9 +39,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * This affects only the automatic path. An explicit reclassification request
  * still runs, by design of the filter.
  *
- * @param bool     $should_classify Whether classification should be scheduled.
- * @param \WP_Post $post            Post under consideration.
- * @param string   $site_key        Network site key.
+ * @param bool   $should_classify Whether classification should be scheduled.
+ * @param mixed  $post            Post under consideration. Typed loosely
+ *                                because a filter argument is whatever the
+ *                                caller passed, and this plugin does not own
+ *                                the call site — the instanceof below is a
+ *                                real guard, not a formality.
+ * @param string $site_key        Network site key.
  * @return bool
  */
 function skip_term_classification_for_past_events( $should_classify, $post, $site_key ) {

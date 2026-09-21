@@ -30,7 +30,7 @@ abstract class EventUpsertTestCase extends WP_UnitTestCase {
 		parent::setUp();
 
 		// Ensure post type and taxonomies are registered
-		if ( ! post_type_exists( 'data_machine_events' ) ) {
+		if ( ! post_type_exists( Event_Post_Type::POST_TYPE ) ) {
 			Event_Post_Type::register();
 		}
 		if ( ! taxonomy_exists( 'venue' ) ) {

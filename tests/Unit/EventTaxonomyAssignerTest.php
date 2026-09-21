@@ -54,6 +54,16 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 			Promoter_Taxonomy::register();
 		}
 
+		// Promoter assignment resolves terms through datamachine/resolve-term
+		// and datamachine/merge-term-meta, both permission-gated on
+		// PermissionHelper::can_manage(). Production callers reach this path
+		// authenticated (an agent/REST context, or Action Scheduler's
+		// background-processing bypass); this direct collaborator test has
+		// neither, so it must authenticate explicitly or every ability call
+		// silently permission-denies and no-ops. Mirrors
+		// EventUpsertAbilitiesTest's setUp().
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
 		$this->assigner = new EventTaxonomyAssigner();
 	}
 
@@ -61,6 +71,7 @@ class EventTaxonomyAssignerTest extends WP_UnitTestCase {
 		global $wpdb;
 		$wpdb->query( 'SET autocommit = 0' );
 		$wpdb->query( 'START TRANSACTION' );
+		wp_set_current_user( 0 );
 		parent::tearDown();
 	}
 

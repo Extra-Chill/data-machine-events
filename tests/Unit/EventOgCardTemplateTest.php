@@ -69,18 +69,18 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 	private const MIN_CLEARANCE = 8;
 
 	/**
-	 * Attachment IDs created during a test, cleaned up in tearDown().
+	 * Temp files written during a test via make_temp_png(), cleaned up
+	 * in tearDown().
 	 *
-	 * @var int[]
+	 * @var string[]
 	 */
-	private array $attachment_ids = array();
+	private array $temp_files = array();
 
 	public function tearDown(): void {
-		foreach ( $this->attachment_ids as $attachment_id ) {
-			wp_delete_attachment( $attachment_id, true );
+		foreach ( $this->temp_files as $path ) {
+			wp_delete_file( $path );
 		}
-		$this->attachment_ids = array();
-		delete_option( 'site_icon' );
+		$this->temp_files = array();
 
 		parent::tearDown();
 	}
@@ -116,9 +116,8 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Write a tiny real PNG to a temp path inside the uploads directory
-	 * so it resolves correctly through WP's attachment-path machinery,
-	 * and track it for cleanup.
+	 * Write a tiny real PNG to a temp path inside the uploads directory,
+	 * tracked for cleanup in tearDown().
 	 *
 	 * @param int $w Width in pixels.
 	 * @param int $h Height in pixels.
@@ -132,32 +131,9 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 		imagepng( $image, $path );
 		imagedestroy( $image );
 
+		$this->temp_files[] = $path;
+
 		return $path;
-	}
-
-	/**
-	 * Create a real attachment (no thumbnails generated) pointing at a
-	 * tiny temp PNG, tracked for cleanup in tearDown().
-	 *
-	 * @param int $w Width in pixels.
-	 * @param int $h Height in pixels.
-	 * @return int Attachment ID.
-	 */
-	private function make_temp_attachment( int $w = 64, int $h = 64 ): int {
-		$path          = $this->make_temp_png( $w, $h );
-		$attachment_id = wp_insert_attachment(
-			array(
-				'post_title'     => basename( $path ),
-				'post_status'    => 'inherit',
-				'post_mime_type' => 'image/png',
-			),
-			$path
-		);
-		$this->assertNotWPError( $attachment_id );
-		$attachment_id          = (int) $attachment_id;
-		$this->attachment_ids[] = $attachment_id;
-
-		return $attachment_id;
 	}
 
 	public function test_venue_and_city_baselines_clear_the_canvas_bottom_edge(): void {
@@ -201,7 +177,16 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 	}
 
 	// -------------------------------------------------------------------
-	// Brand mark resolution (#856): explicit token -> site icon -> text.
+	// Brand mark resolution (#856): pure layout on top of BrandTokens.
+	//
+	// resolve_logo() here only picks a background-appropriate variant
+	// from whatever BrandTokens::get() already resolved and validates
+	// it's a readable image — it does NOT implement the explicit-token
+	// vs. site-icon fallback chain itself. That resolution now lives in
+	// BrandTokens::get() (data-machine), covered by
+	// tests/Unit/Abilities/Media/BrandTokensLogoTest.php there, so every
+	// GD-rendered template gets it, not just this one. See
+	// Extra-Chill/data-machine#3538.
 	// -------------------------------------------------------------------
 
 	public function test_is_dark_hex_classifies_light_and_dark_backgrounds(): void {
@@ -227,31 +212,23 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 		$this->assertSame( 88, $sh );
 	}
 
-	public function test_resolve_logo_prefers_explicit_token_over_site_icon(): void {
+	public function test_resolve_logo_reads_logo_path_on_a_light_background(): void {
 		$token_path = $this->make_temp_png();
-		$this->make_temp_attachment(); // A site icon exists too...
-		update_option( 'site_icon', $this->attachment_ids[0] );
+		$tokens     = array( 'logo_path' => $token_path );
 
-		$tokens = array( 'logo_path' => $token_path );
-		$logo   = $this->invoke_private( 'resolve_logo', $tokens, false, 88 );
+		$logo = $this->invoke_private( 'resolve_logo', $tokens, false );
 
 		$this->assertNotNull( $logo );
-		$this->assertSame( $token_path, $logo['path'], 'Explicit token must win over the site icon when both are present' );
+		$this->assertSame( $token_path, $logo['path'] );
+		$this->assertSame( 64, $logo['width'] );
+		$this->assertSame( 64, $logo['height'] );
 	}
 
-	public function test_resolve_logo_falls_back_to_site_icon_when_no_token(): void {
-		$icon_id = $this->make_temp_attachment();
-		update_option( 'site_icon', $icon_id );
-
-		$logo = $this->invoke_private( 'resolve_logo', array(), false, 88 );
-
-		$this->assertNotNull( $logo, 'Level 2 (site icon) should resolve when no explicit token is supplied' );
-		$this->assertFileExists( $logo['path'] );
-	}
-
-	public function test_resolve_logo_returns_null_when_nothing_is_available(): void {
-		// No token, no site icon — caller must fall back to text, not fatal.
-		$logo = $this->invoke_private( 'resolve_logo', array(), false, 88 );
+	public function test_resolve_logo_returns_null_when_no_token_is_resolved(): void {
+		// BrandTokens::get() already tried explicit token + site icon and
+		// came back empty — this template's only remaining move is to
+		// fall back to text, not fatal.
+		$logo = $this->invoke_private( 'resolve_logo', array(), false );
 
 		$this->assertNull( $logo );
 	}
@@ -263,7 +240,7 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 		$token_path = $this->make_temp_png();
 		$tokens     = array( 'logo_path' => $token_path );
 
-		$logo = $this->invoke_private( 'resolve_logo', $tokens, true, 88 );
+		$logo = $this->invoke_private( 'resolve_logo', $tokens, true );
 
 		$this->assertNull( $logo, 'A light-only token must not be used on a dark background' );
 	}
@@ -275,7 +252,7 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 			'logo_path_inverse' => $inverse_path,
 		);
 
-		$logo = $this->invoke_private( 'resolve_logo', $tokens, true, 88 );
+		$logo = $this->invoke_private( 'resolve_logo', $tokens, true );
 
 		$this->assertNotNull( $logo );
 		$this->assertSame( $inverse_path, $logo['path'] );
@@ -283,15 +260,12 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 
 	public function test_resolve_logo_ignores_a_token_path_that_does_not_exist_on_disk(): void {
 		// DB/config drift: a token points at a file that is no longer
-		// there. Must fall through to the next level, not fatal.
-		$icon_id = $this->make_temp_attachment();
-		update_option( 'site_icon', $icon_id );
-
+		// there. Must fall through to text, not fatal — this template has
+		// no further fallback level of its own to try.
 		$tokens = array( 'logo_path' => '/nonexistent/path/to/logo.png' );
-		$logo   = $this->invoke_private( 'resolve_logo', $tokens, false, 88 );
+		$logo   = $this->invoke_private( 'resolve_logo', $tokens, false );
 
-		$this->assertNotNull( $logo, 'A dangling token path should fall through to the site icon, not fatal' );
-		$this->assertNotSame( '/nonexistent/path/to/logo.png', $logo['path'] );
+		$this->assertNull( $logo );
 	}
 
 	/**

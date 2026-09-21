@@ -13,12 +13,17 @@
  *   - Venue + city, bottom-left, anchored to the canvas bottom
  *   - Brand mark, bottom-right — logo when resolvable, otherwise text
  *
- * Brand mark resolution is a three-level fallback chain (see
- * resolve_logo()): an explicit `logo_path`/`logo_path_inverse` brand
- * token wins when supplied, then the site's core WordPress site icon,
- * then the legacy "<brand_text> · <site_label>" text pairing. Every
- * level degrades to the next rather than fatally erroring or silently
- * rendering nothing.
+ * Brand mark resolution is a three-level fallback chain, split across two
+ * layers: BrandTokens::get() (data-machine) resolves an explicit
+ * `logo_path`/`logo_path_inverse` brand token if one is set, else falls
+ * back to the site's core WordPress site icon — that part is generic to
+ * every GD-rendered template, not just this one (see
+ * Extra-Chill/data-machine#3538). This template only does the layout-level
+ * third of the chain: resolve_logo() picks whichever variant matches this
+ * card's background and guards against an unreadable file, falling back to
+ * the legacy "<brand_text> · <site_label>" text pairing when nothing
+ * usable comes back. Every level degrades to the next rather than fatally
+ * erroring or silently rendering nothing.
  *
  * Required data fields:
  *   - event_name (string)
@@ -276,7 +281,7 @@ class EventOgCardTemplate implements TemplateInterface {
 		$box_right_x  = $width - $padding;
 		$box_bottom_y = $height - self::LOGO_BOTTOM_MARGIN;
 
-		$logo = $this->resolve_logo( $tokens, $bg_is_dark, self::LOGO_MAX_H );
+		$logo = $this->resolve_logo( $tokens, $bg_is_dark );
 
 		if ( null !== $logo ) {
 			[ $draw_w, $draw_h ] = $this->fit_within( $logo['width'], $logo['height'], self::LOGO_MAX_W, self::LOGO_MAX_H );
@@ -389,102 +394,43 @@ class EventOgCardTemplate implements TemplateInterface {
 	/**
 	 * Resolve a brand mark to draw in the bottom-right corner.
 	 *
-	 * Three-level fallback chain, each guarded so a missing or unreadable
-	 * asset falls through to the next level instead of fataling or
-	 * silently rendering nothing:
+	 * Pure layout logic — reads whichever logo `BrandTokens::get()`
+	 * already resolved and picks the variant that matches this card's
+	 * background, guarding against an unreadable file. The resolution
+	 * chain itself (explicit token → WordPress core site icon → nothing)
+	 * lives one layer up in `BrandTokens::get()` (data-machine), not
+	 * here — that capability belongs to every GD-rendered template, not
+	 * just this one. See Extra-Chill/data-machine#3538.
 	 *
-	 *   1. Explicit brand token (`logo_path` for a light background,
-	 *      `logo_path_inverse` for a dark one). Designed for this card at
-	 *      OG scale, so it always wins when the token for the current
-	 *      background variant is supplied and readable. If a token
-	 *      exists but only for the *other* background variant (e.g. a
-	 *      consumer supplied `logo_path` but this card's background is
-	 *      dark and no `logo_path_inverse` exists), it is treated as
-	 *      absent rather than drawn invisibly — that is the whole reason
-	 *      this is a variant pair instead of a single path.
-	 *   2. WordPress core site icon (`site_icon` option → attachment ID
-	 *      → local file path, resolved without an HTTP round-trip).
-	 *      Zero-config: any network site with a site icon set gets a
-	 *      branded card with no token wiring at all.
-	 *   3. Returns null — caller falls back to brand-strip text.
+	 * If a token exists but only for the *other* background variant
+	 * (e.g. `logo_path` is set but this card's background is dark and no
+	 * `logo_path_inverse` exists), it is treated as absent rather than
+	 * drawn invisibly — that is the whole reason it's a variant pair
+	 * instead of a single path. Returning `null` here means the caller
+	 * falls back to brand-strip text.
 	 *
-	 * @param array $tokens      Resolved brand tokens (see BrandTokens::get()).
-	 * @param bool  $bg_is_dark  Whether the card background is dark.
-	 * @param int   $target_h    Approximate final render height, used to
-	 *                           request an appropriately sized site-icon
-	 *                           intermediate image rather than the
-	 *                           original full-size upload.
+	 * @param array $tokens     Resolved brand tokens (see BrandTokens::get()).
+	 * @param bool  $bg_is_dark Whether the card background is dark.
 	 * @return array{path:string,width:int,height:int}|null
 	 */
-	private function resolve_logo( array $tokens, bool $bg_is_dark, int $target_h ): ?array {
-		// Level 1 — explicit brand token, oriented for this background.
+	private function resolve_logo( array $tokens, bool $bg_is_dark ): ?array {
 		$token_key = $bg_is_dark ? 'logo_path_inverse' : 'logo_path';
 		$logo_path = $tokens[ $token_key ] ?? null;
 
-		if ( is_string( $logo_path ) && '' !== $logo_path ) {
-			$dims = $this->readable_image_dims( $logo_path );
-			if ( null !== $dims ) {
-				return array(
-					'path'   => $logo_path,
-					'width'  => $dims[0],
-					'height' => $dims[1],
-				);
-			}
-		}
-
-		// Level 2 — WordPress core site icon. Request roughly double the
-		// final display height so GD's resample in overlay_image() has
-		// real detail to downscale rather than upscaling a thumbnail.
-		$icon_path = $this->resolve_site_icon_path( $target_h * 2 );
-		if ( null !== $icon_path ) {
-			$dims = $this->readable_image_dims( $icon_path );
-			if ( null !== $dims ) {
-				return array(
-					'path'   => $icon_path,
-					'width'  => $dims[0],
-					'height' => $dims[1],
-				);
-			}
-		}
-
-		// Level 3 — caller falls back to brand-strip text.
-		return null;
-	}
-
-	/**
-	 * Resolve a local filesystem path to the site icon at roughly the
-	 * requested pixel size.
-	 *
-	 * WordPress stores the site icon as an attachment ID in the
-	 * `site_icon` option. This resolves the ID to an on-disk file
-	 * directly — never a URL fetch — preferring the closest registered
-	 * intermediate size to `$target_px` and falling back to the original
-	 * upload when no intermediate size is available.
-	 *
-	 * @param int $target_px Approximate desired width/height in pixels.
-	 * @return string|null Absolute path, or null if there is no usable
-	 *                      site icon (unset, or file missing on disk).
-	 */
-	private function resolve_site_icon_path( int $target_px ): ?string {
-		$icon_id = (int) get_option( 'site_icon' );
-		if ( $icon_id <= 0 ) {
+		if ( ! is_string( $logo_path ) || '' === $logo_path ) {
 			return null;
 		}
 
-		$path      = null;
-		$size_data = image_get_intermediate_size( $icon_id, array( $target_px, $target_px ) );
-		if ( is_array( $size_data ) && ! empty( $size_data['path'] ) ) {
-			$upload_dir = wp_upload_dir();
-			if ( empty( $upload_dir['error'] ) ) {
-				$path = trailingslashit( $upload_dir['basedir'] ) . $size_data['path'];
-			}
+		$dims = $this->readable_image_dims( $logo_path );
+		if ( null === $dims ) {
+			return null;
 		}
 
-		if ( null === $path || ! file_exists( $path ) ) {
-			$path = get_attached_file( $icon_id );
-		}
-
-		return ( is_string( $path ) && '' !== $path && file_exists( $path ) ) ? $path : null;
+		return array(
+			'path'   => $logo_path,
+			'width'  => $dims[0],
+			'height' => $dims[1],
+		);
 	}
 
 	/**

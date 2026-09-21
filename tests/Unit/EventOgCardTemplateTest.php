@@ -11,6 +11,19 @@
  * rendered pixels rather than reasoning about the geometry in the
  * abstract.
  *
+ * This suite registers `datamachine/image_template/brand_tokens` with a
+ * bundled test-fixture font (tests/fixtures/fonts/DejaVuSans.ttf) for the
+ * duration of each test. Without it, `register_font()` falls through to
+ * GDRenderer's system fallback path
+ * (/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf), which does not exist
+ * in every CI/sandbox filesystem this suite runs in (confirmed missing in
+ * the WordPress Playground PHP-WASM runner used by this repo's CI — GD
+ * itself has full FreeType support there, `gd_info()['FreeType Support']`
+ * is 1, but `imagettftext()` has nothing to open). A font that can't be
+ * opened draws nothing and every pixel assertion below would read null
+ * regardless of whether the geometry fix is correct — bundling a fixture
+ * font makes the test self-contained instead of dependent on host fonts.
+ *
  * @package DataMachineEvents\Tests\Unit
  * @since   0.90.0
  */
@@ -29,6 +42,51 @@ class EventOgCardTemplateTest extends WP_UnitTestCase {
 	 * height (64).
 	 */
 	private const BRAND_STRIP_Y = 566;
+
+	/**
+	 * Absolute path to the bundled test-fixture font (DejaVu Sans — the
+	 * same font GDRenderer already uses as its system fallback, so this
+	 * is a realistic stand-in, not a synthetic one).
+	 */
+	private const FIXTURE_FONT = __DIR__ . '/../fixtures/fonts/DejaVuSans.ttf';
+
+	public function setUp(): void {
+		parent::setUp();
+
+		$this->assertFileExists(
+			self::FIXTURE_FONT,
+			'Test fixture font is missing — rendering assertions below cannot work without it'
+		);
+
+		add_filter( 'datamachine/image_template/brand_tokens', array( $this, 'provide_fixture_brand_tokens' ) );
+	}
+
+	public function tearDown(): void {
+		remove_filter( 'datamachine/image_template/brand_tokens', array( $this, 'provide_fixture_brand_tokens' ) );
+
+		parent::tearDown();
+	}
+
+	/**
+	 * Supply the bundled fixture font for both the heading and body font
+	 * roles, so GD always has a real, openable font file regardless of
+	 * what (if anything) the host environment provides.
+	 *
+	 * @param array $tokens Default/incoming brand tokens.
+	 * @return array
+	 */
+	public function provide_fixture_brand_tokens( array $tokens ): array {
+		$tokens['fonts'] = array_merge(
+			(array) ( $tokens['fonts'] ?? array() ),
+			array(
+				'heading' => self::FIXTURE_FONT,
+				'body'    => self::FIXTURE_FONT,
+				'brand'   => self::FIXTURE_FONT,
+			)
+		);
+
+		return $tokens;
+	}
 
 	/**
 	 * Render a card and return the temp PNG path.

@@ -598,6 +598,14 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		$this->cleanup( $term_id, $post_id );
 	}
 
+	/**
+	 * `isValidPost()` allow-lists 'future' to match the candidate query
+	 * (see EventDuplicateStrategy::isValidPost()). No 'future' events exist
+	 * in production today (measured blog 7: publish 132,942 / draft 14,450 /
+	 * trash 266 / pending 1 / future 0), but the allow-list is a correctness
+	 * contract, not a data-driven one — a scheduled event fetched by the
+	 * candidate query must not be silently discarded by isValidPost().
+	 */
 	public function test_future_status_event_is_still_a_duplicate(): void {
 		$venue_name = 'Scheduled Event Venue ' . uniqid();
 		[ $term_id, $post_id ] = $this->seedVenueWithEvent(
@@ -607,9 +615,14 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		);
 		wp_update_post(
 			array(
-				'ID'          => $post_id,
-				'post_status' => 'future',
-				'post_date'   => '2027-04-22 21:00:00',
+				'ID'            => $post_id,
+				'post_status'   => 'future',
+				'post_date'     => '2027-04-22 21:00:00',
+				// WP core's post_status coercion (wp-includes/post.php,
+				// wp_insert_post()) keys off post_date_gmt, not post_date.
+				// Without this, WP sees a non-future GMT date and flips
+				// the status back to 'publish' before this test runs.
+				'post_date_gmt' => get_gmt_from_date( '2027-04-22 21:00:00' ),
 			)
 		);
 		EventDatesTable::upsert( $post_id, '2027-04-22 21:00:00' );

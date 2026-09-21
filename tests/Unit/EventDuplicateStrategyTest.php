@@ -598,6 +598,40 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		$this->cleanup( $term_id, $post_id );
 	}
 
+	public function test_future_status_event_is_still_a_duplicate(): void {
+		$venue_name = 'Scheduled Event Venue ' . uniqid();
+		[ $term_id, $post_id ] = $this->seedVenueWithEvent(
+			'Scheduled Showcase',
+			'2027-04-22 21:00:00',
+			$venue_name
+		);
+		wp_update_post(
+			array(
+				'ID'          => $post_id,
+				'post_status' => 'future',
+				'post_date'   => '2027-04-22 21:00:00',
+			)
+		);
+		EventDatesTable::upsert( $post_id, '2027-04-22 21:00:00' );
+		$this->assertSame( 'future', get_post_status( $post_id ) );
+
+		$result = EventDuplicateStrategy::check(
+			array(
+				'title'   => 'Scheduled Showcase',
+				'context' => array(
+					'venue'     => $venue_name,
+					'startDate' => '2027-04-22T21:00:00',
+					'ticketUrl' => '',
+				),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'duplicate', $result['verdict'] );
+		$this->assertSame( $post_id, $result['match']['post_id'] );
+		$this->cleanup( $term_id, $post_id );
+	}
+
 	/**
 	 * Same title + same venue + same date, start times within the 2-hour
 	 * window → IS a duplicate.

@@ -280,8 +280,8 @@ class EventOgCardTemplate implements TemplateInterface {
 
 		if ( null !== $logo ) {
 			[ $draw_w, $draw_h ] = $this->fit_within( $logo['width'], $logo['height'], self::LOGO_MAX_W, self::LOGO_MAX_H );
-			$logo_x = $box_right_x - $draw_w;
-			$logo_y = $box_bottom_y - $draw_h;
+			$logo_x              = $box_right_x - $draw_w;
+			$logo_y              = $box_bottom_y - $draw_h;
 			$renderer->overlay_image( $logo['path'], $logo_x, $logo_y, $draw_w, $draw_h, 100 );
 		} else {
 			// Level 3 — no logo resolved from a token or the site icon.
@@ -471,8 +471,8 @@ class EventOgCardTemplate implements TemplateInterface {
 			return null;
 		}
 
-		$path       = null;
-		$size_data  = image_get_intermediate_size( $icon_id, array( $target_px, $target_px ) );
+		$path      = null;
+		$size_data = image_get_intermediate_size( $icon_id, array( $target_px, $target_px ) );
 		if ( is_array( $size_data ) && ! empty( $size_data['path'] ) ) {
 			$upload_dir = wp_upload_dir();
 			if ( empty( $upload_dir['error'] ) ) {

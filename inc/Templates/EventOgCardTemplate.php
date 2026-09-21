@@ -242,13 +242,18 @@ class EventOgCardTemplate implements TemplateInterface {
 		$has_venue = '' !== $venue;
 		$has_city  = '' !== $city;
 
+		// Default: whichever line is drawn alone sits at the single-line
+		// anchor (bottom_clearance above the strip). When both lines are
+		// present, city stays at that anchor as the last line and venue
+		// is recomputed to stack above it. Defining both up front — rather
+		// than only inside the venue/city branches below — means the
+		// venue-absent and city-absent cases each still resolve to a real,
+		// correctly positioned baseline instead of an unset variable.
+		$venue_baseline = $brand_strip_y - $bottom_clearance;
+		$city_baseline  = $brand_strip_y - $bottom_clearance;
+
 		if ( $has_venue && $has_city ) {
-			$city_baseline  = $brand_strip_y - $bottom_clearance;
 			$venue_baseline = $city_baseline - $baseline_gap;
-		} elseif ( $has_city ) {
-			$city_baseline = $brand_strip_y - $bottom_clearance;
-		} elseif ( $has_venue ) {
-			$venue_baseline = $brand_strip_y - $bottom_clearance;
 		}
 
 		if ( $has_venue ) {

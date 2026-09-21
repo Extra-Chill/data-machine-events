@@ -218,31 +218,56 @@ class EventOgCardTemplate implements TemplateInterface {
 		}
 
 		// Venue + city in surface footer band.
+		//
+		// Anchored bottom-up from $brand_strip_y instead of top-down from
+		// $footer_band_y: the last line's baseline is placed a fixed
+		// clearance above the strip, so the block can never collide with
+		// it regardless of how many lines are present. A top-down offset
+		// (the previous approach) stays correct only for as long as nobody
+		// changes a font size — anchoring to the strip is self-correcting.
 		$venue = $this->normalize_text( $data['venue'] ?? '' );
 		$city  = $this->normalize_text( $data['city'] ?? '' );
 
 		$venue_font_size = 34;
 		$city_font_size  = 26;
-		$venue_y         = $footer_band_y + 40;
 
-		if ( '' !== $venue ) {
+		// Vertical gap between the last text baseline and the top of the
+		// brand strip. Sized to clear descenders (~20% of font size, so
+		// ~7px for the 34px venue line) with comfortable margin to spare.
+		$bottom_clearance = 16;
+		// Baseline-to-baseline distance between the venue and city lines
+		// when both are present. Matches the original design's spacing.
+		$baseline_gap = 44;
+
+		$has_venue = '' !== $venue;
+		$has_city  = '' !== $city;
+
+		if ( $has_venue && $has_city ) {
+			$city_baseline  = $brand_strip_y - $bottom_clearance;
+			$venue_baseline = $city_baseline - $baseline_gap;
+		} elseif ( $has_city ) {
+			$city_baseline = $brand_strip_y - $bottom_clearance;
+		} elseif ( $has_venue ) {
+			$venue_baseline = $brand_strip_y - $bottom_clearance;
+		}
+
+		if ( $has_venue ) {
 			$renderer->draw_text(
 				$venue,
 				$venue_font_size,
 				$padding,
-				$venue_y + $venue_font_size,
+				$venue_baseline,
 				$text_pri,
 				'header'
 			);
 		}
 
-		if ( '' !== $city ) {
-			$city_y = '' !== $venue ? $venue_y + $venue_font_size + 18 : $venue_y;
+		if ( $has_city ) {
 			$renderer->draw_text(
 				$city,
 				$city_font_size,
 				$padding,
-				$city_y + $city_font_size,
+				$city_baseline,
 				$text_mute,
 				'body'
 			);

@@ -10,6 +10,8 @@
 
 namespace DataMachineEvents\Tests\Unit;
 
+require_once __DIR__ . '/EventUpsertTestCase.php';
+
 use DataMachine\Core\EngineData;
 use DataMachineEvents\Steps\Upsert\Events\EventUpsert;
 use DataMachineEvents\Steps\EventImport\EventEngineData;

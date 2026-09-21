@@ -13,6 +13,8 @@
 
 namespace DataMachineEvents\Tests\Unit;
 
+require_once __DIR__ . '/EventUpsertTestCase.php';
+
 class EventUpsertFallbackDedupeTest extends EventUpsertTestCase {
 
 	public function test_fallback_reuses_legacy_event_missing_source_identity(): void {

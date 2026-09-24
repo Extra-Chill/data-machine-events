@@ -140,7 +140,7 @@ class EventSchemaProvider {
 		'ticketUrl'         => array(
 			'type'            => 'string',
 			'required'        => false,
-			'description'     => 'URL to purchase tickets',
+			'description'     => 'URL to purchase tickets. Copy the destination URL exactly as given in the source data, character for character — never retype, paraphrase, re-encode, or reconstruct it, and never invent an affiliate/redirect wrapper URL yourself. Leave empty when no ticket URL is available.',
 			'schema_property' => 'offers.url',
 		),
 		'offerAvailability' => array(
@@ -194,7 +194,7 @@ class EventSchemaProvider {
 		'organizerUrl'  => array(
 			'type'            => 'string',
 			'required'        => false,
-			'description'     => 'Website URL of the event organizer',
+			'description'     => 'Website URL of the event organizer, only when a genuinely distinct organizer/promoter website is known from the source data. Never reuse, copy, or paraphrase ticketUrl or any other URL field for this — most Ticketmaster/box-office promoters have no separate website. Leave this empty rather than guess. If a distinct organizer URL is known, copy it exactly as given, character for character; never retype or reconstruct it.',
 			'schema_property' => 'organizer.url',
 		),
 	);
@@ -718,7 +718,13 @@ class EventSchemaProvider {
 	 * Ticketmaster's affiliate agreement prohibits publishing those wrapper
 	 * URLs in raw, machine-readable structured data, so this never emits an
 	 * affiliate URL. Mirrors the resolver in extrachill-seo (issue #58) —
-	 * both must agree on the emitted URL for the same event.
+	 * both must agree on the emitted URL for the same event, which is why
+	 * both call the FAITHFUL unwrap variant (`datamachine_unwrap_affiliate_url_faithful()`,
+	 * exported globally via `public-api.php`): this is a display consumer,
+	 * not a comparison consumer, so it must not use the aggressive
+	 * dedup-oriented decode (issue #824) — a nested-encoded inner
+	 * destination (e.g. a SeatGeek `dd_referrer=` param) would otherwise be
+	 * emitted decoded differently than it was stored.
 	 *
 	 * Resolution order:
 	 * 1. Not an affiliate URL — the (normalized) ticket URL unchanged.
@@ -728,8 +734,12 @@ class EventSchemaProvider {
 	 *    raw affiliate wrapper is never emitted.
 	 *
 	 * @since 0.65.0
+	 * @since 0.65.1 Switched to the faithful (single-decode) unwrap variant
+	 *              so this agrees byte-for-byte with extrachill-seo on
+	 *              nested-encoded destinations (issue #824).
 	 *
 	 * @see https://github.com/Extra-Chill/data-machine-events/issues/862
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/824
 	 *
 	 * @param string $ticket_url Raw ticket URL from the event-details block.
 	 * @param int    $post_id    Event post ID, used for the permalink fallback.
@@ -742,7 +752,7 @@ class EventSchemaProvider {
 			return $ticket_url;
 		}
 
-		$unwrapped = datamachine_unwrap_affiliate_url( $ticket_url );
+		$unwrapped = datamachine_unwrap_affiliate_url_faithful( $ticket_url );
 
 		if ( $unwrapped !== $ticket_url && false !== filter_var( $unwrapped, FILTER_VALIDATE_URL ) ) {
 			return $unwrapped;

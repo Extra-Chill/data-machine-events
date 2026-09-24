@@ -2,6 +2,21 @@
 
 All notable changes to Data Machine Events will be documented in this file.
 
+## [0.64.6] - 2026-09-24
+
+### Fixed
+- discard unreconstructable corrupted affiliate redirects at write time
+
+## [0.64.5] - 2026-09-24
+
+### Fixed
+- split comparison vs. redirect affiliate-URL decode; harden dedup meta key
+
+## [0.64.4] - 2026-09-24
+
+### Fixed
+- make wrong-disposition-id assertion meaningful under single-claim inference
+
 ## [0.64.3] - 2026-09-23
 
 ### Fixed

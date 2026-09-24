@@ -25,8 +25,8 @@ namespace DataMachineEvents\Abilities;
 
 use DataMachineEvents\Abilities\EventDateQueryAbilities;
 use DataMachineEvents\Core\Event_Post_Type;
-use const DataMachineEvents\Core\EVENT_TICKET_URL_META_KEY;
 use function DataMachineEvents\Core\datamachine_normalize_ticket_url;
+use const DataMachineEvents\Core\EVENT_TICKET_URL_META_KEY;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

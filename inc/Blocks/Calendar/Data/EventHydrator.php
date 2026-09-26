@@ -38,7 +38,9 @@ class EventHydrator {
 
 		foreach ( $blocks as $block ) {
 			if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === $block['blockName'] ) {
-				$event_data = $block['attrs'];
+				// Invalid block comment JSON parses as null attrs (#870); fall
+				// back to table/taxonomy hydration instead of fataling.
+				$event_data = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
 				break;
 			}
 		}

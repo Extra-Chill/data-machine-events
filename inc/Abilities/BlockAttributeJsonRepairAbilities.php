@@ -141,6 +141,7 @@ class BlockAttributeJsonRepairAbilities {
 		$rebuilt = str_replace( $match[0], $comment, $content );
 		foreach ( parse_blocks( $rebuilt ) as $block ) {
 			if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === $block['blockName'] ) {
+				// @phpstan-ignore function.alreadyNarrowedType (WP stubs type attrs as array; invalid comment JSON parses to null in practice, #870.)
 				return is_array( $block['attrs'] ) && $block['attrs'] == $attrs // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual -- key order may differ; values compared.
 					? array(
 						'content' => $rebuilt,
@@ -153,6 +154,23 @@ class BlockAttributeJsonRepairAbilities {
 	}
 
 	/**
+	 * Whether the Event Details block's comment JSON fails to decode.
+	 *
+	 * Checked on the raw comment, not parse_blocks() attrs: WordPress types
+	 * attrs as always-array, which is exactly what fails here (#870).
+	 *
+	 * @param string $content Post content.
+	 * @return bool
+	 */
+	public static function hasCorruptedDetails( string $content ): bool {
+		$name = preg_quote( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME, '#' );
+		if ( ! preg_match( '#<!-- wp:' . $name . ' (\{.*?\}) /?-->#s', $content, $match ) ) {
+			return false;
+		}
+		return ! is_array( json_decode( $match[1], true ) );
+	}
+
+	/**
 	 * Scan published events and repair corrupted Event Details JSON.
 	 *
 	 * @param array $input dry_run, limit.
@@ -160,20 +178,21 @@ class BlockAttributeJsonRepairAbilities {
 	 */
 	public function executeRepair( array $input ): array {
 		global $wpdb;
-		$dry_run = (bool) ( $input['dry_run'] ?? true );
-		$limit   = (int) ( $input['limit'] ?? -1 );
-		$ids     = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- bounded one-off repair scan.
+		$dry_run      = (bool) ( $input['dry_run'] ?? true );
+		$limit        = (int) ( $input['limit'] ?? -1 );
+		$scanned      = 0;
+		$repaired     = 0;
+		$changes      = array();
+		$unrepairable = array();
+		$ids          = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- bounded one-off repair scan.
 			$wpdb->prepare(
 				"SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_status = 'publish' AND post_content LIKE %s ORDER BY ID",
 				Event_Post_Type::POST_TYPE,
 				'%' . $wpdb->esc_like( '<!-- wp:' . Event_Post_Type::EVENT_DETAILS_BLOCK_NAME . ' {' ) . '%'
 			)
 		);
-		$scanned      = 0;
-		$changes      = array();
-		$unrepairable = array();
 		foreach ( $ids as $id ) {
-			if ( $limit > 0 && count( $changes ) >= $limit ) {
+			if ( $limit > 0 && $repaired >= $limit ) {
 				break;
 			}
 			++$scanned;
@@ -181,14 +200,7 @@ class BlockAttributeJsonRepairAbilities {
 			if ( ! $post ) {
 				continue;
 			}
-			$broken = false;
-			foreach ( parse_blocks( $post->post_content ) as $block ) {
-				if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === $block['blockName'] ) {
-					$broken = ! is_array( $block['attrs'] );
-					break;
-				}
-			}
-			if ( ! $broken ) {
+			if ( ! self::hasCorruptedDetails( (string) $post->post_content ) ) {
 				continue;
 			}
 			$repair = self::repairContent( $post->post_content );
@@ -211,6 +223,7 @@ class BlockAttributeJsonRepairAbilities {
 					continue;
 				}
 			}
+			++$repaired;
 			$changes[] = array(
 				'post_id'   => (int) $post->ID,
 				'title'     => $post->post_title,

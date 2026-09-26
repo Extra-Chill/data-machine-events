@@ -40,6 +40,7 @@ class EventHydrator {
 			if ( Event_Post_Type::EVENT_DETAILS_BLOCK_NAME === $block['blockName'] ) {
 				// Invalid block comment JSON parses as null attrs (#870); fall
 				// back to table/taxonomy hydration instead of fataling.
+				// @phpstan-ignore function.alreadyNarrowedType, nullCoalesce.offset (WP stubs type attrs as array; see #870.)
 				$event_data = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
 				break;
 			}

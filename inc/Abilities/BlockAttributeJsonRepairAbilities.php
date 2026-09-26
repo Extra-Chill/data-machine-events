@@ -36,9 +36,7 @@ class BlockAttributeJsonRepairAbilities {
 	}
 
 	private function registerAbility(): void {
-		add_action(
-			'wp_abilities_api_init',
-			function () {
+		$register_callback = function () {
 				wp_register_ability(
 					'data-machine-events/repair-event-details-json',
 					array(
@@ -80,8 +78,9 @@ class BlockAttributeJsonRepairAbilities {
 						'meta'                => array( 'show_in_rest' => true ),
 					)
 				);
-			}
-		);
+		};
+
+		add_action( 'wp_abilities_api_init', $register_callback );
 	}
 
 	/**

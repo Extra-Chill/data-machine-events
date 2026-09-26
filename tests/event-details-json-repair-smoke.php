@@ -10,7 +10,7 @@ namespace {
 }
 
 namespace DataMachineEvents\Core {
-	class Event_Post_Type { const EVENT_DETAILS_BLOCK_NAME = 'data-machine-events/event-details'; const POST_TYPE = 'data_machine_events'; }
+	class Event_Post_Type { const EVENT_DETAILS_BLOCK_NAME = 'data-machine-events/event-details'; }
 }
 
 namespace {

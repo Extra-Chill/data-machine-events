@@ -65,8 +65,11 @@ class EventProseSectionsTest extends WP_UnitTestCase {
 		if ( '' !== $state ) {
 			$meta['state'] = $state;
 		}
-		if ( ! empty( $meta ) ) {
-			Venue_Taxonomy::update_venue_meta( $term_id, $meta );
+		// Seed meta directly: VenueProfileMutations (behind update_venue_meta)
+		// refuses to run inside an open SQL transaction, which every
+		// WP_UnitTestCase test is, so it would silently write nothing.
+		foreach ( $meta as $field => $value ) {
+			update_term_meta( $term_id, Venue_Taxonomy::$meta_fields[ $field ], $value );
 		}
 
 		return $term_id;

@@ -204,7 +204,7 @@ class EventProseSectionsTest extends WP_UnitTestCase {
 		$artist_id = $this->seed_artist( 'Sparse Act' );
 		$post_id   = $this->seed_event( 'Sparse Act at Quiet Hall', '2027-08-05 20:00:00', $venue_id, $artist_id );
 
-		// No other events anywhere: tour, venue-upcoming, venue-past, and
+		// No other events anywhere: tour, venue-past, and
 		// artist-city slices are all empty. Nothing may render at all —
 		// no wrapper div, no heading, no filler text.
 		$html = $this->render_block_template( $post_id );
@@ -215,7 +215,7 @@ class EventProseSectionsTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'No related shows found', $html );
 	}
 
-	public function test_venue_upcoming_and_context_sections_render_with_data(): void {
+	public function test_venue_context_renders_and_upcoming_venue_shows_are_not_duplicated(): void {
 		$venue_id = $this->seed_venue( 'Charleston Pour House', 'Charleston', 'SC' );
 		$post_id  = $this->seed_event( 'Tonight at the Pour House', '2027-09-01 20:00:00', $venue_id );
 
@@ -224,8 +224,11 @@ class EventProseSectionsTest extends WP_UnitTestCase {
 
 		$html = ProseSections::render( $post_id );
 
-		$this->assertStringContainsString( 'event-prose--venue-upcoming', $html );
-		$this->assertStringContainsString( get_permalink( $other_upcoming ), $html );
+		// Upcoming shows at the venue are the theme's "More at {venue}" cards;
+		// the prose must not repeat that list.
+		$this->assertStringNotContainsString( 'event-prose--venue-upcoming', $html );
+		$this->assertStringNotContainsString( get_permalink( $other_upcoming ), $html );
+		$this->assertStringContainsString( 'event-prose--venue-context', $html );
 		$this->assertStringContainsString( 'is located in Charleston, SC.', $html );
 		$this->assertStringContainsString( 'Recent shows at Charleston Pour House include', $html );
 		$this->assertStringContainsString( get_permalink( $past_show ), $html );
@@ -259,7 +262,7 @@ class EventProseSectionsTest extends WP_UnitTestCase {
 		$post_id   = $this->seed_event( 'Dead Cover Band at The Granada', '2027-11-01 20:00:00', $venue_id, $artist_id );
 		$this->seed_event( 'Dead Cover Band tomorrow night', '2027-11-02 20:00:00', $venue_id, $artist_id );
 
-		// Cold render: builds the payload. Budget is 4 bounded section queries
+		// Cold render: builds the payload. Budget is 3 bounded section queries
 		// plus per-row date/term point lookups; allow generous headroom for
 		// cached-post hydration but keep the ceiling explicit.
 		$this->start_query_capture();

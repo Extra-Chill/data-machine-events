@@ -11,11 +11,14 @@
  *
  *  - Other dates on this tour   → artist term + the canonical
  *                                 data_machine_events_query_events() query.
- *  - What else is at this venue → venue term + the same query primitive.
  *  - Venue context              → Venue_Taxonomy::get_venue_data() (city/state)
  *                                 plus a bounded past-events query.
  *  - Artist history in city     → bounded past-events query for the artist,
  *                                 city-matched through each event's venue term.
+ *
+ * Upcoming shows at the same venue are deliberately not a section: the theme's
+ * "More at {venue}" related-events cards already list them, and repeating that
+ * list as prose would duplicate the page.
  *
  * The sections are the renderer's default and only behavior: each one degrades
  * to nothing when its data is missing, so a section with no rows emits zero
@@ -25,7 +28,7 @@
  * transients keyed with CalendarCache::get_generation(), so any event save,
  * term change, or venue edit (CacheInvalidator) drops them automatically.
  *
- * Query budget per cold render: 4 bounded section queries (page sizes 4/4/2/8
+ * Query budget per cold render: 3 bounded section queries (page sizes 4/2/8
  * over the indexed event-date + term-relationship joins), per-post date point
  * lookups for displayed rows, and one batched venue-term lookup. A warm cache
  * hit performs zero section queries.
@@ -49,7 +52,6 @@ class ProseSections {
 
 	private const CACHE_TTL         = HOUR_IN_SECONDS;
 	private const TOUR_LIMIT        = 4;
-	private const VENUE_UP_LIMIT    = 4;
 	private const VENUE_PAST_LIMIT  = 2;
 	private const ARTIST_PAST_LIMIT = 8;
 	private const MAX_LINKS         = 3;
@@ -150,7 +152,6 @@ class ProseSections {
 			'city'            => '',
 			'state'           => '',
 			'tour_events'     => array(),
-			'venue_upcoming'  => array(),
 			'venue_past'      => array(),
 			'artist_past'     => array(),
 			'artist_city_map' => array(),
@@ -198,9 +199,8 @@ class ProseSections {
 		}
 
 		if ( $venue_term_id > 0 ) {
-			$venue_filter              = array( 'venue' => array( $venue_term_id ) );
-			$payload['venue_upcoming'] = self::upcoming_events( $venue_filter, $post_id, self::VENUE_UP_LIMIT );
-			$payload['venue_past']     = self::hydrate_events( self::past_event_ids( $venue_filter, $post_id, self::VENUE_PAST_LIMIT ) );
+			$venue_filter          = array( 'venue' => array( $venue_term_id ) );
+			$payload['venue_past'] = self::hydrate_events( self::past_event_ids( $venue_filter, $post_id, self::VENUE_PAST_LIMIT ) );
 		}
 
 		if ( $venue_term_id > 0 && '' !== $payload['city'] && ! empty( $payload['artist_past'] ) ) {
@@ -229,19 +229,6 @@ class ProseSections {
 					$payload['artist_name']
 				),
 				'paragraphs' => $tour,
-			);
-		}
-
-		$venue_up = self::venue_upcoming_paragraphs( $payload );
-		if ( ! empty( $venue_up ) ) {
-			$sections[] = array(
-				'id'         => 'venue-upcoming',
-				'heading'    => sprintf(
-					/* translators: %s: venue name. */
-					__( 'What else is coming to %s', 'data-machine-events' ),
-					$payload['venue_name']
-				),
-				'paragraphs' => $venue_up,
 			);
 		}
 
@@ -311,32 +298,6 @@ class ProseSections {
 		}
 
 		return array( $sentence );
-	}
-
-	/**
-	 * "What else is coming to this venue" paragraphs.
-	 *
-	 * @param array $payload Raw payload.
-	 * @return string[] Paragraph HTML pieces, or [] when no data.
-	 */
-	private static function venue_upcoming_paragraphs( array $payload ): array {
-		if ( '' === $payload['venue_name'] || empty( $payload['venue_upcoming'] ) ) {
-			return array();
-		}
-
-		$list = self::linked_event_list( $payload['venue_upcoming'] );
-		if ( '' === $list ) {
-			return array();
-		}
-
-		return array(
-			sprintf(
-				/* translators: 1: venue name, 2: linked upcoming event list. */
-				__( '%1$s has more live music on the calendar, including %2$s.', 'data-machine-events' ),
-				esc_html( $payload['venue_name'] ),
-				$list
-			),
-		);
 	}
 
 	/**

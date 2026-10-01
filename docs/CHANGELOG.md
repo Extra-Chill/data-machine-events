@@ -2,6 +2,121 @@
 
 All notable changes to Data Machine Events will be documented in this file.
 
+## [0.64.10] - 2026-10-01
+
+### Fixed
+- honor curated venue source aliases so corrections survive re-imports
+
+## [0.64.9] - 2026-09-30
+
+### Fixed
+- send plain-text titles and venues to calendar apps
+
+## [0.64.8] - 2026-09-26
+
+### Fixed
+- guard null Event Details attrs; repair 132 events with corrupted block JSON
+
+## [0.64.7] - 2026-09-24
+
+### Fixed
+- render an event's end time and multi-day end date on the single-event page
+
+## [0.64.6] - 2026-09-24
+
+### Fixed
+- discard unreconstructable corrupted affiliate redirects at write time
+
+## [0.64.5] - 2026-09-24
+
+### Fixed
+- split comparison vs. redirect affiliate-URL decode; harden dedup meta key
+
+## [0.64.4] - 2026-09-24
+
+### Fixed
+- make wrong-disposition-id assertion meaningful under single-claim inference
+
+## [0.64.3] - 2026-09-23
+
+### Fixed
+- never emit affiliate ticket URL in event JSON-LD offers.url
+
+## [0.64.2] - 2026-09-22
+
+### Fixed
+- grant id-token so the shared release workflow can start
+
+## [0.64.1] - 2026-09-22
+
+### Fixed
+- derive update-event CLI flags from the ability's input schema
+
+## [0.64.0] - 2026-09-22
+
+### Added
+- simplify event OG card and make branding a pluggable logo token
+
+## [0.63.6] - 2026-09-21
+
+### Fixed
+- stop venue/city text clipping the OG card brand strip
+
+## [0.63.5] - 2026-09-21
+
+### Fixed
+- stop destroying array-typed schema fields with a blanket string cast
+
+## [0.63.4] - 2026-09-21
+
+### Fixed
+- normalise non-array occurrenceDates before count() to stop HTTP 500s
+
+## [0.63.3] - 2026-09-21
+
+### Fixed
+- honour organizer fields on upsert-event promoter assignment
+
+## [0.63.2] - 2026-09-21
+
+### Fixed
+- catch title-contract + venue + datetime collisions in fallback dedupe
+
+## [0.63.1] - 2026-09-21
+
+### Changed
+- add continuous release pipeline
+
+### Fixed
+- decode HTML entities in event ingestion text before storage
+
+## [0.63.0] - 2026-09-19
+
+### Added
+- skip term classification for events that already happened
+
+## [0.62.1] - 2026-09-18
+
+### Fixed
+- stop writing fabricated series-range ends onto single event occurrences
+- resolve calendar multi-day span policy and merge continuations into their date groups
+
+## [0.62.0] - 2026-09-18
+
+### Added
+- store canonical ticket URLs, assemble affiliate wrapper at resolve time
+- JS-gate affiliate ticket links for Ticketmaster compliance
+
+### Changed
+- consolidate remaining event-details block-name literals onto Event_Post_Type::EVENT_DETAILS_BLOCK_NAME
+- pay down phpstan lint baseline to zero (issue #767) — round 2
+
+### Fixed
+- set EventsMap data-initialized only after listeners attach; add data-machine-map-ready + dataset self-heal
+- classify after-midnight same-night ends as single-day in the calendar
+- detect and repair affiliate redirects with punctuation-stripped destinations
+- stop embedding affiliate ticket URLs in add-to-calendar deeplinks and .ics exports
+
 ## [0.61.5] - 2026-09-09
 
 ### Fixed

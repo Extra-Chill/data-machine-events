@@ -55,6 +55,16 @@ class CheckQualityCommand {
 	 *   - missing_venue
 	 *   - duplicates
 	 *   - corrupted_affiliate_redirect
+	 *   - long_span_no_occurrences
+	 *   - entity_title
+	 * ---
+	 *
+	 * [--max-span-hours=<hours>]
+	 * : Threshold for the long_span_no_occurrences rule: flag published
+	 * upcoming occurrences with no occurrenceDates spanning more than this
+	 * many hours.
+	 * ---
+	 * default: 48
 	 * ---
 	 *
 	 * [--limit=<limit>]
@@ -85,6 +95,7 @@ class CheckQualityCommand {
 				'location_term_id' => (int) ( $assoc_args['location-term-id'] ?? 0 ),
 				'issue'            => $assoc_args['issue'] ?? 'all',
 				'limit'            => (int) ( $assoc_args['limit'] ?? 25 ),
+				'max_span_hours'   => (int) ( $assoc_args['max-span-hours'] ?? 48 ),
 			)
 		);
 
@@ -128,10 +139,39 @@ class CheckQualityCommand {
 				'Category' => 'Corrupted Affiliate Redirects',
 				'Count'    => $result['corrupted_affiliate_redirect']['count'] ?? 0,
 			),
+			array(
+				'Category' => 'Long Spans (No occurrenceDates)',
+				'Count'    => $result['long_span_no_occurrences']['count'] ?? 0,
+			),
+			array(
+				'Category' => 'Entity-Bearing Titles',
+				'Count'    => $result['entity_title']['count'] ?? 0,
+			),
 		);
 
 		\WP_CLI\Utils\format_items( 'table', $rows, array( 'Category', 'Count' ) );
 		\WP_CLI::log( '' );
+
+		if ( ! empty( $result['long_span_no_occurrences']['events'] ) ) {
+			\WP_CLI::log( sprintf(
+				'--- Long Spans — More Than %d Hours, No occurrenceDates (probable series-range leak, issue #199) ---',
+				$result['long_span_no_occurrences']['max_span_hours'] ?? 48
+			) );
+			$span_rows = array();
+			foreach ( $result['long_span_no_occurrences']['events'] as $event ) {
+				$flow_id     = (int) ( $event['flow_id'] ?? 0 );
+				$span_rows[] = array(
+					'ID'    => $event['id'] ?? 0,
+					'Title' => mb_substr( (string) ( $event['title'] ?? '' ), 0, 40 ),
+					'Start' => (string) ( $event['start_datetime'] ?? '' ),
+					'End'   => (string) ( $event['end_datetime'] ?? '' ),
+					'Hours' => (int) ( $event['span_hours'] ?? 0 ),
+					'Flow'  => $flow_id > 0 ? $flow_id : '—',
+				);
+			}
+			\WP_CLI\Utils\format_items( 'table', $span_rows, array( 'ID', 'Title', 'Start', 'End', 'Hours', 'Flow' ) );
+			\WP_CLI::log( '' );
+		}
 
 		if ( ! empty( $result['corrupted_affiliate_redirect']['events'] ) ) {
 			\WP_CLI::log( '--- Corrupted Affiliate Redirects ---' );
@@ -145,6 +185,23 @@ class CheckQualityCommand {
 				);
 			}
 			\WP_CLI\Utils\format_items( 'table', $redirect_rows, array( 'ID', 'Title', 'Attribute', 'Value' ) );
+			\WP_CLI::log( '' );
+		}
+
+		if ( ! empty( $result['entity_title']['events'] ) ) {
+			\WP_CLI::log( '--- Entity-Bearing Titles (stored HTML entities, issue #844) ---' );
+			$entity_rows = array();
+			foreach ( $result['entity_title']['events'] as $event ) {
+				$flow_id       = (int) ( $event['flow_id'] ?? 0 );
+				$entity_rows[] = array(
+					'ID'    => $event['id'] ?? 0,
+					'Title' => mb_substr( (string) ( $event['title'] ?? '' ), 0, 50 ),
+					'Flow'  => $flow_id > 0 ? $flow_id : '—',
+				);
+			}
+			\WP_CLI\Utils\format_items( 'table', $entity_rows, array( 'ID', 'Title', 'Flow' ) );
+			\WP_CLI::log( '' );
+			\WP_CLI::log( 'Fix with: wp data-machine-events repair-entity-titles' );
 			\WP_CLI::log( '' );
 		}
 

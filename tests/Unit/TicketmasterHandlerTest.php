@@ -340,14 +340,43 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 		$this->assertSame( 1, RunMetrics::fromJob( ( new Jobs() )->get_job( $job_id ) )['counts']['processed'] );
 	}
 
+	/**
+	 * Issue #864: `ProcessedItems::resolve_disposition_claim()` binds a
+	 * garbled/wrong disposition_id to the sole active claim whenever exactly
+	 * one is active (data-machine#3544 — LLMs miscopy the 64-char sha256 id
+	 * at a steady rate, so a single active claim can only mean that packet).
+	 * A wrong-identity assertion is only a real assertion when a second,
+	 * distinct claim is active on the same job — otherwise "wrong" and
+	 * "inferred" are indistinguishable and the assertion is meaningless
+	 * against current, intentional resolver behavior. This claims a decoy
+	 * item alongside the target so the wrong id genuinely fails to resolve.
+	 */
 	public function test_reject_and_defer_resolve_exact_ticketmaster_disposition(): void {
 		foreach ( array( 'reject_source', 'defer_item' ) as $disposition ) {
-			$item_id = 'TM-' . $disposition . '-' . uniqid();
-			$job_id  = $this->createJob( 'Ticketmaster ' . $disposition );
-			$packets = ( new TicketmasterHandlerTestDouble( array( 0 => $this->ticketmasterPage( array( $this->ticketmasterEvent( $item_id, 'Disposition Event' ) ) ) ) ) )
-				->get_fetch_data( 1, $this->handlerConfig( '32.7765,-79.9311', $disposition . '-fetch' ), (string) $job_id );
-			$packet = $packets[0]->addTo( array() )[0];
-			$this->assertTrue( StepLifecycleHandler::handleInlineContinuation( $job_id, array( 'step_type' => 'event_import' ), array( $packet ) ) );
+			$item_id  = 'TM-' . $disposition . '-' . uniqid();
+			$decoy_id = 'TM-' . $disposition . '-decoy-' . uniqid();
+			$job_id   = $this->createJob( 'Ticketmaster ' . $disposition );
+			$packets  = ( new TicketmasterHandlerTestDouble(
+				array(
+					0 => $this->ticketmasterPage(
+						array(
+							$this->ticketmasterEvent( $item_id, 'Disposition Event' ),
+							$this->ticketmasterEvent( $decoy_id, 'Decoy Disposition Event' ),
+						)
+					),
+				)
+			) )->get_fetch_data( 1, $this->handlerConfig( '32.7765,-79.9311', $disposition . '-fetch' ), (string) $job_id );
+			$this->assertCount( 2, $packets );
+			$packet_arrays = array_map( static fn( $p ): array => $p->addTo( array() )[0], $packets );
+			$packet        = null;
+			foreach ( $packet_arrays as $candidate ) {
+				if ( $item_id === ( $candidate['metadata']['source_item_id'] ?? null ) ) {
+					$packet = $candidate;
+					break;
+				}
+			}
+			$this->assertNotNull( $packet, 'Target packet must be present alongside the decoy claim.' );
+			$this->assertTrue( StepLifecycleHandler::handleInlineContinuation( $job_id, array( 'step_type' => 'event_import' ), $packet_arrays ) );
 			$disposition_id = $packet['metadata'][ ProcessedItems::DISPOSITION_ID_METADATA_KEY ];
 			$tool           = new FetchItemDispositionTool();
 			$wrong          = $tool->handle_tool_call(
@@ -733,6 +762,53 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertEquals( 'No Venue Event', $result['title'] );
 		$this->assertEquals( '', $result['venue'] ?? '' );
+	}
+
+	/**
+	 * Issue #818: the Discovery API returns an Impact Radius affiliate
+	 * wrapper (our API key is affiliate-linked). The handler must store the
+	 * CANONICAL vendor URL — no affiliate ID may be frozen into post_content.
+	 */
+	public function test_map_event_stores_canonical_url_from_affiliate_wrapper() {
+		$method    = $this->getProtectedMethod( 'map_ticketmaster_event' );
+		$canonical = 'https://www.ticketmaster.com/event/Z7r9jZ1A7JFo-';
+
+		$api_event                  = $this->ticketmasterEvent( 'TM818', 'Canonical Storage Event' );
+		$api_event['url']           = 'https://ticketmaster.evyy.net/c/1191134/264167/4272?u=' . rawurlencode( $canonical ) . '&utm_medium=affiliate';
+
+		$result = $method->invoke( $this->handler, $api_event );
+
+		$this->assertSame( $canonical, $result['ticketUrl'], 'Import must store the canonical vendor URL, not the affiliate wrapper.' );
+		$this->assertStringNotContainsString( 'evyy.net', $result['ticketUrl'] );
+	}
+
+	public function test_map_event_keeps_already_canonical_url_unchanged() {
+		$method    = $this->getProtectedMethod( 'map_ticketmaster_event' );
+		$canonical = 'https://www.ticketmaster.com/event/123';
+
+		$api_event        = $this->ticketmasterEvent( 'TM819', 'Already Canonical Event' );
+		$api_event['url'] = $canonical;
+
+		$result = $method->invoke( $this->handler, $api_event );
+
+		$this->assertSame( $canonical, $result['ticketUrl'] );
+	}
+
+	/**
+	 * A mangled wrapper (`u=httpswww...`, inner URL no longer valid) cannot
+	 * be unwrapped — the safe fallback is storing the wrapper as-is (all
+	 * read paths handle both shapes); unwrapping must not corrupt the URL.
+	 */
+	public function test_map_event_falls_back_to_wrapper_when_inner_url_is_mangled() {
+		$method = $this->getProtectedMethod( 'map_ticketmaster_event' );
+		$stored = 'https://ticketmaster.evyy.net/c/1191134/264167/4272?u=httpswww.ticketmaster.comeventZ7r9jZ1A7jv1d&utm_medium=affiliate';
+
+		$api_event        = $this->ticketmasterEvent( 'TM820', 'Mangled Wrapper Event' );
+		$api_event['url'] = $stored;
+
+		$result = $method->invoke( $this->handler, $api_event );
+
+		$this->assertSame( $stored, $result['ticketUrl'], 'Unrecoverable wrapper must be stored verbatim, not mangled further.' );
 	}
 
 	public function test_map_event_handles_price_ranges() {

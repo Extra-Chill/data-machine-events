@@ -93,7 +93,7 @@ class EventSchemaProvider {
 		'endDate'         => array(
 			'type'            => 'string',
 			'required'        => false,
-			'description'     => 'Event end date (YYYY-MM-DD format)',
+			'description'     => 'End date of THIS single event occurrence (YYYY-MM-DD format). For a genuine multi-day festival or run that continuously spans days, set this to that occurrence\'s final day. For a recurring series, weekly residency, tour with many dates, or a source page listing several shows: NEVER use the series/tour final date here — leave endDate empty and provide the specific date of the show being imported via startDate, or the concrete occurrence dates via occurrenceDates.',
 			'schema_property' => 'endDate',
 		),
 		'startTime'       => array(
@@ -140,7 +140,7 @@ class EventSchemaProvider {
 		'ticketUrl'         => array(
 			'type'            => 'string',
 			'required'        => false,
-			'description'     => 'URL to purchase tickets',
+			'description'     => 'URL to purchase tickets. Copy the destination URL exactly as given in the source data, character for character — never retype, paraphrase, re-encode, or reconstruct it, and never invent an affiliate/redirect wrapper URL yourself. Leave empty when no ticket URL is available.',
 			'schema_property' => 'offers.url',
 		),
 		'offerAvailability' => array(
@@ -194,7 +194,7 @@ class EventSchemaProvider {
 		'organizerUrl'  => array(
 			'type'            => 'string',
 			'required'        => false,
-			'description'     => 'Website URL of the event organizer',
+			'description'     => 'Website URL of the event organizer, only when a genuinely distinct organizer/promoter website is known from the source data. Never reuse, copy, or paraphrase ticketUrl or any other URL field for this — most Ticketmaster/box-office promoters have no separate website. Leave this empty rather than guess. If a distinct organizer URL is known, copy it exactly as given, character for character; never retype or reconstruct it.',
 			'schema_property' => 'organizer.url',
 		),
 	);
@@ -325,6 +325,27 @@ class EventSchemaProvider {
 			'type' => array_keys( self::typeFields() ),
 			default => array_keys( self::getAllFields() )
 		};
+	}
+
+	/**
+	 * Field keys the schema declares as arrays.
+	 *
+	 * Consumers that coerce values must ask the schema which fields are not
+	 * scalars rather than hardcoding a list. `occurrenceDates` is the only one
+	 * today, and a blanket `(string)` cast over every schema field silently
+	 * destroyed it — PHP renders an array as the literal "Array", so the dates
+	 * were gone before they reached block markup.
+	 *
+	 * @return array<int, string> Field keys whose declared type is `array`.
+	 */
+	public static function getArrayFieldKeys(): array {
+		$keys = array();
+		foreach ( self::getAllFields() as $key => $field ) {
+			if ( 'array' === ( $field['type'] ?? '' ) ) {
+				$keys[] = $key;
+			}
+		}
+		return $keys;
 	}
 
 	public static function getDefaults(): array {
@@ -480,7 +501,7 @@ class EventSchemaProvider {
 		}
 
 		if ( ! empty( $event_data['ticketUrl'] ) || ! empty( $event_data['price'] ) || ! empty( $event_data['validFrom'] ) ) {
-			$schema['offers'] = self::buildOffersSchema( $event_data );
+			$schema['offers'] = self::buildOffersSchema( $event_data, $post_id );
 		}
 
 		$status                = $event_data['eventStatus'] ?? 'EventScheduled';
@@ -665,11 +686,11 @@ class EventSchemaProvider {
 		return $organizer;
 	}
 
-	private static function buildOffersSchema( array $event_data ): array {
+	private static function buildOffersSchema( array $event_data, int $post_id ): array {
 		$offers = array( '@type' => 'Offer' );
 
 		if ( ! empty( $event_data['ticketUrl'] ) ) {
-			$offers['url'] = $event_data['ticketUrl'];
+			$offers['url'] = self::resolveOfferUrl( (string) $event_data['ticketUrl'], $post_id );
 		}
 
 		$availability           = $event_data['offerAvailability'] ?? 'InStock';
@@ -688,6 +709,56 @@ class EventSchemaProvider {
 		}
 
 		return $offers;
+	}
+
+	/**
+	 * Resolve the URL to emit as the Event offers.url.
+	 *
+	 * Ticket URLs stored on events may be affiliate/redirect wrappers.
+	 * Ticketmaster's affiliate agreement prohibits publishing those wrapper
+	 * URLs in raw, machine-readable structured data, so this never emits an
+	 * affiliate URL. Mirrors the resolver in extrachill-seo (issue #58) —
+	 * both must agree on the emitted URL for the same event, which is why
+	 * both call the FAITHFUL unwrap variant (`datamachine_unwrap_affiliate_url_faithful()`,
+	 * exported globally via `public-api.php`): this is a display consumer,
+	 * not a comparison consumer, so it must not use the aggressive
+	 * dedup-oriented decode (issue #824) — a nested-encoded inner
+	 * destination (e.g. a SeatGeek `dd_referrer=` param) would otherwise be
+	 * emitted decoded differently than it was stored.
+	 *
+	 * Resolution order:
+	 * 1. Not an affiliate URL — the (normalized) ticket URL unchanged.
+	 * 2. Affiliate URL that unwraps to a different, absolute URL — the
+	 *    de-affiliated vendor destination.
+	 * 3. Affiliate URL that cannot be unwrapped — the event permalink. The
+	 *    raw affiliate wrapper is never emitted.
+	 *
+	 * @since 0.65.0
+	 * @since 0.65.1 Switched to the faithful (single-decode) unwrap variant
+	 *              so this agrees byte-for-byte with extrachill-seo on
+	 *              nested-encoded destinations (issue #824).
+	 *
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/862
+	 * @see https://github.com/Extra-Chill/data-machine-events/issues/824
+	 *
+	 * @param string $ticket_url Raw ticket URL from the event-details block.
+	 * @param int    $post_id    Event post ID, used for the permalink fallback.
+	 * @return string URL safe to emit as offers.url.
+	 */
+	private static function resolveOfferUrl( string $ticket_url, int $post_id ): string {
+		$ticket_url = datamachine_decode_stored_url_artifacts( $ticket_url );
+
+		if ( ! data_machine_events_is_affiliate_ticket_url( $ticket_url ) ) {
+			return $ticket_url;
+		}
+
+		$unwrapped = datamachine_unwrap_affiliate_url_faithful( $ticket_url );
+
+		if ( $unwrapped !== $ticket_url && false !== filter_var( $unwrapped, FILTER_VALIDATE_URL ) ) {
+			return $unwrapped;
+		}
+
+		return (string) get_permalink( $post_id );
 	}
 
 	private static function buildImageArray( int $post_id ): array {

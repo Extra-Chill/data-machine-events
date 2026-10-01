@@ -18,8 +18,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 use DataMachineEvents\Core\Venue_Taxonomy;
 use DataMachineEvents\Core\Promoter_Taxonomy;
 use DataMachineEvents\Core\EventSchemaProvider;
+use DataMachineEvents\Blocks\Calendar\Display\DisplayVars;
+use DataMachineEvents\Blocks\Calendar\Grouping\MultiDayResolver;
+use function DataMachineEvents\Core\data_machine_events_is_gated_ticket_url;
 use DataMachineEvents\Blocks\EventDetails\ProseSections;
-use function DataMachineEvents\Core\data_machine_events_is_affiliate_ticket_url;
 
 $decode_unicode = function ( $str ) {
 	return html_entity_decode( preg_replace( '/\\\\u([0-9a-fA-F]{4})/', '&#x$1;', $str ), ENT_NOQUOTES, 'UTF-8' );
@@ -33,7 +35,16 @@ $venue            = $decode_unicode( $attributes['venue'] ?? '' );
 $address          = $decode_unicode( $attributes['address'] ?? '' );
 $price            = $decode_unicode( $attributes['price'] ?? '' );
 $ticket_url       = $attributes['ticketUrl'] ?? '';
+// block.json declares occurrenceDates as an array of strings, but 132 stored
+// posts hold a bare string there. `??` only substitutes the default for null,
+// so that string reached count() below and fatalled the whole request, making
+// those event pages return HTTP 500. The guard further down already treats a
+// non-array as "no occurrences"; normalising here makes every later use agree
+// with that instead of only some of them.
 $occurrence_dates = $attributes['occurrenceDates'] ?? array();
+if ( ! is_array( $occurrence_dates ) ) {
+	$occurrence_dates = array();
+}
 $post_id = (int) get_the_ID();
 
 /*
@@ -77,9 +88,44 @@ if ( $end_date ) {
 	$end_datetime = $end_time ? $end_date . ' ' . $end_time : $end_date;
 }
 
+/*
+ * Issue #860: endDate/endTime are real block attributes — already fed into
+ * EventSchemaProvider for the JSON-LD `endDate` — but nothing here ever
+ * rendered them to a visitor. $time_display reuses
+ * DisplayVars::format_time_range(), the tested source of truth the
+ * calendar card already uses for its own range rendering (same-night
+ * cutoff, sentinel-end-time, and "identical start/end means no real end"
+ * handling all live there once; see RULES.md "check what already exists").
+ * $multi_day_ends covers the one case that helper deliberately doesn't
+ * surface: a genuinely multi-day span (a continuous festival/run, not a
+ * same-night bar show) keeps that helper's start-time-only return, so its
+ * end date would otherwise stay just as invisible as before this fix.
+ * MultiDayResolver::is_multi_day() is the same classification the calendar
+ * already relies on, so the two surfaces can't disagree on what counts as
+ * "multi-day".
+ */
+$time_display   = '';
+$multi_day_ends = '';
+if ( $start_datetime && $start_time ) {
+	$start_datetime_obj = date_create( $start_datetime, wp_timezone() );
+	if ( $start_datetime_obj ) {
+		$time_display = DisplayVars::format_time_range( $start_datetime_obj, $end_date, $end_time, wp_timezone(), true, get_option( 'time_format' ) );
+	} else {
+		// date_create() couldn't parse it; fall back to the pre-#860
+		// strtotime()-based rendering exactly, so a string shape that
+		// strtotime() historically tolerated never regresses.
+		$time_display = date_i18n( get_option( 'time_format' ), strtotime( $start_datetime ) );
+	}
+}
+if ( $end_date && MultiDayResolver::is_multi_day( $attributes ) ) {
+	$multi_day_ends = $end_time
+		? date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $end_datetime ) )
+		: date_i18n( get_option( 'date_format' ), strtotime( $end_datetime ) );
+}
+
 // Filter and limit occurrence dates for display.
 $upcoming_occurrences = array();
-if ( ! empty( $occurrence_dates ) && is_array( $occurrence_dates ) ) {
+if ( ! empty( $occurrence_dates ) ) {
 	$current_date = current_time( 'Y-m-d' );
 	$max_display  = apply_filters( 'data_machine_events_max_occurrence_display', 5 );
 
@@ -145,8 +191,11 @@ $event_schema     = EventSchemaProvider::generateSchemaOrg( $event_data, $venue_
 				<span class="icon">📅</span>
 				<span class="text">
 					<?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $start_datetime ) ) ); ?>
-					<?php if ( $start_time ) : ?>
-						<br><small><?php echo esc_html( date_i18n( get_option( 'time_format' ), strtotime( $start_datetime ) ) ); ?></small>
+					<?php if ( $time_display ) : ?>
+						<br><small><?php echo esc_html( $time_display ); ?></small>
+					<?php endif; ?>
+					<?php if ( $multi_day_ends ) : ?>
+						<br><small><?php printf( __( 'through %s', 'data-machine-events' ), esc_html( $multi_day_ends ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped,WordPress.WP.I18n.MissingTranslatorsComment -- The value is escaped and the placeholder meaning is evident from the label. ?></small>
 					<?php endif; ?>
 				</span>
 				<?php if ( ! empty( $upcoming_occurrences ) ) : ?>
@@ -242,7 +291,12 @@ $event_schema     = EventSchemaProvider::generateSchemaOrg( $event_data, $venue_
 			if ( $is_past ) {
 				$ticket_classes[] = 'ticket-button--past';
 			}
-			$is_affiliate_ticket = data_machine_events_is_affiliate_ticket_url( $ticket_url );
+			// Issue #818: gate on "routes through the first-party redirect",
+			// not on the stored shape — a canonical-stored monetized URL only
+			// becomes a wrapper at resolve time, so the gate is also what
+			// preserves monetization through the 302 endpoint after the
+			// backfill migrates rows to canonical storage.
+			$is_affiliate_ticket = data_machine_events_is_gated_ticket_url( $ticket_url );
 			?>
 			<?php if ( $is_affiliate_ticket ) : ?>
 				<?php

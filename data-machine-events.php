@@ -4,7 +4,7 @@
  * Plugin Name: Data Machine Events
  * Plugin URI: https://chubes.net
  * Description: WordPress events plugin with block-first architecture. Features AI-driven event creation via Data Machine integration, Event Details blocks for data storage, Calendar blocks for display, and venue taxonomy management.
- * Version: 0.61.5
+ * Version: 0.64.10
  * Author: Chris Huber
  * Author URI: https://chubes.net
  * License: GPL v2 or later
@@ -29,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload.php';
 }
-define( 'DATA_MACHINE_EVENTS_VERSION', '0.61.5' );
+define( 'DATA_MACHINE_EVENTS_VERSION', '0.64.10' );
 define( 'DATA_MACHINE_EVENTS_PLUGIN_FILE', __FILE__ );
 define( 'DATA_MACHINE_EVENTS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DATA_MACHINE_EVENTS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -65,8 +65,15 @@ require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Blocks/EventDetails/add-to-ca
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/affiliate-links.php';
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/AffiliateRedirectShape.php';
 
+// Canonical ticket-URL storage + resolve-time affiliate wrapper assembly
+// config (issue #818). Depends on affiliate-links.php; must load before
+// event-dates-sync.php consumers that normalize ticket URLs.
+require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/ticket-destination.php';
+
 // Load event dates sync (monitors Event Details block saves → datamachine_event_dates table).
+require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventSpanGuard.php';
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/event-dates-sync.php';
+require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/term-classification-policy.php';
 require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Core/EventDatesTable.php';
 
 // Rewrites legacy inline affiliate ticket-link anchors in post_content into
@@ -280,6 +287,7 @@ class DATAMACHINE_Events {
 			\DataMachineEvents\Abilities\TicketUrlResyncAbilities::class,
 			\DataMachineEvents\Abilities\AffiliateRedirectRepairAbilities::class,
 			\DataMachineEvents\Abilities\ResolveTicketDestinationAbilities::class,
+			\DataMachineEvents\Abilities\TicketUrlCanonicalBackfillAbilities::class,
 			\DataMachineEvents\Abilities\BatchActionRecoveryAbilities::class,
 			\DataMachineEvents\Abilities\TicketmasterTest::class,
 			\DataMachineEvents\Abilities\DiceFmTest::class,
@@ -437,12 +445,23 @@ class DATAMACHINE_Events {
 
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/AffiliateRedirectRepairAbilities.php' ) ) {
 			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/AffiliateRedirectRepairAbilities.php';
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/SeriesEndRepairAbilities.php';
 			new \DataMachineEvents\Abilities\AffiliateRedirectRepairAbilities();
+		}
+
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/BlockAttributeJsonRepairAbilities.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/BlockAttributeJsonRepairAbilities.php';
+			new \DataMachineEvents\Abilities\BlockAttributeJsonRepairAbilities();
 		}
 
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/ResolveTicketDestinationAbilities.php' ) ) {
 			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/ResolveTicketDestinationAbilities.php';
 			new \DataMachineEvents\Abilities\ResolveTicketDestinationAbilities();
+		}
+
+		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/TicketUrlCanonicalBackfillAbilities.php' ) ) {
+			require_once DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/TicketUrlCanonicalBackfillAbilities.php';
+			new \DataMachineEvents\Abilities\TicketUrlCanonicalBackfillAbilities();
 		}
 
 		if ( file_exists( DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Abilities/BatchActionRecoveryAbilities.php' ) ) {

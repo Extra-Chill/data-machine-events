@@ -4,7 +4,9 @@
  * Date Grouper
  *
  * Groups events by date, expanding multi-day events across their date
- * range and handling occurrence dates for recurring events.
+ * range and handling occurrence dates for recurring events. Long spans
+ * are resolved by MultiDayResolver::get_display_dates() so recurring
+ * series with a leaked series end do not blanket the calendar (#199).
  *
  * @package DataMachineEvents\Blocks\Calendar\Grouping
  * @since   0.14.0
@@ -94,7 +96,11 @@ class DateGrouper {
 			$event_tz     = self::get_event_timezone( $event_data );
 			$is_multi_day = MultiDayResolver::is_multi_day( $event_data );
 
-			// Use explicit occurrence dates if provided, otherwise expand full range.
+			// Use explicit occurrence dates if provided; otherwise let the
+			// resolver decide between continuous expansion (genuine multi-day
+			// events), derived weekly occurrences (long same-weekday spans —
+			// recurring series with a leaked series end, #199), and a bounded
+			// truncation window (long spans of unknowable shape).
 			$occurrence_dates     = $event_data['occurrenceDates'] ?? array();
 			$has_occurrence_dates = ! empty( $occurrence_dates ) && is_array( $occurrence_dates );
 
@@ -105,24 +111,32 @@ class DateGrouper {
 			// confuse the calendar's continuation rendering.
 			$effective_start_date = $start_date;
 
+			$is_derived_weekly = false;
+
 			if ( $has_occurrence_dates ) {
 				$event_dates = $occurrence_dates;
 			} elseif ( $is_multi_day ) {
-				$event_dates = MultiDayResolver::get_date_range( $start_date, $end_date, $event_tz );
+				$is_derived_weekly = MultiDayResolver::is_likely_weekly_recurrence( $start_date, $end_date );
+				$event_dates       = MultiDayResolver::get_display_dates( $start_date, $end_date, $event_tz );
 			} else {
 				// Single-day events get a late-night cutoff shift: a 1am show
 				// belongs to the previous night for human-friendly grouping.
 				// The underlying start_datetime stays untouched.
+				//
+				// MultiDayResolver::is_multi_day() has already returned false
+				// here, so the event is a single NIGHT: an end on the next
+				// calendar date before the cutoff (a 9 PM → 2 AM bar show,
+				// #833) or a start after midnight (1 AM → 2 AM). List it once
+				// under the cutoff-shifted display date and never force-expand
+				// it into a multi-day continuation — the old end_date >
+				// effective_start_date re-check overrode the resolver's verdict
+				// and produced "through <date>" badges plus ghost "Ongoing"
+				// entries on the following day.
 				$effective_start_date = LateNightCutoff::display_date_from_strings(
 					$start_date,
 					$event_data['startTime'] ?? ''
 				);
-				if ( $end_date > $effective_start_date ) {
-					$is_multi_day = true;
-					$event_dates  = MultiDayResolver::get_date_range( $effective_start_date, $end_date, $event_tz );
-				} else {
-					$event_dates = array( $effective_start_date );
-				}
+				$event_dates          = array( $effective_start_date );
 			}
 
 			// Filter out past dates when show_past is false.
@@ -167,18 +181,21 @@ class DateGrouper {
 					);
 				}
 
-				// Events with explicit occurrence dates are NOT continuations.
-				// For non-occurrence events the "start" we compare against is
+				// Occurrence-shaped listings — explicit occurrenceDates and
+				// derived weekly recurrences (#199) alike — are standalone
+				// nights, never continuations of the previous night. For
+				// non-occurrence events the "start" we compare against is
 				// the effective (cutoff-shifted) start so a 1am show on its
 				// own bucket is still flagged as the start day, not a
 				// continuation of the previous night.
-				$is_continuation = $has_occurrence_dates ? false : ( $date_key !== $effective_start_date );
+				$is_occurrence_mode = $has_occurrence_dates || $is_derived_weekly;
+				$is_continuation    = $is_occurrence_mode ? false : ( $date_key !== $effective_start_date );
 
 				$display_item                    = $event_item;
 				$display_item['display_context'] = array(
-					'is_multi_day'        => $has_occurrence_dates ? false : $is_multi_day,
-					'is_start_day'        => $has_occurrence_dates ? true : ( $date_key === $effective_start_date ),
-					'is_end_day'          => $has_occurrence_dates ? true : ( $date_key === $end_date ),
+					'is_multi_day'        => $is_occurrence_mode ? false : $is_multi_day,
+					'is_start_day'        => $is_occurrence_mode ? true : ( $date_key === $effective_start_date ),
+					'is_end_day'          => $is_occurrence_mode ? true : ( $date_key === $end_date ),
 					'is_continuation'     => $is_continuation,
 					'display_date'        => $date_key,
 					'original_start_date' => $start_date,

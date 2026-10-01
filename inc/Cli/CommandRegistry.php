@@ -149,6 +149,22 @@ class CommandRegistry {
 				'file'  => $cli . 'AffiliateRedirectRepairCommand.php',
 				'class' => AffiliateRedirectRepairCommand::class,
 			),
+			'data-machine-events repair-event-details-json' => array(
+				'file'  => $cli . 'EventDetailsJsonRepairCommand.php',
+				'class' => EventDetailsJsonRepairCommand::class,
+			),
+			'data-machine-events repair-series-ends'      => array(
+				'file'  => $cli . 'SeriesEndRepairCommand.php',
+				'class' => SeriesEndRepairCommand::class,
+			),
+			'data-machine-events repair-entity-titles'    => array(
+				'file'  => $cli . 'EntityTitleRepairCommand.php',
+				'class' => EntityTitleRepairCommand::class,
+			),
+			'data-machine-events backfill-canonical-ticket-urls' => array(
+				'file'  => $cli . 'TicketUrlCanonicalBackfillCommand.php',
+				'class' => TicketUrlCanonicalBackfillCommand::class,
+			),
 			'data-machine-events geocode-venues'          => array(
 				'file'  => $cli . 'GeocodeVenuesCommand.php',
 				'class' => GeocodeVenuesCommand::class,

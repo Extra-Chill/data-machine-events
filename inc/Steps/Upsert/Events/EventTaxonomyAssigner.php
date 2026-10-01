@@ -21,6 +21,7 @@ use DataMachineEvents\Steps\Upsert\Events\Promoter;
 use DataMachineEvents\Core\VenueParameterProvider;
 use DataMachineEvents\Core\Promoter_Taxonomy;
 use DataMachineEvents\Core\Venue_Taxonomy;
+use DataMachineEvents\Core\VenueSourceAliases;
 use DataMachineEvents\Core\Event_Type_Taxonomy;
 
 defined( 'ABSPATH' ) || exit;
@@ -82,7 +83,7 @@ class EventTaxonomyAssigner {
 	 * @param EngineData $engine         Engine data helper.
 	 * @param array      $handler_config Handler configuration.
 	 * @param int        $post_id        Event post ID for log context.
-	 * @return array{term_id:int, action:string} Venue resolution.
+	 * @return array{term_id:int, action:string, matched_via?:string} Venue resolution.
 	 */
 	public function resolveVenue( array $parameters, EngineData $engine, array $handler_config = array(), int $post_id = 0 ): array {
 		$venue_name = VenueParameterProvider::resolveField( 'venue', $parameters, $engine->all() );
@@ -122,12 +123,14 @@ class EventTaxonomyAssigner {
 		// not erase what the AI step supplied (#782).
 		$merged_params  = VenueParameterProvider::mergeEngineOverParameters( $parameters, $engine->all() );
 		$venue_metadata = VenueParameterProvider::extractFromParameters( $merged_params );
+		$venue_metadata = $this->withVenueSourceIdentity( $venue_metadata, $engine );
 
 		$venue_result = Venue_Taxonomy::find_or_create_venue( $venue_name, $venue_metadata, array( 'post_id' => $post_id ) );
 
 		return array(
-			'term_id' => absint( $venue_result['term_id'] ?? 0 ),
-			'action'  => ! empty( $venue_result['term_id'] ) ? 'assign' : 'skip',
+			'term_id'     => absint( $venue_result['term_id'] ?? 0 ),
+			'action'      => ! empty( $venue_result['term_id'] ) ? 'assign' : 'skip',
+			'matched_via' => (string) ( $venue_result['matched_via'] ?? '' ),
 		);
 	}
 
@@ -142,6 +145,12 @@ class EventTaxonomyAssigner {
 	 * @param array $handler_config Handler configuration
 	 */
 	public function processPromoter( int $post_id, array $parameters, EngineData $engine, array $handler_config = array() ): void {
+		// Ability-only flag: explicit organizer bypasses the selection gate (#849).
+		if ( ! empty( $handler_config['promoter_explicit_organizer'] ) ) {
+			$this->assignPromoterFromOrganizer( $post_id, $engine, $parameters );
+			return;
+		}
+
 		$selection = $this->getPromoterSelection( $handler_config );
 
 		if ( 'skip' === $selection ) {
@@ -157,6 +166,21 @@ class EventTaxonomyAssigner {
 			return;
 		}
 
+		$this->assignPromoterFromOrganizer( $post_id, $engine, $parameters );
+	}
+
+	/**
+	 * Create or find the promoter term for organizer data and assign it.
+	 *
+	 * Maps the Schema.org "organizer" fields to the promoter taxonomy.
+	 * Shared by the explicit caller-supplied path and the AI_DECIDES
+	 * selection mode.
+	 *
+	 * @param int        $post_id    Post ID.
+	 * @param EngineData $engine     Engine data helper.
+	 * @param array      $parameters Event parameters.
+	 */
+	private function assignPromoterFromOrganizer( int $post_id, EngineData $engine, array $parameters ): void {
 		// Organizer field name maps to promoter taxonomy
 		$promoter_name = $engine->get( 'organizer' ) ?? $parameters['organizer'] ?? '';
 
@@ -179,6 +203,24 @@ class EventTaxonomyAssigner {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Attach the import's source venue identity for alias resolution (#878).
+	 *
+	 * Only engine data carries it; the AI step cannot supply one.
+	 *
+	 * @param array      $venue_metadata Venue metadata for find_or_create_venue().
+	 * @param EngineData $engine         Engine data.
+	 * @return array
+	 */
+	private function withVenueSourceIdentity( array $venue_metadata, EngineData $engine ): array {
+		$identity = trim( (string) ( $engine->get( VenueSourceAliases::EVENT_FIELD ) ?? '' ) );
+		if ( '' !== $identity ) {
+			$venue_metadata['source_identity'] = $identity;
+		}
+
+		return $venue_metadata;
 	}
 
 	/**
@@ -231,6 +273,7 @@ class EventTaxonomyAssigner {
 			'coordinates'   => $this->getParameterValue( $parameters, 'venueCoordinates' ) ?: ( $engine->get( 'venueCoordinates' ) ?? '' ),
 			'capacity'      => $this->getParameterValue( $parameters, 'venueCapacity' ) ?: ( $engine->get( 'venueCapacity' ) ?? '' ),
 		);
+		$venue_metadata = $this->withVenueSourceIdentity( $venue_metadata, $engine );
 
 		$venue_result = Venue_Taxonomy::find_or_create_venue( $venue_name, $venue_metadata, array( 'post_id' => $post_id ) );
 

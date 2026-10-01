@@ -256,6 +256,13 @@ class EventEngineData {
 			}
 		}
 
+		// Source venue identity — routing metadata so upsert-time venue
+		// resolution can honor venue source aliases (#878).
+		$venue_source_identity = (string) ( $event_data[ \DataMachineEvents\Core\VenueSourceAliases::EVENT_FIELD ] ?? '' );
+		if ( '' !== $venue_source_identity ) {
+			$payload[ \DataMachineEvents\Core\VenueSourceAliases::EVENT_FIELD ] = $venue_source_identity;
+		}
+
 		// Event title — stored in engine_data so pre-AI dedup gate can
 		// check the PostIdentityIndex before burning AI tokens.
 		$title = $event_data['title'] ?? '';

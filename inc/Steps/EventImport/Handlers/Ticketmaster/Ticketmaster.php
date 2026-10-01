@@ -841,10 +841,10 @@ class Ticketmaster extends EventImportHandler {
 		$venue_timezone    = '';
 
 		if ( ! empty( $tm_event['_embedded']['venues'][0] ) ) {
-			$venue          = $tm_event['_embedded']['venues'][0];
-			$venue_name     = $venue['name'] ?? '';
+			$venue           = $tm_event['_embedded']['venues'][0];
+			$venue_name      = $venue['name'] ?? '';
 			$venue_source_id = VenueSourceAliases::source_identity( 'ticketmaster', (string) ( $venue['id'] ?? '' ) );
-			$venue_timezone = $venue['timezone'] ?? '';
+			$venue_timezone  = $venue['timezone'] ?? '';
 
 			if ( ! empty( $venue['address'] ) ) {
 				if ( ! empty( $venue['address']['line1'] ) ) {
@@ -938,26 +938,26 @@ class Ticketmaster extends EventImportHandler {
 		}
 
 		return array(
-			'title'            => $this->sanitizeText( $title ),
-			'startDate'        => $start_parsed['date'],
-			'endDate'          => '',
-			'startTime'        => $start_parsed['time'],
-			'endTime'          => '',
-			'venue'            => $this->sanitizeText( $venue_name ),
-			'artist'           => $this->sanitizeText( $artist ),
-			'organizer'        => $this->sanitizeText( $organizer ),
-			'price'            => $this->sanitizeText( $price ),
-			'ticketUrl'        => $this->sanitizeUrl( $ticket_url ),
-			'description'      => $this->cleanHtml( $description ),
-			'venueAddress'     => $this->sanitizeText( $venue_address ),
-			'venueCity'        => $this->sanitizeText( $venue_city ),
-			'venueState'       => $this->sanitizeText( $venue_state ),
-			'venueZip'         => $this->sanitizeText( $venue_zip ),
-			'venueCountry'     => $this->sanitizeText( $venue_country ),
-			'venuePhone'       => $this->sanitizeText( $venue_phone ),
-			'venueWebsite'     => $this->sanitizeUrl( $venue_website ),
-			'venueCoordinates' => $this->sanitizeText( $venue_coordinates ),
-			'venueTimezone'    => $this->sanitizeText( $venue_timezone ),
+			'title'                         => $this->sanitizeText( $title ),
+			'startDate'                     => $start_parsed['date'],
+			'endDate'                       => '',
+			'startTime'                     => $start_parsed['time'],
+			'endTime'                       => '',
+			'venue'                         => $this->sanitizeText( $venue_name ),
+			'artist'                        => $this->sanitizeText( $artist ),
+			'organizer'                     => $this->sanitizeText( $organizer ),
+			'price'                         => $this->sanitizeText( $price ),
+			'ticketUrl'                     => $this->sanitizeUrl( $ticket_url ),
+			'description'                   => $this->cleanHtml( $description ),
+			'venueAddress'                  => $this->sanitizeText( $venue_address ),
+			'venueCity'                     => $this->sanitizeText( $venue_city ),
+			'venueState'                    => $this->sanitizeText( $venue_state ),
+			'venueZip'                      => $this->sanitizeText( $venue_zip ),
+			'venueCountry'                  => $this->sanitizeText( $venue_country ),
+			'venuePhone'                    => $this->sanitizeText( $venue_phone ),
+			'venueWebsite'                  => $this->sanitizeUrl( $venue_website ),
+			'venueCoordinates'              => $this->sanitizeText( $venue_coordinates ),
+			'venueTimezone'                 => $this->sanitizeText( $venue_timezone ),
 			VenueSourceAliases::EVENT_FIELD => $venue_source_id,
 		);
 	}

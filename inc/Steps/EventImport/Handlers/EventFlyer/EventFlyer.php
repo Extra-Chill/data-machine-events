@@ -171,7 +171,7 @@ class EventFlyer extends EventImportHandler {
 				'persistent_path' => $file['path'],
 				'size'            => $file['size'],
 				'mime_type'       => $this->getMimeType( $file['path'] ),
-				'uploaded_at'     => gmdate( 'Y-m-d H:i:s', $file['modified'] ),
+				'uploaded_at'     => $this->formatUploadedAt( $file['modified'] ),
 			);
 
 			$collector->offer( $file_identifier, $image );
@@ -191,6 +191,10 @@ class EventFlyer extends EventImportHandler {
 		$file_info = wp_check_filetype( $file_path );
 		$mime      = $file_info['type'];
 		return $mime ? $mime : 'application/octet-stream';
+	}
+
+	private function formatUploadedAt( string $modified ): string {
+		return gmdate( 'Y-m-d H:i:s', strtotime( $modified ) );
 	}
 
 	/**

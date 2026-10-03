@@ -88,9 +88,9 @@ class EventDetailsEndTimeRenderTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( '📅', $output, 'The calendar emoji renders a misleading date.' );
 		$this->assertMatchesRegularExpression(
-			'/<div class="event-date-time">\s*(?:<\?php[^>]*>\s*)?<span class="icon" aria-hidden="true"><svg class="event-date-icon"/',
+			'/<div class="event-date-time">\s*<span class="icon dashicons dashicons-calendar-alt" aria-hidden="true"><\/span>/',
 			$output,
-			'The date row carries the decorative date-neutral SVG icon.'
+			'The date row uses the date-neutral calendar dashicon.'
 		);
 	}
 

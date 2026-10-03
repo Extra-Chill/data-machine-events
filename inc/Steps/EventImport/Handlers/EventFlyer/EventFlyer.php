@@ -193,8 +193,19 @@ class EventFlyer extends EventImportHandler {
 		return $mime ? $mime : 'application/octet-stream';
 	}
 
+	/**
+	 * Format FileStorage's ISO-8601 'modified' value as a GMT MySQL datetime.
+	 *
+	 * @param string $modified ISO-8601 modification time from FileStorage::get_all_files().
+	 * @return string GMT datetime, or the current time when the value cannot be parsed.
+	 */
 	private function formatUploadedAt( string $modified ): string {
-		return gmdate( 'Y-m-d H:i:s', strtotime( $modified ) );
+		$timestamp = strtotime( $modified );
+		if ( false === $timestamp ) {
+			$timestamp = time();
+		}
+
+		return gmdate( 'Y-m-d H:i:s', $timestamp );
 	}
 
 	/**

@@ -37,6 +37,11 @@
     margin-top: 0.1rem;
 }
 
+.event-info-grid .event-date-icon {
+    display: block;
+    color: var(--data-machine-text-secondary);
+}
+
 .event-info-grid .text {
     line-height: 1.4;
 }

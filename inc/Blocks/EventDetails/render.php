@@ -201,7 +201,8 @@ if ( apply_filters( 'data_machine_events_output_event_schema', true, (int) $post
 	<div class="event-info-grid">
 		<?php if ( $start_datetime ) : ?>
 			<div class="event-date-time">
-				<span class="icon">📅</span>
+				<?php // Date-neutral glyph: the 📅 emoji renders as a calendar page reading "JUL 17", which reads as a conflicting date (#890). ?>
+				<span class="icon" aria-hidden="true"><svg class="event-date-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
 				<span class="text">
 					<?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $start_datetime ) ) ); ?>
 					<?php if ( $time_display ) : ?>

@@ -313,7 +313,7 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 		$result = VenueProfileMutations::updateSystem(
 			$term_id,
 			array(
-				'city'     => 'North Charleston',
+				'phone'    => '843-555-0164',
 				'timezone' => '-08:00',
 			),
 			VenueProfileMutations::STRATEGY_FILL_EMPTY
@@ -321,8 +321,8 @@ class VenueProfileMutationsTest extends WP_UnitTestCase {
 
 		$this->assertNotWPError( $result );
 		$this->assertNotContains( 'timezone', $result['updated_fields'] );
-		$this->assertSame( 'North Charleston', get_term_meta( $term_id, '_venue_city', true ) );
-		$this->assertNotSame( '-08:00', get_term_meta( $term_id, '_venue_timezone', true ) );
+		$this->assertSame( '843-555-0164', get_term_meta( $term_id, '_venue_phone', true ) );
+		$this->assertSame( '', get_term_meta( $term_id, '_venue_timezone', true ) );
 	}
 
 	public function test_system_overwrite_with_offset_preserves_existing_iana_timezone(): void {

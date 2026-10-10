@@ -339,18 +339,11 @@ class GeocodingAbilities {
 				continue;
 			}
 
-			// Clear existing coordinates if force mode.
 			if ( $force && ! empty( $coords ) ) {
-				\DataMachineEvents\Core\VenueProfileMutations::updateSystem(
-					(int) $venue->term_id,
-					array(
-						'coordinates' => '',
-						'timezone'    => '',
-					)
-				);
+				$geocoded = $this->regeocodeVenue( (int) $venue->term_id );
+			} else {
+				$geocoded = Venue_Taxonomy::maybe_geocode_venue( $venue->term_id );
 			}
-
-			$geocoded = Venue_Taxonomy::maybe_geocode_venue( $venue->term_id );
 
 			if ( $geocoded ) {
 				$new_coords                  = get_term_meta( $venue->term_id, '_venue_coordinates', true );
@@ -394,6 +387,36 @@ class GeocodingAbilities {
 			'results'   => $results,
 			'message'   => implode( ', ', $message_parts ) . '.',
 		);
+	}
+
+	/**
+	 * Re-geocode a venue that already has coordinates.
+	 *
+	 * Existing coordinates and timezone are kept unless a new result is
+	 * found, so a failed lookup never leaves the venue worse off (#903).
+	 *
+	 * @param int $term_id Venue term ID.
+	 * @return bool True when new coordinates were stored.
+	 */
+	private function regeocodeVenue( int $term_id ): bool {
+		$coordinates = Venue_Taxonomy::geocode_address( Venue_Taxonomy::get_venue_data( $term_id ) );
+		if ( ! $coordinates ) {
+			return false;
+		}
+
+		$result = \DataMachineEvents\Core\VenueProfileMutations::updateSystem(
+			$term_id,
+			array(
+				'coordinates' => $coordinates,
+				'timezone'    => '',
+			)
+		);
+		if ( is_wp_error( $result ) || empty( $result['success'] ) ) {
+			return false;
+		}
+
+		Venue_Taxonomy::maybe_derive_timezone( $term_id, $coordinates );
+		return true;
 	}
 
 	/**

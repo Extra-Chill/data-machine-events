@@ -146,6 +146,10 @@ class DiceFm extends EventImportHandler {
 
 			$venue_metadata = $this->extractVenueMetadata( $standardized_event );
 			$engine_data    = $this->buildEventEngineData( $standardized_event, $venue_metadata );
+			if ( '' !== $standardized_event['ticketUrl'] ) {
+				// Dice's event link is unique per event and survives time corrections (#909).
+				$engine_data['source_event_key'] = $standardized_event['ticketUrl'];
+			}
 			$this->stripVenueMetadataFromEvent( $standardized_event );
 
 			$eligible_items[] = array(

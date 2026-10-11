@@ -46,8 +46,9 @@ class StructuredDataProcessor {
 		ExecutionContext $context
 	): ?array {
 		$eligible_items = array();
+		$event_keys     = self::batchSourceKeys( $events );
 
-		foreach ( $events as $raw_event ) {
+		foreach ( $events as $index => $raw_event ) {
 			$event = $raw_event;
 
 			if ( empty( $event['title'] ) ) {
@@ -93,6 +94,12 @@ class StructuredDataProcessor {
 
 			$venue_metadata = $this->handler->extractVenueMetadata( $event );
 			$engine_data    = EventEngineData::buildEngineData( $event, $venue_metadata );
+
+			// A per-event source key lets a corrected start time update the
+			// original event (#909).
+			if ( '' !== ( $event_keys[ $index ] ?? '' ) ) {
+				$engine_data['source_event_key'] = $context->getFlowId() . '|' . $event_keys[ $index ];
+			}
 
 			// Add scraper-specific fields to engine data.
 			$scraper_fields = array_filter(
@@ -161,6 +168,32 @@ class StructuredDataProcessor {
 			$event['venue'] = sanitize_text_field( $config['venue_name'] );
 			$this->applyVenueConfigFields( $event, $config );
 		}
+	}
+
+	/**
+	 * Usable per-event source key for each event in a fetched batch.
+	 *
+	 * The key is an extractor-declared `sourceEventKey`, else the ticket URL.
+	 * A key shared by more than one event in the batch (a generic ticket
+	 * link) identifies none of them and is returned as ''.
+	 *
+	 * @param array $events Extracted events, keyed as passed to process().
+	 * @return array<int|string, string> Key per event index.
+	 */
+	public static function batchSourceKeys( array $events ): array {
+		$keys = array();
+		foreach ( $events as $index => $event ) {
+			$keys[ $index ] = trim( (string) ( $event['sourceEventKey'] ?? $event['ticketUrl'] ?? '' ) );
+		}
+
+		$counts = array_count_values( array_filter( $keys ) );
+		foreach ( $keys as $index => $key ) {
+			if ( '' !== $key && $counts[ $key ] > 1 ) {
+				$keys[ $index ] = '';
+			}
+		}
+
+		return $keys;
 	}
 
 	/**

@@ -46,6 +46,7 @@ class EventUpsert extends UpsertHandler {
 	public const SOURCE_IDENTITY_META_KEY = '_datamachine_event_source_identity';
 	public const SOURCE_NAME_META_KEY     = '_datamachine_event_source';
 	public const SOURCE_ID_META_KEY       = '_datamachine_event_source_id';
+	public const SOURCE_KEY_META_KEY      = '_datamachine_event_source_key';
 
 	protected TaxonomyHandler $taxonomy_handler;
 
@@ -130,6 +131,13 @@ class EventUpsert extends UpsertHandler {
 			}
 		}
 
+		// A native per-event key survives start-time corrections, which change
+		// the time-aware source identity above (#909).
+		$source_event_key = trim( (string) ( $parameters['source_event_key'] ?? $engine->get( 'source_event_key' ) ?? '' ) );
+		if ( '' !== $source && '' !== $source_event_key ) {
+			$parameters['source_key_identity'] = self::sourceKeyIdentity( $source, $source_event_key );
+		}
+
 		// Extract event identity fields (AI title takes precedence, engine data fallback for other fields)
 		// The title is decoded BEFORE sanitization (issue #844): source feeds
 		// deliver HTML-entity-encoded titles ("Foo &amp; Bar"), and storing
@@ -199,7 +207,8 @@ class EventUpsert extends UpsertHandler {
 				'state'   => VenueParameterProvider::resolveField( 'venueState', $parameters, $engine->all() ),
 				'country' => VenueParameterProvider::resolveField( 'venueCountry', $parameters, $engine->all() ),
 			),
-			absint( $parameters['event_id'] ?? 0 )
+			absint( $parameters['event_id'] ?? 0 ),
+			(string) ( $parameters['source_key_identity'] ?? '' )
 		);
 		if ( null === $lock_keys ) {
 			return array(
@@ -315,6 +324,9 @@ class EventUpsert extends UpsertHandler {
 		);
 		if ( is_wp_error( $existing_post_id ) ) {
 			return $this->lifecycleErrorResponse( $existing_post_id, $title );
+		}
+		if ( 0 === $existing_post_id ) {
+			$existing_post_id = $this->findExistingEventBySourceKey( (string) ( $parameters['source_key_identity'] ?? '' ), $title, $startDate );
 		}
 		// Resolve the venue once, before duplicate detection, so dedup sees the
 		// same term persistence will assign. Name-only re-resolution inside the
@@ -498,6 +510,9 @@ class EventUpsert extends UpsertHandler {
 				update_post_meta( $post_id, self::SOURCE_NAME_META_KEY, sanitize_text_field( (string) ( $parameters['source'] ?? '' ) ) );
 				update_post_meta( $post_id, self::SOURCE_ID_META_KEY, sanitize_text_field( (string) ( $parameters['source_id'] ?? '' ) ) );
 			}
+			if ( ! empty( $parameters['source_key_identity'] ) ) {
+				update_post_meta( $post_id, self::SOURCE_KEY_META_KEY, (string) $parameters['source_key_identity'] );
+			}
 
 			// 7. Content idempotency does not imply taxonomy or identity integrity.
 			// Skip image work for unchanged content, but always reconcile indexed state.
@@ -678,6 +693,91 @@ class EventUpsert extends UpsertHandler {
 		}
 
 		return (int) reset( $claimant_ids );
+	}
+
+	/**
+	 * Hash a native per-event source key into its stored identity.
+	 *
+	 * @param string $source           Source namespace (e.g. dice_fm).
+	 * @param string $source_event_key Native per-event key from the source.
+	 * @return string
+	 */
+	public static function sourceKeyIdentity( string $source, string $source_event_key ): string {
+		return hash( 'sha256', $source . "\0key\0" . $source_event_key );
+	}
+
+	/**
+	 * Find the event a native source key belongs to.
+	 *
+	 * Used only after the time-aware source identity finds nothing, so an
+	 * event whose start time was corrected is updated in place instead of
+	 * duplicated (#909). The holder must be unique, have the same normalized
+	 * title, and start within one day of the incoming start, so a key reused
+	 * for a different show never redirects an update. Otherwise the fuzzy
+	 * duplicate check still runs.
+	 *
+	 * @param string $source_key_identity Hashed native source key.
+	 * @param string $title               Incoming event title.
+	 * @param string $start               Incoming start date or datetime.
+	 * @return int Post ID or 0.
+	 */
+	private function findExistingEventBySourceKey( string $source_key_identity, string $title, string $start ): int {
+		if ( '' === $source_key_identity ) {
+			return 0;
+		}
+
+		$query = new \WP_Query(
+			array(
+				'post_type'      => Event_Post_Type::POST_TYPE,
+				'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private' ),
+				'posts_per_page' => 2,
+				'fields'         => 'ids',
+				'no_found_rows'  => true,
+				'meta_query'     => array(
+					array(
+						'key'   => self::SOURCE_KEY_META_KEY,
+						'value' => $source_key_identity,
+					),
+				),
+			)
+		);
+
+		$ids = array_values(
+			array_unique(
+				array_map(
+					static fn( $post ): int => absint( $post instanceof \WP_Post ? $post->ID : $post ),
+					$query->posts
+				)
+			)
+		);
+		if ( 1 !== count( $ids ) ) {
+			if ( count( $ids ) > 1 ) {
+				do_action(
+					'datamachine_log',
+					'warning',
+					'Event source key held by multiple events; falling back to duplicate detection',
+					array( 'post_ids' => $ids )
+				);
+			}
+			return 0;
+		}
+
+		$post = get_post( $ids[0] );
+		if ( ! $post instanceof \WP_Post || EventIdentifierGenerator::normalizeTitle( $post->post_title ) !== EventIdentifierGenerator::normalizeTitle( $title ) ) {
+			return 0;
+		}
+
+		$existing_date = (string) ( $this->extractEventData( $ids[0] )['startDate'] ?? '' );
+		$incoming_date = self::extractDateForQuery( $start );
+		if ( '' === $existing_date || '' === $incoming_date ) {
+			return 0;
+		}
+		$day_gap = abs( strtotime( substr( $existing_date, 0, 10 ) ) - strtotime( $incoming_date ) ) / DAY_IN_SECONDS;
+		if ( $day_gap > 1 ) {
+			return 0;
+		}
+
+		return $ids[0];
 	}
 
 	/**
@@ -908,10 +1008,10 @@ class EventUpsert extends UpsertHandler {
 	 * @param int    $candidate_id    Existing canonical event candidate.
 	 * @return array|null The acquired lock keys, or null on timeout/error.
 	 */
-	private function acquireUpsertLocks( string $title, string $venue, string $startDate, string $source_identity = '', array $venue_context = array(), int $candidate_id = 0 ): ?array {
+	private function acquireUpsertLocks( string $title, string $venue, string $startDate, string $source_identity = '', array $venue_context = array(), int $candidate_id = 0, string $source_key_identity = '' ): ?array {
 		global $wpdb;
 
-		$lock_keys = $this->buildUpsertLockKeys( $title, $venue, $startDate, $source_identity, $venue_context, $candidate_id );
+		$lock_keys = $this->buildUpsertLockKeys( $title, $venue, $startDate, $source_identity, $venue_context, $candidate_id, $source_key_identity );
 		$acquired  = array();
 		$deadline  = microtime( true ) + 10;
 		$complete  = false;
@@ -988,7 +1088,7 @@ class EventUpsert extends UpsertHandler {
 	 * @param int    $candidate_id    Existing canonical event candidate.
 	 * @return array Ordered advisory lock keys.
 	 */
-	private function buildUpsertLockKeys( string $title, string $venue, string $startDate, string $source_identity = '', array $venue_context = array(), int $candidate_id = 0 ): array {
+	private function buildUpsertLockKeys( string $title, string $venue, string $startDate, string $source_identity = '', array $venue_context = array(), int $candidate_id = 0, string $source_key_identity = '' ): array {
 		$blog_id   = get_current_blog_id();
 		$date_only = self::extractDateForQuery( $startDate );
 		$identity  = \DataMachineEvents\Core\Venue_Taxonomy::resolve_venue_identity( $venue, $venue_context );
@@ -1016,6 +1116,9 @@ class EventUpsert extends UpsertHandler {
 		$domains = array();
 		if ( '' !== $source_identity ) {
 			$domains[] = 'source|' . $blog_id . '|' . $source_identity;
+		}
+		if ( '' !== $source_key_identity ) {
+			$domains[] = 'sourcekey|' . $blog_id . '|' . $source_key_identity;
 		}
 		if ( $candidate_id > 0 ) {
 			$domains[] = 'candidate|' . $blog_id . '|' . $candidate_id;
@@ -1225,6 +1328,9 @@ class EventUpsert extends UpsertHandler {
 			$meta_input[ self::SOURCE_IDENTITY_META_KEY ] = $source_identity;
 			$meta_input[ self::SOURCE_NAME_META_KEY ]     = sanitize_text_field( (string) ( $parameters['source'] ?? '' ) );
 			$meta_input[ self::SOURCE_ID_META_KEY ]       = sanitize_text_field( (string) ( $parameters['source_id'] ?? '' ) );
+		}
+		if ( ! empty( $parameters['source_key_identity'] ) ) {
+			$meta_input[ self::SOURCE_KEY_META_KEY ] = (string) $parameters['source_key_identity'];
 		}
 
 		$submission = $engine->get( 'submission' );

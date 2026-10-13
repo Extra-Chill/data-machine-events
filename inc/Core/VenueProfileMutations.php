@@ -164,7 +164,7 @@ class VenueProfileMutations {
 	 */
 	public static function lockName( int $term_id ): string {
 		global $wpdb;
-		$scope = DB_NAME . '|' . $wpdb->prefix . '|' . get_current_blog_id() . '|' . $term_id;
+		$scope = (string) constant( 'DB_NAME' ) . '|' . $wpdb->prefix . '|' . get_current_blog_id() . '|' . $term_id;
 		return 'dme:venue:' . md5( $scope );
 	}
 
@@ -471,6 +471,20 @@ class VenueProfileMutations {
 				continue;
 			}
 			$value = (string) $value;
+			if ( 'timezone' === $field ) {
+				$value = trim( $value );
+				if ( '' !== $value && ! DateTimeParser::isValidTimezone( $value ) ) {
+					do_action(
+						'datamachine_log',
+						'warning',
+						'Dropped non-IANA venue timezone',
+						array( 'timezone' => $value )
+					);
+					continue;
+				}
+				$normalized[ $field ] = $value;
+				continue;
+			}
 			if ( 'description' === $field ) {
 				$normalized[ $field ] = wp_kses_post( $value );
 			} elseif ( in_array( $field, array( 'website', 'ticketing_url' ), true ) ) {

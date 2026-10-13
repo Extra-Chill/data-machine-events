@@ -150,6 +150,15 @@ class EventFlyer extends EventImportHandler {
 			return null;
 		}
 
+		// A job that carries its own image (e.g. a public event submission)
+		// must process exactly that file, never another file in the shared
+		// bucket. Scheduled flyer flows have no job image and still enumerate.
+		$repo_files = $this->selectCandidateFiles( $repo_files, $context->getImagePath() );
+		if ( empty( $repo_files ) ) {
+			$context->log( 'error', 'EventFlyer: Job image is not in the flow file bucket', array( 'path' => $context->getImagePath() ) );
+			return null;
+		}
+
 		$image_extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'webp' );
 
 		// Selection-time prefilter via Data Machine core primitive.
@@ -171,7 +180,7 @@ class EventFlyer extends EventImportHandler {
 				'persistent_path' => $file['path'],
 				'size'            => $file['size'],
 				'mime_type'       => $this->getMimeType( $file['path'] ),
-				'uploaded_at'     => gmdate( 'Y-m-d H:i:s', $file['modified'] ),
+				'uploaded_at'     => $this->formatUploadedAt( $file['modified'] ),
 			);
 
 			$collector->offer( $file_identifier, $image );
@@ -187,10 +196,52 @@ class EventFlyer extends EventImportHandler {
 		return $accepted[0] ?? null;
 	}
 
+	/**
+	 * Narrow bucket files to the job's own image when the job carries one.
+	 *
+	 * @param array       $repo_files Files from FileStorage::get_all_files().
+	 * @param string|null $job_image  Job-scoped image path from engine data.
+	 * @return array Exactly the job's file when present; an empty array when the
+	 *               job names a file that is not in the bucket; otherwise all files.
+	 */
+	private function selectCandidateFiles( array $repo_files, ?string $job_image ): array {
+		if ( null === $job_image || '' === $job_image ) {
+			return $repo_files;
+		}
+
+		$target = realpath( $job_image );
+		$target = false === $target ? $job_image : $target;
+
+		foreach ( $repo_files as $file ) {
+			$path     = (string) ( $file['path'] ?? '' );
+			$resolved = realpath( $path );
+			if ( ( false === $resolved ? $path : $resolved ) === $target ) {
+				return array( $file );
+			}
+		}
+
+		return array();
+	}
+
 	private function getMimeType( string $file_path ): string {
 		$file_info = wp_check_filetype( $file_path );
 		$mime      = $file_info['type'];
 		return $mime ? $mime : 'application/octet-stream';
+	}
+
+	/**
+	 * Format FileStorage's ISO-8601 'modified' value as a GMT MySQL datetime.
+	 *
+	 * @param string $modified ISO-8601 modification time from FileStorage::get_all_files().
+	 * @return string GMT datetime, or the current time when the value cannot be parsed.
+	 */
+	private function formatUploadedAt( string $modified ): string {
+		$timestamp = strtotime( $modified );
+		if ( false === $timestamp ) {
+			$timestamp = time();
+		}
+
+		return gmdate( 'Y-m-d H:i:s', $timestamp );
 	}
 
 	/**

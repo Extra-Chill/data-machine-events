@@ -15,6 +15,7 @@
 
 namespace DataMachineEvents\Abilities;
 
+use DataMachineEvents\Core\DateTimeParser;
 use DataMachineEvents\Core\NominatimClient;
 use DataMachineEvents\Core\Venue_Taxonomy;
 
@@ -338,18 +339,7 @@ class GeocodingAbilities {
 				continue;
 			}
 
-			// Clear existing coordinates if force mode.
-			if ( $force && ! empty( $coords ) ) {
-				\DataMachineEvents\Core\VenueProfileMutations::updateSystem(
-					(int) $venue->term_id,
-					array(
-						'coordinates' => '',
-						'timezone'    => '',
-					)
-				);
-			}
-
-			$geocoded = Venue_Taxonomy::maybe_geocode_venue( $venue->term_id );
+			$geocoded = Venue_Taxonomy::maybe_geocode_venue( $venue->term_id, $force );
 
 			if ( $geocoded ) {
 				$new_coords                  = get_term_meta( $venue->term_id, '_venue_coordinates', true );
@@ -421,8 +411,8 @@ class GeocodingAbilities {
 			}
 
 			$term_id  = (int) $venue->term_id;
-			$existing = get_term_meta( $term_id, '_venue_timezone', true );
-			if ( ! empty( $existing ) && ! $force ) {
+			$existing = (string) get_term_meta( $term_id, '_venue_timezone', true );
+			if ( DateTimeParser::isValidTimezone( $existing ) && ! $force ) {
 				++$skipped;
 				continue;
 			}

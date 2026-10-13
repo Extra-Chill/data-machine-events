@@ -559,6 +559,13 @@ class Venue_Taxonomy {
 		// writes go through the admin term screen or update_venue_meta().
 		unset( $venue_data['tier'] );
 
+		// Venue timezone is a function of venue location (#897). An import's
+		// timezone describes the event datetime, not the venue, so it is never
+		// merged as venue data. It survives only as a last-resort hint for a
+		// venue whose location cannot resolve a zone.
+		$timezone_hint = trim( (string) ( $venue_data['timezone'] ?? '' ) );
+		unset( $venue_data['timezone'] );
+
 		// Strip a trailing address blob baked into the venue name (AI
 		// extraction sometimes returns "Venue Name, street, city, ST zip"
 		// as a single string). Must run first: it both cleans the name used
@@ -583,8 +590,11 @@ class Venue_Taxonomy {
 			// A source alias means this source's venue data is known to be
 			// wrong for the canonical term (#878); fill-empty merging would
 			// put the source's bad values back into fields an editor cleared.
-			if ( ! empty( $venue_data ) && 'source_alias' !== $identity['matched_via'] ) {
-				self::smart_merge_venue_meta( $term_id, $venue_data );
+			if ( 'source_alias' !== $identity['matched_via'] ) {
+				if ( ! empty( $venue_data ) ) {
+					self::smart_merge_venue_meta( $term_id, $venue_data );
+				}
+				self::settle_import_timezone( (int) $term_id, $timezone_hint );
 			}
 
 			return array(
@@ -620,7 +630,11 @@ class Venue_Taxonomy {
 		}
 
 		if ( 'conflict' === $identity['match_status'] ) {
-			return self::create_venue_on_geographic_conflict( $venue_name, $venue_data, $identity, $log_context );
+			$created = self::create_venue_on_geographic_conflict( $venue_name, $venue_data, $identity, $log_context );
+			if ( ! empty( $created['term_id'] ) ) {
+				self::settle_import_timezone( (int) $created['term_id'], $timezone_hint );
+			}
+			return $created;
 		}
 
 		// Create new venue
@@ -647,6 +661,7 @@ class Venue_Taxonomy {
 
 		// Update all metadata for new venue
 		self::update_venue_meta( $term_id, $venue_data );
+		self::settle_import_timezone( (int) $term_id, $timezone_hint );
 
 		return array(
 			'term_id'      => $term_id,
@@ -1517,18 +1532,20 @@ class Venue_Taxonomy {
 	}
 
 	/**
-	 * Geocode venue address if coordinates are missing
+	 * Geocode venue address if coordinates are missing, or always when forced.
 	 *
-	 * @param int $term_id Venue term ID
+	 * @param int  $term_id Venue term ID
+	 * @param bool $force   Re-geocode even when coordinates exist. Existing
+	 *                      coordinates are kept when no new result is found.
 	 * @return bool True if geocoding was performed, false otherwise
 	 */
-	public static function maybe_geocode_venue( $term_id ) {
+	public static function maybe_geocode_venue( $term_id, bool $force = false ) {
 		if ( ! $term_id ) {
 			return false;
 		}
 
 		$existing_coords = get_term_meta( $term_id, '_venue_coordinates', true );
-		if ( ! empty( $existing_coords ) ) {
+		if ( ! empty( $existing_coords ) && ! $force ) {
 			self::maybe_derive_timezone( $term_id, $existing_coords );
 			return false;
 		}
@@ -1536,8 +1553,17 @@ class Venue_Taxonomy {
 		$venue_data  = self::get_venue_data( $term_id );
 		$coordinates = self::geocode_address( $venue_data );
 
+		// A forced re-geocode that finds nothing leaves the venue as it was (#903).
+		if ( ! $coordinates && ! empty( $existing_coords ) ) {
+			return false;
+		}
+
 		if ( $coordinates ) {
-			$result   = VenueProfileMutations::updateSystem( (int) $term_id, array( 'coordinates' => $coordinates ) );
+			$changes = array( 'coordinates' => $coordinates );
+			if ( ! empty( $existing_coords ) ) {
+				$changes['timezone'] = '';
+			}
+			$result   = VenueProfileMutations::updateSystem( (int) $term_id, $changes );
 			$geocoded = ! is_wp_error( $result ) && ! empty( $result['success'] );
 
 			// Derive the timezone in the same pass. Previously this only ran on
@@ -1558,6 +1584,43 @@ class Venue_Taxonomy {
 	}
 
 	/**
+	 * Give an imported venue a timezone derived from its location.
+	 *
+	 * Location wins. The import's timezone is used only when the venue still
+	 * has no valid zone after derivation, i.e. its location cannot resolve one.
+	 *
+	 * @param int    $term_id       Venue term ID.
+	 * @param string $timezone_hint Timezone carried by the import, if any.
+	 */
+	private static function settle_import_timezone( int $term_id, string $timezone_hint ): void {
+		if ( $term_id <= 0 ) {
+			return;
+		}
+
+		self::maybe_derive_timezone( $term_id );
+
+		if ( ! DateTimeParser::isValidTimezone( $timezone_hint ) ) {
+			return;
+		}
+		if ( DateTimeParser::isValidTimezone( (string) get_term_meta( $term_id, '_venue_timezone', true ) ) ) {
+			return;
+		}
+
+		$result = VenueProfileMutations::updateSystem( $term_id, array( 'timezone' => $timezone_hint ) );
+		if ( ! is_wp_error( $result ) && ! empty( $result['success'] ) ) {
+			do_action(
+				'datamachine_log',
+				'warning',
+				'Venue timezone taken from import because location could not resolve one',
+				array(
+					'term_id'  => $term_id,
+					'timezone' => $timezone_hint,
+				)
+			);
+		}
+	}
+
+	/**
 	 * Derive timezone if timezone is missing.
 	 *
 	 * Delegates to VenueTimezoneResolver, which tries GeoNames first (when
@@ -1573,8 +1636,8 @@ class Venue_Taxonomy {
 			return false;
 		}
 
-		$existing_timezone = get_term_meta( $term_id, '_venue_timezone', true );
-		if ( ! empty( $existing_timezone ) ) {
+		$existing_timezone = (string) get_term_meta( $term_id, '_venue_timezone', true );
+		if ( DateTimeParser::isValidTimezone( $existing_timezone ) ) {
 			return false;
 		}
 
@@ -1628,8 +1691,10 @@ class Venue_Taxonomy {
 			return null;
 		}
 
+		$region = self::geocode_expected_region( $venue_data );
+
 		foreach ( $queries as $strategy => $query ) {
-			$coordinates = self::query_nominatim( $query );
+			$coordinates = self::query_nominatim( $query, $region['country'], $region['state'] );
 
 			if ( $coordinates ) {
 				do_action(
@@ -1805,12 +1870,12 @@ class Venue_Taxonomy {
 	 * @param string $query Search query string.
 	 * @return string|null Coordinates as "lat,lng" or null on failure.
 	 */
-	public static function query_nominatim( string $query ): ?string {
+	public static function query_nominatim( string $query, string $country_code = '', string $state_code = '' ): ?string {
 		if ( empty( $query ) ) {
 			return null;
 		}
 
-		$result = NominatimClient::geocodeOne( $query );
+		$result = NominatimClient::geocodeOne( $query, strtolower( $country_code ) );
 
 		if ( is_wp_error( $result ) ) {
 			$error_code = $result->get_error_code();
@@ -1837,7 +1902,75 @@ class Venue_Taxonomy {
 			return null;
 		}
 
+		if ( ! self::geocode_result_matches_region( $result, $country_code, $state_code ) ) {
+			do_action(
+				'datamachine_log',
+				'warning',
+				'Geocoding result rejected: outside the venue country/state',
+				array(
+					'query'            => $query,
+					'expected_country' => $country_code,
+					'expected_state'   => $state_code,
+					'result_country'   => $result['country_code'],
+					'result_region'    => $result['region_code'],
+					'display_name'     => $result['display_name'],
+				)
+			);
+			return null;
+		}
+
 		return $result['lat'] . ',' . $result['lng'];
+	}
+
+	/**
+	 * Country and US state a geocode result must fall in, from venue data.
+	 *
+	 * Either value is empty when the venue does not state it unambiguously,
+	 * in which case that dimension is not enforced. See #899.
+	 *
+	 * @param array $venue_data Venue data.
+	 * @return array{country: string, state: string} Uppercase ISO alpha-2 country and US postal state.
+	 */
+	public static function geocode_expected_region( array $venue_data ): array {
+		$country = VenueTimezoneResolver::normalizeCountry( (string) ( $venue_data['country'] ?? '' ) );
+		$state   = VenueTimezoneResolver::normalizeUsState( (string) ( $venue_data['state'] ?? '' ) );
+
+		if ( '' === $country && '' !== $state ) {
+			$country = 'US';
+		}
+		if ( 'US' !== $country ) {
+			$state = '';
+		}
+
+		return array(
+			'country' => $country,
+			'state'   => $state,
+		);
+	}
+
+	/**
+	 * Whether a geocode result lies in the expected country/state.
+	 *
+	 * Missing data on either side is not a contradiction.
+	 *
+	 * @param array  $result       geocodeOne() result.
+	 * @param string $country_code Expected ISO alpha-2, or ''.
+	 * @param string $state_code   Expected US postal state, or ''.
+	 * @return bool
+	 */
+	public static function geocode_result_matches_region( array $result, string $country_code, string $state_code ): bool {
+		$result_country = strtoupper( (string) ( $result['country_code'] ?? '' ) );
+		$result_region  = strtoupper( (string) ( $result['region_code'] ?? '' ) );
+
+		if ( '' !== $country_code && '' !== $result_country && strtoupper( $country_code ) !== $result_country ) {
+			return false;
+		}
+
+		if ( '' !== $state_code && '' !== $result_region && 'US-' . strtoupper( $state_code ) !== $result_region ) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**

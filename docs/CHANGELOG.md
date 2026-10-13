@@ -2,6 +2,64 @@
 
 All notable changes to Data Machine Events will be documented in this file.
 
+## [0.66.6] - 2026-10-12
+
+### Fixed
+- render event info and action buttons before the description
+
+## [0.66.5] - 2026-10-11
+
+### Changed
+- drop Homeboy review audit and its baseline
+
+## [0.66.4] - 2026-10-11
+
+### Fixed
+- route UTC-converting extractors through EventTimeLocalizer
+
+## [0.66.3] - 2026-10-10
+
+### Fixed
+- localize ISO-offset event times to venue time centrally
+
+## [0.66.2] - 2026-10-10
+
+### Fixed
+- URL-encode Nominatim queries; keep location on failed forced re-geocode
+
+## [0.66.1] - 2026-10-10
+
+### Fixed
+- reject geocode results outside the venue's country/state
+
+## [0.66.0] - 2026-10-09
+
+### Added
+- audit and repair venue timezones that contradict location
+
+### Fixed
+- derive venue timezone from location, not import data
+
+## [0.65.7] - 2026-10-09
+
+### Fixed
+- never store raw UTC offsets as venue timezones
+
+## [0.65.6] - 2026-10-03
+
+### Fixed
+- process the job's own image instead of the next file in the shared bucket
+
+## [0.65.5] - 2026-10-03
+
+### Fixed
+- use a date-neutral calendar icon instead of the JUL 17 emoji
+
+## [0.65.4] - 2026-10-03
+
+### Fixed
+- Fix ISO file modification dates in flyer image selection
+
 ## [0.65.3] - 2026-10-02
 
 ### Fixed

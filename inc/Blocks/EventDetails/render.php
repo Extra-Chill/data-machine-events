@@ -194,14 +194,27 @@ if ( apply_filters( 'data_machine_events_output_event_schema', true, (int) $post
 <?php endif; ?>
 
 <div class="<?php echo esc_attr( $block_class ); ?>">
-	<?php if ( ! empty( $content ) ) : ?>
+	<?php
+	/**
+	 * Filters whether the Event Details description appears before the event info.
+	 *
+	 * By default, event information and action buttons render before the
+	 * description. Return true to restore the legacy description-first order.
+	 *
+	 * @param bool $description_first Whether to render the description first. Default false.
+	 * @param int  $post_id           Event post ID.
+	 */
+	$description_first = apply_filters( 'data_machine_events_details_description_first', false, (int) $post_id );
+	?>
+	<?php if ( $description_first && ! empty( $content ) ) : ?>
 		<?php echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- InnerBlocks content is rendered and escaped by WordPress blocks. ?>
 	<?php endif; ?>
 	
 	<div class="event-info-grid">
 		<?php if ( $start_datetime ) : ?>
 			<div class="event-date-time">
-				<span class="icon">📅</span>
+				<?php // Date-neutral dashicon (dashicons is a dependency of data-machine-events-root). The 📅 emoji renders as a page reading "JUL 17" (#890). ?>
+				<span class="icon dashicons dashicons-calendar-alt" aria-hidden="true"></span>
 				<span class="text">
 					<?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $start_datetime ) ) ); ?>
 					<?php if ( $time_display ) : ?>
@@ -354,6 +367,10 @@ if ( apply_filters( 'data_machine_events_output_event_schema', true, (int) $post
 		do_action( 'data_machine_events_action_buttons', $post_id, $ticket_url, $event_timing );
 		?>
 	</div>
+
+	<?php if ( ! $description_first && ! empty( $content ) ) : ?>
+		<?php echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- InnerBlocks content is rendered and escaped by WordPress blocks. ?>
+	<?php endif; ?>
 
 	<?php
 	// Display venue map if coordinates are available.

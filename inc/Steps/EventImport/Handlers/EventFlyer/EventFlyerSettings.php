@@ -132,12 +132,12 @@ class EventFlyerSettings {
 			'venuePhone'   => 'Venue phone number',
 			'venueWebsite' => 'Venue website URL',
 			'startDate'    => 'Event date in YYYY-MM-DD format',
-			'startTime'    => 'Event start time in HH:MM 24-hour format',
-			'endTime'      => 'Event end time in HH:MM 24-hour format (if visible)',
+			'startTime'    => 'Show/performance start time in HH:MM 24-hour format. When the flyer lists both doors and show times (e.g. "DOORS: 8PM SHOW: 9PM"), use the SHOW time. Use the doors time only if no show time is listed.',
+			'endTime'      => 'Event end time in HH:MM 24-hour format, ONLY when the flyer states an explicit end (e.g. "8-11PM", "until 2AM", "ends 11PM"). Never use a doors or show time as the end time. Leave empty otherwise.',
 			'price'        => 'Ticket price (e.g., "$20" or "$15 adv / $20 dos")',
 			'ticketUrl'    => 'Ticket purchase URL if visible on the flyer',
 			'performer'    => 'Supporting acts, opening bands, or additional performers',
-			'description'  => 'Any additional event details visible on the flyer (age restrictions, special notes, etc.)',
+			'description'  => 'Any additional event details visible on the flyer (age restrictions, special notes, etc.). Include the doors time here when the flyer lists one (e.g. "Doors 8PM").',
 		);
 	}
 }

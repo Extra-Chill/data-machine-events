@@ -314,6 +314,8 @@ Look for and extract:
 Format guidelines:
 - Dates should be in YYYY-MM-DD format
 - Times should be in HH:MM 24-hour format
+- Doors vs. show: when the flyer lists both (e.g. "DOORS: 8PM  SHOW: 9PM"), the SHOW time is the start time. Put the doors time in the description (e.g. "Doors 8PM"). Use the doors time as the start time only if no show time is listed
+- Only set an end time when the flyer states an explicit end (e.g. "8-11PM", "until 2AM"). A doors or show time is never the end time
 - If information is not clearly visible, leave the field empty
 - Do not guess or infer information that is not present on the flyer';
 	}

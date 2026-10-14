@@ -22,6 +22,9 @@ class VenueTaxonomyGeographicConflictTest extends WP_UnitTestCase {
 	/** @var int[] */
 	private array $existing_venue_ids = array();
 
+	/** @var int[] */
+	private array $created_post_ids = array();
+
 	public function setUp(): void {
 		parent::setUp();
 		global $wpdb;
@@ -44,7 +47,11 @@ class VenueTaxonomyGeographicConflictTest extends WP_UnitTestCase {
 
 	public function tearDown(): void {
 		global $wpdb;
-		$current_ids = get_terms(
+		foreach ( $this->created_post_ids as $post_id ) {
+			wp_delete_post( $post_id, true );
+		}
+		$this->created_post_ids = array();
+		$current_ids            = get_terms(
 			array(
 				'taxonomy'   => 'venue',
 				'hide_empty' => false,
@@ -689,5 +696,210 @@ class VenueTaxonomyGeographicConflictTest extends WP_UnitTestCase {
 
 		$this->assertNull( $result['term_id'] );
 		$this->assertSame( 'ambiguous', $result['match_status'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// Part E: non-US state/region values are non-discriminating (#929)
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Attach published posts to a venue term so its term count reflects an
+	 * event share, mirroring the production duplicate shape where the
+	 * dominant term carries far more events than its sparse twin.
+	 *
+	 * @param int $term_id Venue term ID.
+	 * @param int $count   Number of posts to tag.
+	 */
+	private function give_term_events( int $term_id, int $count ): void {
+		for ( $i = 0; $i < $count; ++$i ) {
+			$post_id = wp_insert_post(
+				array(
+					'post_title'   => 'Event ' . uniqid() . '-' . $i,
+					'post_status'  => 'publish',
+					'post_author'  => 1,
+				)
+			);
+			$this->assertIsInt( $post_id );
+			$this->created_post_ids[] = $post_id;
+			wp_set_object_terms( $post_id, array( $term_id ), 'venue', false );
+		}
+	}
+
+	/**
+	 * The production duplicate shape from issue #929: identical address and
+	 * city, name identical, and only a non-US region value in the state slot
+	 * (country constituent "England" vs county/city "London"). The import
+	 * matcher must resolve to the term carrying more events instead of
+	 * rejecting the match as ambiguous.
+	 */
+	public function test_gb_duplicate_pair_with_region_variants_resolves_to_term_with_more_events(): void {
+		$name = 'O2 Academy2 Islington ' . uniqid();
+		$main = $this->create_venue_with_meta(
+			$name,
+			array(
+				'address' => 'N1 Centre, 16 Parkfield Street',
+				'city'    => 'London',
+				'state'   => 'England',
+				'country' => 'GB',
+			)
+		);
+		$twin = wp_insert_term( $name, 'venue', array( 'slug' => sanitize_title( $name ) . '-2' ) );
+		$this->assertNotWPError( $twin );
+		$twin_id = (int) $twin['term_id'];
+		foreach ( array(
+			'address' => 'N1 Centre, 16 Parkfield Street',
+			'city'    => 'London',
+			'state'   => 'London',
+			'country' => 'GB',
+		) as $field => $value ) {
+			update_term_meta( $twin_id, Venue_Taxonomy::$meta_fields[ $field ], $value );
+		}
+
+		$this->give_term_events( $main, 2 );
+		$this->give_term_events( $twin_id, 1 );
+
+		// Whatever region value the source sends — the sparse twin's
+		// "London", the dominant term's "England", or nothing — the match
+		// must land on the established term.
+		foreach ( array( 'London', 'England', '' ) as $incoming_state ) {
+			$result = Venue_Taxonomy::resolve_venue_identity(
+				$name,
+				array(
+					'address' => 'N1 Centre, 16 Parkfield Street',
+					'city'    => 'London',
+					'state'   => $incoming_state,
+					'country' => 'GB',
+				)
+			);
+
+			$this->assertSame( 'matched', $result['match_status'], "Failed for incoming state '{$incoming_state}'." );
+			$this->assertSame( $main, $result['term_id'], "Failed for incoming state '{$incoming_state}'." );
+		}
+	}
+
+	/**
+	 * A single GB term whose region slot carries "England" must still match
+	 * an import that says "London": identical normalized address + city +
+	 * country is the same venue (#929).
+	 */
+	public function test_gb_region_variant_on_single_term_matches_by_address(): void {
+		$name    = 'YES Manchester ' . uniqid();
+		$term_id = $this->create_venue_with_meta(
+			$name,
+			array(
+				'address' => '37-39 Mainstone Road',
+				'city'    => 'Manchester',
+				'state'   => 'England',
+				'country' => 'GB',
+			)
+		);
+
+		$result = Venue_Taxonomy::resolve_venue_identity(
+			$name,
+			array(
+				'address' => '37-39 Mainstone Road',
+				'city'    => 'Manchester',
+				'state'   => 'London',
+				'country' => 'GB',
+			)
+		);
+
+		$this->assertSame( 'matched', $result['match_status'] );
+		$this->assertSame( $term_id, $result['term_id'] );
+	}
+
+	/**
+	 * The state slot keeps discriminating inside the US system: same name,
+	 * same street and city, different US states is still a conflict.
+	 */
+	public function test_us_state_mismatch_same_name_and_address_still_conflicts(): void {
+		$name = 'US State Guard Venue ' . uniqid();
+		$this->create_venue_with_meta(
+			$name,
+			array(
+				'address' => '880 Island Park Dr',
+				'city'    => 'Charleston',
+				'state'   => 'SC',
+				'country' => 'US',
+			)
+		);
+
+		$result = Venue_Taxonomy::resolve_venue_identity(
+			$name,
+			array(
+				'address' => '880 Island Park Dr',
+				'city'    => 'Charleston',
+				'state'   => 'GA',
+				'country' => 'US',
+			)
+		);
+
+		$this->assertSame( 'conflict', $result['match_status'] );
+		$this->assertNotEmpty( $result['conflicting_term_ids'] );
+	}
+
+	/**
+	 * The dominant-term resolution needs positive location evidence. Bare
+	 * same-name twins with nothing stored stay ambiguous even when the
+	 * import carries geography, because nothing stored confirms the place.
+	 */
+	public function test_exact_candidates_without_stored_location_stay_ambiguous(): void {
+		$name  = 'Bare Twins Venue ' . uniqid();
+		$first = wp_insert_term( $name, 'venue' );
+		$this->assertNotWPError( $first );
+		$second = wp_insert_term( $name, 'venue', array( 'slug' => sanitize_title( $name ) . '-2' ) );
+		$this->assertNotWPError( $second );
+
+		$result = Venue_Taxonomy::resolve_venue_identity(
+			$name,
+			array(
+				'address' => '300 King Street',
+				'city'    => 'Charleston',
+				'state'   => 'SC',
+				'country' => 'US',
+			)
+		);
+
+		$this->assertNull( $result['term_id'] );
+		$this->assertSame( 'ambiguous', $result['match_status'] );
+	}
+
+	/**
+	 * Ties on event count go to the oldest term (lowest ID), matching the
+	 * winner rule the merge-duplicate-venues command applies.
+	 */
+	public function test_region_variant_pair_tie_resolves_to_oldest_term(): void {
+		$name = 'Twin Pines Cellar ' . uniqid();
+		$main = $this->create_venue_with_meta(
+			$name,
+			array(
+				'address' => '2 cellar door lane',
+				'city'    => 'Bristol',
+				'state'   => 'England',
+				'country' => 'GB',
+			)
+		);
+		$twin = wp_insert_term( $name, 'venue', array( 'slug' => sanitize_title( $name ) . '-2' ) );
+		$this->assertNotWPError( $twin );
+		$twin_id = (int) $twin['term_id'];
+		update_term_meta( $twin_id, Venue_Taxonomy::$meta_fields['address'], '2 Cellar Door Lane' );
+		update_term_meta( $twin_id, Venue_Taxonomy::$meta_fields['city'], 'Bristol' );
+		update_term_meta( $twin_id, Venue_Taxonomy::$meta_fields['country'], 'GB' );
+
+		$this->give_term_events( $main, 1 );
+		$this->give_term_events( $twin_id, 1 );
+
+		$result = Venue_Taxonomy::resolve_venue_identity(
+			$name,
+			array(
+				'address' => '2 Cellar Door Lane',
+				'city'    => 'Bristol',
+				'state'   => '',
+				'country' => 'GB',
+			)
+		);
+
+		$this->assertSame( 'matched', $result['match_status'] );
+		$this->assertSame( $main, $result['term_id'] );
 	}
 }

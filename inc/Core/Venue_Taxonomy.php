@@ -968,16 +968,23 @@ class Venue_Taxonomy {
 	 * Resolve name variants without crossing conflicting geographic evidence.
 	 *
 	 * Exact, article-toggle, and normalized matches retain their precedence. A
-	 * tier with one compatible candidate wins; multiple compatible candidates
-	 * are ambiguous (#803). A tier whose candidates are all rejected by
-	 * supplied geography is a conflict, not an ambiguity — same name, different
-	 * place is a different venue (#806). Conflicting tiers fall through to
-	 * later tiers; when every tier is exhausted the rejected candidate term
-	 * ids travel with the conflict result for logging and reporting.
+	 * tier with one compatible candidate wins. Multiple compatible candidates
+	 * resolve to the term carrying more events when the incoming data
+	 * positively places every candidate — the duplicate-pair shape where two
+	 * terms share an address (or one side simply lacks coordinates) and only
+	 * a non-US region value differs (#929). Without that positive location
+	 * evidence the #803 ambiguity guard stands: nothing justifies a guess. A
+	 * tier whose candidates are all rejected by supplied geography is a
+	 * conflict, not an ambiguity — same name, different place is a different
+	 * venue (#806). Conflicting tiers fall through to later tiers; when every
+	 * tier is exhausted the rejected candidate term ids travel with the
+	 * conflict result for logging and reporting.
 	 *
 	 * A fuzzy typo tier (#921) runs only when no earlier tier produced any
 	 * candidate at all: an exact name that conflicts geographically is a
 	 * distinct venue and must never be redirected to a similarly named one.
+	 * The fuzzy tier keeps its own ambiguity outcome — a near-miss name is
+	 * weak evidence, so several near matches are never silently resolved.
 	 *
 	 * @param string $venue_name Venue name to resolve.
 	 * @param array  $venue_data Incoming venue metadata.
@@ -1060,9 +1067,34 @@ class Venue_Taxonomy {
 			}
 
 			if ( count( $compatible ) > 1 ) {
+				// Same name, no conflicting geography. When the incoming
+				// data positively places every candidate — same non-empty
+				// city or same street address — the term carrying more
+				// events is the canonical one and the import resolves to it
+				// instead of being rejected as ambiguous (#929). Without
+				// that positive location evidence the #803 ambiguity guard
+				// stands.
+				$positively_placed = true;
+
+				foreach ( $compatible as $venue ) {
+					if ( ! self::has_positive_location_evidence( (int) $venue->term_id, $venue_data ) ) {
+						$positively_placed = false;
+						break;
+					}
+				}
+
+				if ( ! $positively_placed ) {
+					return array(
+						'term'                 => null,
+						'ambiguous'            => true,
+						'conflict'             => false,
+						'conflicting_term_ids' => array(),
+					);
+				}
+
 				return array(
-					'term'                 => null,
-					'ambiguous'            => true,
+					'term'                 => self::dominant_compatible_candidate( $compatible ),
+					'ambiguous'            => false,
 					'conflict'             => false,
 					'conflicting_term_ids' => array(),
 				);
@@ -1081,6 +1113,35 @@ class Venue_Taxonomy {
 			'conflict'             => true,
 			'conflicting_term_ids' => array_values( array_unique( $conflicting_term_ids ) ),
 		);
+	}
+
+	/**
+	 * Pick the canonical term among positively placed same-name candidates (#929).
+	 *
+	 * The term carrying more events is the established one; ties go to the
+	 * oldest term (lowest ID) — the same winner rule the
+	 * merge-duplicate-venues command applies.
+	 *
+	 * @param \WP_Term[] $candidates Compatible candidates, all positively placed.
+	 * @return \WP_Term
+	 */
+	private static function dominant_compatible_candidate( array $candidates ): \WP_Term {
+		$winner = null;
+
+		foreach ( $candidates as $candidate ) {
+			if (
+				null === $winner
+				|| (int) $candidate->count > (int) $winner->count
+				|| (
+					(int) $candidate->count === (int) $winner->count
+					&& (int) $candidate->term_id < (int) $winner->term_id
+				)
+			) {
+				$winner = $candidate;
+			}
+		}
+
+		return $winner;
 	}
 
 	/**
@@ -1324,6 +1385,22 @@ class Venue_Taxonomy {
 			} else {
 				$incoming_normalized = self::normalize_geographic_value( (string) $incoming, $field );
 				$stored_normalized   = self::normalize_geographic_value( (string) $stored, $field );
+
+				// A state/region value that does not canonicalize into the
+				// US state system is unreliable evidence (#929): GB sources
+				// fill the slot with the country constituent ("England") or
+				// the county/city ("London") for the same venue, so the slot
+				// only ever rejects a match when both sides carry US-style
+				// states. Address, city, and country still discriminate.
+				if (
+					'state' === $field
+					&& (
+						! self::state_is_discriminating( (string) $incoming )
+						|| ! self::state_is_discriminating( (string) $stored )
+					)
+				) {
+					continue;
+				}
 			}
 
 			if ( $incoming_normalized !== $stored_normalized ) {
@@ -1475,6 +1552,25 @@ class Venue_Taxonomy {
 
 		$state = trim( $state );
 		return '' === $state ? array() : array( $state );
+	}
+
+	/**
+	 * Whether a state/region value is reliable enough to distinguish venues (#929).
+	 *
+	 * Only a value that canonicalizes into the US state/territory system
+	 * (postal abbreviation or full name) counts. Sources outside that system
+	 * fill the slot inconsistently — GB imports use the country constituent
+	 * ("England") or the county/city ("London") for the same physical venue
+	 * — so a free-form region value can never contradict a match. An empty
+	 * value is never discriminating.
+	 *
+	 * @param string $state Raw state/region value.
+	 * @return bool
+	 */
+	public static function state_is_discriminating( string $state ): bool {
+		$normalized = self::normalize_geographic_value( $state, 'state' );
+
+		return '' !== $normalized && isset( self::$us_state_names[ strtoupper( $normalized ) ] );
 	}
 
 	/**

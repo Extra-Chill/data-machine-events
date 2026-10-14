@@ -192,11 +192,28 @@ class VenueMergeHelper {
 
 	/**
 	 * Reject conflicting stored geography while allowing either side to omit it.
+	 *
+	 * A state/region value that does not canonicalize into the US state
+	 * system is non-discriminating (#929): the same GB venue legitimately
+	 * carries "England" in one term and "London" in another, so such values
+	 * never reject a pairing. US states keep discriminating.
 	 */
 	private static function geography_is_compatible( array $geo_a, array $geo_b ): bool {
 		foreach ( array( 'city', 'state', 'country' ) as $field ) {
-			$value_a = self::normalize_geography_value( $field, (string) ( $geo_a[ $field ] ?? '' ) );
-			$value_b = self::normalize_geography_value( $field, (string) ( $geo_b[ $field ] ?? '' ) );
+			$raw_a   = (string) ( $geo_a[ $field ] ?? '' );
+			$raw_b   = (string) ( $geo_b[ $field ] ?? '' );
+			$value_a = self::normalize_geography_value( $field, $raw_a );
+			$value_b = self::normalize_geography_value( $field, $raw_b );
+
+			if (
+				'state' === $field
+				&& (
+					! Venue_Taxonomy::state_is_discriminating( $raw_a )
+					|| ! Venue_Taxonomy::state_is_discriminating( $raw_b )
+				)
+			) {
+				continue;
+			}
 
 			if ( '' !== $value_a && '' !== $value_b && $value_a !== $value_b ) {
 				return false;

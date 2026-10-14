@@ -137,8 +137,11 @@ class CheckMergeDuplicateVenuesCommand {
 	 * Walk every venue term and group by normalized physical location.
 	 * Returns only name-compatible clusters with >=2 terms.
 	 *
-	 * The key includes city, state, and country. False negatives from missing
-	 * geography are safer than a destructive cross-location merge.
+	 * The key includes city, state, and country, except that a state which
+	 * does not canonicalize into the US state system is left out (#929): GB
+	 * duplicates of the same venue carry "England" or "London" in that slot.
+	 * False negatives from missing geography are safer than a destructive
+	 * cross-location merge.
 	 *
 	 * @return array<int,array{key:string,term_ids:array<int,int>,terms:array}>
 	 */
@@ -167,11 +170,19 @@ class CheckMergeDuplicateVenuesCommand {
 				continue;
 			}
 
+			// A state that does not canonicalize into the US state system is
+			// non-discriminating (#929): GB terms for the same venue carry
+			// "England" or "London" in this slot. It stays out of the key so
+			// both sides land in the same bucket; US states keep splitting.
+			$state_key = Venue_Taxonomy::state_is_discriminating( $state )
+				? Venue_Taxonomy::normalize_geographic_value( $state, 'state' )
+				: '';
+
 			$addr_key = sprintf(
 				'%s|%s|%s|%s',
 				VenueMergeHelper::normalize_address_for_alias_matching( $address, $city, $state ),
 				Venue_Taxonomy::normalize_geographic_value( $city, 'city' ),
-				Venue_Taxonomy::normalize_geographic_value( $state, 'state' ),
+				$state_key,
 				Venue_Taxonomy::normalize_geographic_value( $country, 'country' )
 			);
 

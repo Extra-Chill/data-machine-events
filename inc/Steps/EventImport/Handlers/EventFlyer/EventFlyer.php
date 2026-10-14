@@ -311,6 +311,12 @@ Look for and extract:
 - Ticket purchase URLs if visible
 - Any age restrictions (21+, All Ages, etc.)
 
+Time rules:
+- If the flyer lists separate DOORS and SHOW times, the SHOW time is the event start time. The doors time is never the start time and never the end time.
+- When a doors time is shown, include it in the description (e.g. "Doors: 8 PM") — there is no dedicated doors field.
+- If the flyer shows only a doors time, use that doors time as the start time.
+- Set an end time only when the flyer states an explicit end or time range (e.g. "8PM–11PM", "until 2AM"). A doors/show pair is not a start/end range.
+
 Format guidelines:
 - Dates should be in YYYY-MM-DD format
 - Times should be in HH:MM 24-hour format

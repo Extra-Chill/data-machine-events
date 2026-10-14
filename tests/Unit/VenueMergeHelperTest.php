@@ -748,4 +748,139 @@ class VenueMergeHelperTest extends WP_UnitTestCase {
 			'Name similarity alone must not authorize a destructive venue merge.'
 		);
 	}
+
+	// ---------------------------------------------------------------------
+	// Non-US state/region values are non-discriminating (#929)
+	// ---------------------------------------------------------------------
+
+	/**
+	 * The production duplicate pair from issue #929: identical address,
+	 * city, and country, with the GB region slot carrying "England" on the
+	 * established term and "London" on the sparse twin. Both must land in
+	 * the same cluster so the operator can merge them.
+	 */
+	public function test_address_cluster_ignores_gb_region_state_variants(): void {
+		$main = $this->make_venue(
+			'O2 Academy2 Islington',
+			array(
+				'_venue_address' => 'N1 Centre, 16 Parkfield Street',
+				'_venue_city'    => 'London',
+				'_venue_state'   => 'England',
+				'_venue_country' => 'GB',
+			)
+		);
+		$twin = $this->make_venue(
+			'O2 Academy2 Islington',
+			array(
+				'_venue_address' => 'N1 Centre, 16 Parkfield Street',
+				'_venue_city'    => 'London',
+				'_venue_state'   => 'London',
+				'_venue_country' => 'GB',
+			)
+		);
+
+		$this->assert_cluster_contains_both( $main, $twin );
+	}
+
+	/**
+	 * US states keep discriminating: same address and city with different
+	 * US states must not cluster.
+	 */
+	public function test_address_cluster_keeps_us_state_mismatch_split(): void {
+		$sc_term = $this->make_venue(
+			'Harbor Guard Hall',
+			array(
+				'_venue_address' => '880 Island Park Dr',
+				'_venue_city'    => 'Charleston',
+				'_venue_state'   => 'SC',
+				'_venue_country' => 'US',
+			)
+		);
+		$ga_term = $this->make_venue(
+			'Harbor Guard Hall',
+			array(
+				'_venue_address' => '880 Island Park Dr',
+				'_venue_city'    => 'Charleston',
+				'_venue_state'   => 'GA',
+				'_venue_country' => 'US',
+			)
+		);
+
+		$cmd        = new CheckMergeDuplicateVenuesCommand();
+		$reflection = new \ReflectionClass( $cmd );
+		$method     = $reflection->getMethod( 'find_clusters' );
+		$method->setAccessible( true );
+		$clusters = $method->invoke( $cmd );
+
+		foreach ( $clusters as $cluster ) {
+			$this->assertNotContains(
+				$sc_term,
+				$cluster['term_ids'],
+				'Differing US states must not share a cluster.'
+			);
+		}
+	}
+
+	/**
+	 * names_are_similar() must accept a GB pair whose only geography
+	 * disagreement is the free-form region slot (#929)…
+	 */
+	public function test_names_are_similar_accepts_gb_region_variants(): void {
+		$england = array(
+			'city'    => 'London',
+			'state'   => 'England',
+			'country' => 'GB',
+		);
+		$london  = array(
+			'city'    => 'London',
+			'state'   => 'London',
+			'country' => 'GB',
+		);
+
+		$this->assertTrue(
+			VenueMergeHelper::names_are_similar( 'O2 Academy2 Islington', 'O2 Academy2 Islington', $england, $london )
+		);
+	}
+
+	/**
+	 * …while US states keep rejecting a pairing.
+	 */
+	public function test_names_are_similar_rejects_us_state_variants(): void {
+		$sc = array( 'city' => 'Charleston', 'state' => 'SC', 'country' => 'US' );
+		$ga = array( 'city' => 'Charleston', 'state' => 'GA', 'country' => 'US' );
+
+		$this->assertFalse(
+			VenueMergeHelper::names_are_similar( 'Harbor Guard Hall', 'Harbor Guard Hall', $sc, $ga )
+		);
+	}
+
+	/**
+	 * Assert find_clusters() emits a cluster containing both term IDs.
+	 *
+	 * @param int $first First venue term ID.
+	 * @param int $second Second venue term ID.
+	 */
+	private function assert_cluster_contains_both( int $first, int $second ): void {
+		$cmd        = new CheckMergeDuplicateVenuesCommand();
+		$reflection = new \ReflectionClass( $cmd );
+		$method     = $reflection->getMethod( 'find_clusters' );
+		$method->setAccessible( true );
+		$clusters = $method->invoke( $cmd );
+
+		$found = false;
+		foreach ( $clusters as $cluster ) {
+			if (
+				in_array( $first, $cluster['term_ids'], true )
+				&& in_array( $second, $cluster['term_ids'], true )
+			) {
+				$found = true;
+				break;
+			}
+		}
+
+		$this->assertTrue(
+			$found,
+			'GB terms sharing address + city + country must cluster despite differing region values.'
+		);
+	}
 }

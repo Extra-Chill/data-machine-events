@@ -117,13 +117,7 @@ class EventFlyer extends EventImportHandler {
 		return array(
 			'title'    => $event_data['title'] ? $event_data['title'] : $image_file['original_name'],
 			'content'  => wp_json_encode(
-				array(
-					'event'                => $event_data,
-					'venue_metadata'       => $venue_metadata,
-					'import_source'        => 'event_flyer',
-					'source_file'          => $image_file['original_name'],
-					'ai_extraction_fields' => $ai_fields,
-				),
+				$this->buildPacketContent( $event_data, $venue_metadata, $image_file['original_name'], $ai_fields ),
 				JSON_PRETTY_PRINT
 			),
 			'metadata' => array(
@@ -278,6 +272,31 @@ class EventFlyer extends EventImportHandler {
 		}
 
 		return $ai_fields;
+	}
+
+	/**
+	 * Build the data packet body the AI step reads next to the flyer image.
+	 *
+	 * The AI step gets the flyer as a file message and this packet as JSON.
+	 * The packet is the only place the handler can tell the model how to
+	 * read the flyer, so the extraction rules (doors vs. show time, explicit
+	 * end times) travel with it. See #922.
+	 *
+	 * @param array  $event_data     Event fields already known from config.
+	 * @param array  $venue_metadata Venue metadata from config.
+	 * @param string $source_file    Original flyer file name.
+	 * @param array  $ai_fields      Fields the AI still has to extract.
+	 * @return array Packet body.
+	 */
+	private function buildPacketContent( array $event_data, array $venue_metadata, string $source_file, array $ai_fields ): array {
+		return array(
+			'event'                => $event_data,
+			'venue_metadata'       => $venue_metadata,
+			'import_source'        => 'event_flyer',
+			'source_file'          => $source_file,
+			'extraction_rules'     => self::get_vision_prompt(),
+			'ai_extraction_fields' => $ai_fields,
+		);
 	}
 
 	/**

@@ -107,4 +107,25 @@ class EventFlyerTimeSemanticsTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'A doors/show time pair is two start times, not a start/end range', $fields['endTime']['description'] );
 		$this->assertStringContainsString( 'the show time is the start', $fields['endTime']['description'] );
 	}
+
+	public function test_flyer_packet_carries_the_extraction_rules_to_the_ai_step(): void {
+		// The time rules only help if they reach the model. The AI step sees
+		// the flyer image plus this packet, so the rules must be in it.
+		$handler = new EventFlyer();
+		$method  = ( new \ReflectionClass( $handler ) )->getMethod( 'buildPacketContent' );
+		$method->setAccessible( true );
+
+		$content = $method->invoke(
+			$handler,
+			array( 'title' => 'Nightmare On King St' ),
+			array(),
+			'NIGHTMARE-ON-KING-ST.png',
+			EventFlyerSettings::get_ai_extraction_fields()
+		);
+
+		$this->assertSame( EventFlyer::get_vision_prompt(), $content['extraction_rules'] );
+		$this->assertStringContainsString( 'the SHOW time is the event start time', $content['extraction_rules'] );
+		$this->assertArrayHasKey( 'endTime', $content['ai_extraction_fields'] );
+		$this->assertSame( 'event_flyer', $content['import_source'] );
+	}
 }

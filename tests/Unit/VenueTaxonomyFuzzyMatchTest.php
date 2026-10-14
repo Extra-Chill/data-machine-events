@@ -254,4 +254,62 @@ class VenueTaxonomyFuzzyMatchTest extends WP_UnitTestCase {
 		$this->assertSame( $term_id, $result['term_id'] );
 		$this->assertSame( 'name', $result['matched_via'] );
 	}
+
+	// ---------------------------------------------------------------------
+	// Part C: fuzzy matches need positive location evidence (#921 review)
+	// ---------------------------------------------------------------------
+
+	public function test_near_match_without_incoming_city_creates_new_term(): void {
+		// Flyer and AI extractions often carry no city. A near-named venue in
+		// some other market must not absorb the event just because nothing
+		// contradicts it ("Red Room" vs. Buffalo's "Rec Room").
+		$suffix  = uniqid();
+		$term_id = $this->create_venue_with_meta(
+			"Recovery Room Tavern {$suffix}",
+			array(
+				'city'  => 'Charleston',
+				'state' => 'SC',
+			)
+		);
+		$before = $this->venue_count();
+
+		$result = Venue_Taxonomy::find_or_create_venue( "Recoery Room Tavern {$suffix}", array() );
+
+		$this->assertSame( 'created', $result['match_status'] );
+		$this->assertTrue( $result['was_created'] );
+		$this->assertNotSame( $term_id, $result['term_id'] );
+		$this->assertSame( $before + 1, $this->venue_count() );
+		$this->assertSame( "Recovery Room Tavern {$suffix}", get_term( $term_id, 'venue' )->name, 'The existing venue must not be merged into.' );
+	}
+
+	public function test_near_match_with_no_stored_city_creates_new_term(): void {
+		$suffix  = uniqid();
+		$term_id = $this->create_venue_with_meta( "Recovery Room Tavern {$suffix}", array() );
+
+		$result = Venue_Taxonomy::find_or_create_venue(
+			"Recoery Room Tavern {$suffix}",
+			array( 'city' => 'Charleston' )
+		);
+
+		$this->assertTrue( $result['was_created'] );
+		$this->assertNotSame( $term_id, $result['term_id'] );
+		$this->assertSame( '', get_term_meta( $term_id, '_venue_city', true ), 'The existing venue must not be merged into.' );
+	}
+
+	public function test_near_match_with_same_street_address_and_no_city_resolves(): void {
+		$suffix  = uniqid();
+		$term_id = $this->create_venue_with_meta(
+			"Recovery Room Tavern {$suffix}",
+			array( 'address' => '685 King Street' )
+		);
+
+		$result = Venue_Taxonomy::find_or_create_venue(
+			"Recoery Room Tavern {$suffix}",
+			array( 'address' => '685 King St' )
+		);
+
+		$this->assertSame( 'matched', $result['match_status'] );
+		$this->assertSame( $term_id, $result['term_id'] );
+		$this->assertFalse( $result['was_created'] );
+	}
 }

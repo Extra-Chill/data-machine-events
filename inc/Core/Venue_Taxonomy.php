@@ -1003,13 +1003,17 @@ class Venue_Taxonomy {
 			return $no_match;
 		}
 
-		$alt_name              = 0 === stripos( $venue_name, 'The ' ) ? substr( $venue_name, 4 ) : 'The ' . $venue_name;
-		$normalized_name       = self::normalize_venue_name_for_matching( $venue_name );
+		$alt_name           = 0 === stripos( $venue_name, 'The ' ) ? substr( $venue_name, 4 ) : 'The ' . $venue_name;
+		$normalized_name    = self::normalize_venue_name_for_matching( $venue_name );
+		$normalized_by_term = array();
+		foreach ( $venues as $venue ) {
+			$normalized_by_term[ (int) $venue->term_id ] = self::normalize_venue_name_for_matching( $venue->name );
+		}
 		$normalized_candidates = strlen( $normalized_name ) < 3
 			? array()
 			: array_filter(
 				$venues,
-				static fn( $venue ) => $normalized_name === self::normalize_venue_name_for_matching( $venue->name )
+				static fn( $venue ) => $normalized_name === $normalized_by_term[ (int) $venue->term_id ]
 			);
 		$tiers                 = array(
 			array_filter(
@@ -1066,7 +1070,7 @@ class Venue_Taxonomy {
 		}
 
 		if ( ! $had_candidates ) {
-			return self::resolve_fuzzy_name_tier( $venue_name, $normalized_name, $venues, $venue_data );
+			return self::resolve_fuzzy_name_tier( $venue_name, $normalized_name, $venues, $normalized_by_term, $venue_data );
 		}
 
 		// Candidates existed but every compatible one was rejected by the
@@ -1087,18 +1091,26 @@ class Venue_Taxonomy {
 	 * split a venue's events across two archives. When no exact, article-
 	 * toggle, or normalized candidate exists, venues whose normalized name
 	 * sits within a small, length-scaled edit distance of the incoming name
-	 * become candidates. They are gated by the same geographic evidence as
-	 * every other tier: one compatible candidate is a match, several are
-	 * ambiguous, and only-conflicting candidates are a geographic conflict —
+	 * become candidates.
+	 *
+	 * Unlike the exact tiers, a near-miss name is weak evidence on its own,
+	 * so "no geographic conflict" is not enough: has_geographic_conflict()
+	 * skips any field that is empty on either side, which would let a
+	 * payload with no city match a near-named venue in any market. A fuzzy
+	 * candidate is compatible only with positive location evidence: the same
+	 * non-empty city, or the same street address. Candidates with neither
+	 * are ignored. One compatible candidate is a match, several are
+	 * ambiguous, and only-conflicting candidates are a geographic conflict;
 	 * the same typo in a different city is still a different venue (#806).
 	 *
-	 * @param string               $venue_name      Venue name as supplied (for logging).
-	 * @param string               $normalized_name Normalized incoming name.
-	 * @param \WP_Term[]           $venues          All venue terms.
-	 * @param array<string, mixed> $venue_data      Incoming venue metadata.
+	 * @param string               $venue_name         Venue name as supplied (for logging).
+	 * @param string               $normalized_name    Normalized incoming name.
+	 * @param \WP_Term[]           $venues             All venue terms.
+	 * @param array<int, string>   $normalized_by_term Normalized venue names keyed by term ID.
+	 * @param array<string, mixed> $venue_data         Incoming venue metadata.
 	 * @return array{term: \WP_Term|null, ambiguous: bool, conflict: bool, conflicting_term_ids: int[]}
 	 */
-	private static function resolve_fuzzy_name_tier( string $venue_name, string $normalized_name, array $venues, array $venue_data ): array {
+	private static function resolve_fuzzy_name_tier( string $venue_name, string $normalized_name, array $venues, array $normalized_by_term, array $venue_data ): array {
 		$no_match = array(
 			'term'                 => null,
 			'ambiguous'            => false,
@@ -1113,11 +1125,15 @@ class Venue_Taxonomy {
 		$candidates = array();
 		$distances  = array();
 
+		$incoming_length = strlen( $normalized_name );
+
 		foreach ( $venues as $venue ) {
-			$normalized_existing = self::normalize_venue_name_for_matching( $venue->name );
+			$normalized_existing = $normalized_by_term[ (int) $venue->term_id ] ?? self::normalize_venue_name_for_matching( $venue->name );
 			$threshold           = self::fuzzy_name_distance_threshold( $normalized_name, $normalized_existing );
 
-			if ( $threshold < 1 ) {
+			// Edit distance is at least the length difference, so most of
+			// the ~64k venue names are rejected without running levenshtein().
+			if ( $threshold < 1 || abs( strlen( $normalized_existing ) - $incoming_length ) > $threshold ) {
 				continue;
 			}
 
@@ -1143,9 +1159,14 @@ class Venue_Taxonomy {
 		foreach ( $candidates as $venue ) {
 			if ( self::has_geographic_conflict( (int) $venue->term_id, $venue_data ) ) {
 				$conflicting[] = $venue;
-			} else {
+			} elseif ( self::has_positive_location_evidence( (int) $venue->term_id, $venue_data ) ) {
 				$compatible[] = $venue;
 			}
+		}
+
+		if ( empty( $compatible ) && empty( $conflicting ) ) {
+			// Near names exist, but nothing places them in the same city.
+			return $no_match;
 		}
 
 		if ( 1 === count( $compatible ) ) {
@@ -1214,6 +1235,36 @@ class Venue_Taxonomy {
 		}
 
 		return $length <= self::FUZZY_NAME_ONE_EDIT_MAX_LENGTH ? 1 : 2;
+	}
+
+	/**
+	 * Whether incoming venue data positively places a stored venue in the same location (#921).
+	 *
+	 * The fuzzy name tier needs more than the absence of a conflict: the
+	 * same non-empty city on both sides, or the same street identity when
+	 * both sides carry a street address. Empty values on either side are no
+	 * evidence.
+	 *
+	 * @param int                  $term_id    Stored venue term ID.
+	 * @param array<string, mixed> $venue_data Incoming venue metadata.
+	 * @return bool
+	 */
+	private static function has_positive_location_evidence( int $term_id, array $venue_data ): bool {
+		$incoming_city = trim( (string) ( $venue_data['city'] ?? '' ) );
+		$stored_city   = trim( (string) get_term_meta( $term_id, self::$meta_fields['city'], true ) );
+
+		if ( '' !== $incoming_city && '' !== $stored_city
+			&& self::normalize_geographic_value( $incoming_city, 'city' ) === self::normalize_geographic_value( $stored_city, 'city' ) ) {
+			return true;
+		}
+
+		$incoming_address = trim( (string) ( $venue_data['address'] ?? '' ) );
+		$stored_address   = trim( (string) get_term_meta( $term_id, self::$meta_fields['address'], true ) );
+
+		return '' !== $incoming_address && '' !== $stored_address
+			&& self::address_has_street_component( $incoming_address )
+			&& self::address_has_street_component( $stored_address )
+			&& self::street_identity_key( $incoming_address ) === self::street_identity_key( $stored_address );
 	}
 
 	/**

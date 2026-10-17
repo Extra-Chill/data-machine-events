@@ -91,6 +91,19 @@ class TicketmasterHandlerTest extends WP_UnitTestCase {
 		$this->assertTrue( class_exists( TicketmasterSettings::class ) );
 	}
 
+	public function test_geohash_encodes_charleston_coordinates(): void {
+		$this->assertSame( 'djz4mn', Ticketmaster::encodeGeohash( 32.7765, -79.9311 ) );
+	}
+
+	public function test_configured_radius_filters_distant_ticketmaster_venue_but_keeps_nearby_and_unlocated_events(): void {
+		$charleston = array( 'lat' => 32.7765, 'lng' => -79.9311 );
+		$nearby = array( 'lat' => 32.8, 'lng' => -79.9 );
+		$ballwin = array( 'lat' => 38.5951, 'lng' => -90.5462 );
+		$this->assertLessThanOrEqual( 50, Ticketmaster::distanceMiles( $charleston, $nearby ) );
+		$this->assertGreaterThan( 50, Ticketmaster::distanceMiles( $charleston, $ballwin ) );
+		$this->assertArrayNotHasKey( 'venueCoordinates', $this->ticketmasterEvent( 'without-coordinates', 'Unlocated event' )['_embedded']['venues'][0] );
+	}
+
 	public function test_map_event_returns_array() {
 		$method = $this->getProtectedMethod( 'map_ticketmaster_event' );
 

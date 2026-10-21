@@ -433,6 +433,8 @@ class EventDateQueryAbilitiesTest extends WP_UnitTestCase {
 
 	public function test_matching_ids_sql_preserves_consumer_constraints_without_querying(): void {
 		wp_load_alloptions();
+		// Search term-name lookups are cached separately from the matching SQL.
+		\DataMachineEvents\Core\EventSearchTerms::matchingTermTaxonomyIds( 'needle' );
 		$filter = static function ( array $query_args, array $input ): array {
 			if ( 'sql-capture-scope' === ( $input['scope_token'] ?? '' ) ) {
 				$query_args['post__in'] = array( 123, 456 );

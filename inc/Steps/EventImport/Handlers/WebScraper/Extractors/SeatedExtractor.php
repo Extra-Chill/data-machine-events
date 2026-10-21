@@ -270,7 +270,7 @@ class SeatedExtractor extends BaseExtractor {
 			return null;
 		}
 
-		$zone = \DataMachineEvents\Core\VenueTimezoneResolver::resolveFromRegion( '', $state )
+		$zone     = \DataMachineEvents\Core\VenueTimezoneResolver::resolveFromRegion( '', $state )
 			?? \DataMachineEvents\Core\VenueTimezoneResolver::resolveOffline( '', '', $state );
 		$timezone = (string) ( $zone['timezone'] ?? '' );
 		if ( ! \DataMachineEvents\Core\DateTimeParser::isValidTimezone( $timezone ) ) {

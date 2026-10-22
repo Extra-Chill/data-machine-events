@@ -33,6 +33,10 @@ class EventRatingsTest extends WP_UnitTestCase {
 		EventRatings::register();
 		EventRatings::add_comment_support();
 
+		// Approve first-time commenters so aggregates have approved reviews.
+		update_option( 'comment_previously_approved', 0 );
+		update_option( 'comment_moderation', 0 );
+
 		$this->user_a = self::factory()->user->create( array( 'display_name' => 'Fan A' ) );
 		$this->user_b = self::factory()->user->create( array( 'display_name' => 'Fan B' ) );
 	}

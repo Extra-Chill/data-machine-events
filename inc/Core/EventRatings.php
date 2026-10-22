@@ -302,25 +302,27 @@ class EventRatings {
 	public static function recalculate( int $post_id ): void {
 		global $wpdb;
 
-		$row = $wpdb->get_row(
+		// Fetch raw values and average in PHP: portable across MySQL and the
+		// SQLite driver, and a show has at most a few hundred reviews.
+		$values = $wpdb->get_col(
 			$wpdb->prepare(
-				"SELECT COUNT(*) AS c, AVG(CAST(cm.meta_value AS UNSIGNED)) AS a
+				"SELECT cm.meta_value
 				FROM {$wpdb->comments} c
 				INNER JOIN {$wpdb->commentmeta} cm ON cm.comment_id = c.comment_ID AND cm.meta_key = %s
-				WHERE c.comment_post_ID = %d AND c.comment_type = %s AND c.comment_approved = '1' AND c.comment_parent = 0
-				AND CAST(cm.meta_value AS UNSIGNED) BETWEEN %d AND %d",
+				WHERE c.comment_post_ID = %d AND c.comment_type = %s AND c.comment_approved = '1' AND c.comment_parent = 0",
 				self::META_RATING,
 				$post_id,
-				self::COMMENT_TYPE,
-				self::MIN_RATING,
-				self::MAX_RATING
+				self::COMMENT_TYPE
 			)
 		);
 
-		$count = $row ? (int) $row->c : 0;
+		$ratings = array_filter( array_map( array( self::class, 'normalize_rating' ), (array) $values ) );
+		$count   = count( $ratings );
+		$average = $count > 0 ? array_sum( $ratings ) / $count : 0.0;
+
 		if ( $count > 0 ) {
 			update_post_meta( $post_id, self::META_COUNT, $count );
-			update_post_meta( $post_id, self::META_AVG, round( (float) $row->a, 4 ) );
+			update_post_meta( $post_id, self::META_AVG, round( $average, 4 ) );
 		} else {
 			delete_post_meta( $post_id, self::META_COUNT );
 			delete_post_meta( $post_id, self::META_AVG );

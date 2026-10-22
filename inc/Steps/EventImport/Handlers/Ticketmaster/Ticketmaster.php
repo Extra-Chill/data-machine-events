@@ -516,8 +516,12 @@ class Ticketmaster extends EventImportHandler {
 	 * @return string Comma-joined IDs, or '' when none are valid.
 	 */
 	public static function normalize_attraction_ids( string $raw ): string {
-		$ids = array();
-		foreach ( preg_split( '/[\s,]+/', $raw ) as $token ) {
+		$ids    = array();
+		$tokens = preg_split( '/[\s,]+/', $raw );
+		if ( false === $tokens ) {
+			return '';
+		}
+		foreach ( $tokens as $token ) {
 			if ( preg_match( '/^[A-Za-z0-9_-]{6,40}$/', $token ) ) {
 				$ids[ $token ] = true;
 			}

@@ -36,6 +36,8 @@ class EventRatingsTest extends WP_UnitTestCase {
 		// Approve first-time commenters so aggregates have approved reviews.
 		update_option( 'comment_previously_approved', 0 );
 		update_option( 'comment_moderation', 0 );
+		// Test reviews share an empty author IP; skip core's per-IP flood window.
+		add_filter( 'wp_is_comment_flood', '__return_false', 99 );
 
 		$this->user_a = self::factory()->user->create( array( 'display_name' => 'Fan A' ) );
 		$this->user_b = self::factory()->user->create( array( 'display_name' => 'Fan B' ) );
@@ -44,6 +46,7 @@ class EventRatingsTest extends WP_UnitTestCase {
 	public function tearDown(): void {
 		remove_all_filters( 'data_machine_events_can_rate_event' );
 		remove_all_filters( 'data_machine_events_rating_gate_message' );
+		remove_filter( 'wp_is_comment_flood', '__return_false', 99 );
 		parent::tearDown();
 	}
 
@@ -129,6 +132,7 @@ class EventRatingsTest extends WP_UnitTestCase {
 
 		EventRatings::rate( $this->user_a, $event, 5, 'Fire' );
 		$b = EventRatings::rate( $this->user_b, $event, 2, 'Sound was rough' );
+		$this->assertIsArray( $b );
 
 		$summary = EventRatings::get_summary( $event );
 		$this->assertSame( 2, $summary['count'] );

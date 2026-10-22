@@ -143,7 +143,8 @@ class EventRatings {
 			)
 		);
 
-		return ! empty( $comments ) ? $comments[0] : null;
+		$first = is_array( $comments ) ? reset( $comments ) : false;
+		return $first instanceof \WP_Comment ? $first : null;
 	}
 
 	public static function get_comment_rating( int $comment_id ): int {
@@ -189,7 +190,13 @@ class EventRatings {
 			)
 		);
 
-		return array_map( array( self::class, 'format_review' ), $comments );
+		$reviews = array();
+		foreach ( (array) $comments as $comment ) {
+			if ( $comment instanceof \WP_Comment ) {
+				$reviews[] = self::format_review( $comment );
+			}
+		}
+		return $reviews;
 	}
 
 	/**

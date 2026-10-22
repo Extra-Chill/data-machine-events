@@ -78,7 +78,7 @@ class VenueTaxonomyCoreNameMatchTest extends WP_UnitTestCase {
 		$this->assertSame( 'catalyst', Venue_Taxonomy::core_venue_name( 'The Catalyst-CA', 'CA' ) );
 		$this->assertSame( 'catalyst', Venue_Taxonomy::core_venue_name( 'The Catalyst Club', 'CA' ) );
 		$this->assertSame( 'urban lounge', Venue_Taxonomy::core_venue_name( 'The Urban Lounge - UT', 'UT' ) );
-		$this->assertSame( 'venue ny', Venue_Taxonomy::core_venue_name( 'Venue-NY', 'CA' ) );
+		$this->assertSame( 'venueny', Venue_Taxonomy::core_venue_name( 'Venue-NY', 'CA' ) );
 		$this->assertSame( 'basement east', Venue_Taxonomy::core_venue_name( 'The Basement East', 'TN' ) );
 	}
 }

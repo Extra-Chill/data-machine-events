@@ -502,7 +502,7 @@ class EventRatings {
 	 * @return array
 	 */
 	public static function filter_form_defaults( $defaults ) {
-		if ( is_array( $defaults ) && self::form_offers_rating( self::current_event_id() ) ) {
+		if ( self::form_offers_rating( self::current_event_id() ) ) {
 			$defaults['title_reply'] = __( 'Rate this show', 'data-machine-events' );
 		}
 		return $defaults;

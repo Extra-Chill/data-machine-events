@@ -239,7 +239,7 @@ class EventRatingAbilities {
 
 	/**
 	 * @param array $input Input.
-	 * @return array{ratings: object|array<string,int>}
+	 * @return array{ratings: array<int|string,int>|\stdClass}
 	 */
 	public function executeGetMine( array $input ): array {
 		$ids     = array_slice( (array) ( $input['event_ids'] ?? array() ), 0, 100 );

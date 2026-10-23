@@ -14,7 +14,7 @@
  */
 ( function () {
 	function setLocked( eventId, locked ) {
-		var id = String( eventId );
+		const id = String( eventId );
 		document
 			.querySelectorAll( '[data-dme-rating-locked="' + id + '"]' )
 			.forEach( function ( el ) {
@@ -28,8 +28,8 @@
 	}
 
 	document.addEventListener( 'dme:rating-eligibility', function ( event ) {
-		var detail = ( event && event.detail ) || {};
-		var eventId = parseInt( detail.eventId, 10 );
+		const detail = ( event && event.detail ) || {};
+		const eventId = parseInt( detail.eventId, 10 );
 		if ( ! eventId ) {
 			return;
 		}

@@ -114,7 +114,7 @@ class TicketmasterAttractionAbilities {
 		}
 
 		$result = \DataMachine\Core\HttpClient::get(
-			add_query_arg( array_map( 'rawurlencode', $params ), self::API_URL ),
+			self::API_URL . '?' . http_build_query( $params, '', '&', PHP_QUERY_RFC3986 ),
 			array(
 				'timeout' => 15,
 				'headers' => array( 'Accept' => 'application/json' ),

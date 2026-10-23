@@ -75,8 +75,10 @@ class TicketmasterAttractionAbilities {
 					),
 				),
 				'execute_callback'    => array( $this, 'execute' ),
+				// Data Machine's permission helper honors CLI and run_as_system()
+				// so scheduled flow-maintenance jobs can call this lookup.
 				'permission_callback' => static function () {
-					return current_user_can( 'manage_options' );
+					return \DataMachine\Abilities\PermissionHelper::can( 'manage_flows' );
 				},
 				'meta'                => array( 'show_in_rest' => true ),
 			)

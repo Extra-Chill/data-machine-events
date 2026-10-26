@@ -183,7 +183,7 @@ class EventDuplicateStrategy {
 		if ( ! self::hasTimeComponent( $start ) ) {
 			return null;
 		}
-		$title = EventIdentifierGenerator::normalizeBasic( $title );
+		$title   = EventIdentifierGenerator::normalizeBasic( $title );
 		$matches = array();
 		foreach ( self::candidatePagesByDate( $date ) as $candidates ) {
 			foreach ( $candidates as $candidate ) {
@@ -204,7 +204,8 @@ class EventDuplicateStrategy {
 					$location = $context;
 					if ( $venue_term ) {
 						foreach ( array( 'city', 'state', 'country' ) as $field ) {
-							$location[ $field ] = get_term_meta( $venue_term->term_id, '_venue_' . $field, true ) ?: ( $context[ $field ] ?? '' );
+							$meta_value         = (string) get_term_meta( $venue_term->term_id, '_venue_' . $field, true );
+							$location[ $field ] = '' !== $meta_value ? $meta_value : ( $context[ $field ] ?? '' );
 						}
 					}
 					if ( ( $venue_term && $term->term_id === $venue_term->term_id ) || \DataMachineEvents\Core\Venue_Taxonomy::is_same_event_location( (int) $term->term_id, $location ) ) {

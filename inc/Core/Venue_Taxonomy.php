@@ -954,12 +954,12 @@ class Venue_Taxonomy {
 		$geo_match = self::find_venue_by_proximity( $venue_data );
 		if ( $geo_match ) {
 			return array(
-				'term' => $geo_match,
-				'term_id' => (int) $geo_match->term_id,
-				'match_status' => 'matched',
-				'matched_via' => 'proximity',
+				'term'                 => $geo_match,
+				'term_id'              => (int) $geo_match->term_id,
+				'match_status'         => 'matched',
+				'matched_via'          => 'proximity',
 				'conflicting_term_ids' => array(),
-				'venue_name' => $venue_name,
+				'venue_name'           => $venue_name,
 			);
 		}
 
@@ -1390,7 +1390,10 @@ class Venue_Taxonomy {
 		if ( ! $point ) {
 			return null;
 		}
-		$venues = get_terms( array( 'taxonomy' => 'venue', 'hide_empty' => false ) );
+		$venues = get_terms( array(
+			'taxonomy'   => 'venue',
+			'hide_empty' => false,
+		) );
 		if ( is_wp_error( $venues ) ) {
 			return null;
 		}

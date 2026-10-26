@@ -49,6 +49,43 @@ class EventDuplicateStrategyTest extends WP_UnitTestCase {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 	}
 
+	public function test_barn_jam_venue_rename_matches_only_identical_start_and_city(): void {
+		[ $venue_id, $post_id ] = $this->seedVenueWithEvent( 'Barn Jam', '2026-10-28 17:50:00', 'Awendaw Green' );
+		update_term_meta( $venue_id, '_venue_city', 'Awendaw' );
+		$input = array( 'title' => 'Barn Jam at Sewee Outpost', 'context' => array(
+			'venue' => 'Sewee Outpost', 'city' => 'Awendaw', 'startDate' => '2026-10-28 17:50',
+		) );
+		$match = EventDuplicateStrategy::check( $input );
+		$this->assertSame( $post_id, $match['match']['post_id'] );
+		$input['context']['startDate'] = '2026-10-28 18:00';
+		$this->assertNull( EventDuplicateStrategy::check( $input ) );
+		$input['context']['startDate'] = '2026-10-28 17:50';
+		$input['context']['city'] = 'Charleston';
+		$this->assertNull( EventDuplicateStrategy::check( $input ) );
+		$input['context']['city'] = 'Awendaw';
+		$input['title'] = 'Other show at Sewee Outpost';
+		$this->assertNull( EventDuplicateStrategy::check( $input ) );
+	}
+
+	public function test_barn_jam_address_and_geo_reuse_existing_venue(): void {
+		[ $venue_id ] = $this->seedVenueWithEvent( 'Barn Jam', '2026-10-28 17:50:00', 'Awendaw Green' );
+		update_term_meta( $venue_id, '_venue_city', 'Awendaw' );
+		update_term_meta( $venue_id, '_venue_address', '4853 Highway 17, Awendaw, SC 29429' );
+		update_term_meta( $venue_id, '_venue_coordinates', '32.99,-79.66' );
+		$before = wp_count_terms( array( 'taxonomy' => 'venue', 'hide_empty' => false ) );
+		$result = Venue_Taxonomy::find_or_create_venue( 'Sewee Outpost', array( 'address' => '4853 Highway 17', 'city' => 'Awendaw' ) );
+		$this->assertSame( $venue_id, $result['term_id'] );
+		$this->assertFalse( $result['was_created'] );
+		$this->assertSame( $before, wp_count_terms( array( 'taxonomy' => 'venue', 'hide_empty' => false ) ) );
+		$geo = Venue_Taxonomy::resolve_venue_identity( 'Sewee Outpost', array( 'coordinates' => '32.99001,-79.66' ) );
+		$this->assertSame( $venue_id, $geo['term_id'] );
+		$far = Venue_Taxonomy::resolve_venue_identity( 'Different Place', array( 'coordinates' => '33.0,-79.66' ) );
+		$this->assertNull( $far['term_id'] );
+		$second = wp_insert_term( 'Adjacent Room', 'venue' );
+		update_term_meta( $second['term_id'], '_venue_coordinates', '32.99,-79.66' );
+		$this->assertNull( Venue_Taxonomy::resolve_venue_identity( 'Sewee Outpost', array( 'coordinates' => '32.99,-79.66' ) )['term_id'] );
+	}
+
 	public function tearDown(): void {
 		wp_set_current_user( 0 );
 		parent::tearDown();

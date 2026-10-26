@@ -243,7 +243,10 @@ class EventUpsertValidator {
 		if ( $start < $today ) {
 			return $this->gateRejection(
 				'Refusing to create an event whose start date is before today in the site timezone; same-day events are allowed. Existing past events may still be updated.',
-				array( 'startDate' => $start_date, 'timezone' => $timezone->getName() ),
+				array(
+					'startDate' => $start_date,
+					'timezone'  => $timezone->getName(),
+				),
 				'past_event_create'
 			);
 		}

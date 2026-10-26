@@ -47,8 +47,8 @@ class EventUpsertPastCreateTest extends EventUpsertTestCase {
 	}
 
 	public function test_existing_past_event_update_is_allowed(): void {
-		$post_id = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
-		$event = $this->event( '-4 days' );
+		$post_id           = self::factory()->post->create( array( 'post_type' => Event_Post_Type::POST_TYPE ) );
+		$event             = $this->event( '-4 days' );
 		$event['event_id'] = $post_id;
 
 		$result = $this->invoke_upsert( $event );
@@ -59,7 +59,7 @@ class EventUpsertPastCreateTest extends EventUpsertTestCase {
 	}
 
 	public function test_duplicate_matched_past_event_update_is_allowed(): void {
-		$event = $this->event( '-4 days' );
+		$event   = $this->event( '-4 days' );
 		$post_id = self::factory()->post->create(
 			array(
 				'post_type'    => Event_Post_Type::POST_TYPE,
@@ -68,7 +68,7 @@ class EventUpsertPastCreateTest extends EventUpsertTestCase {
 				'post_content' => '<!-- wp:data-machine-events/event-details ' . wp_json_encode( $event ) . ' /-->',
 			)
 		);
-		$venue = wp_insert_term( $event['venue'], 'venue' );
+		$venue   = wp_insert_term( $event['venue'], 'venue' );
 		$this->assertNotWPError( $venue );
 		wp_set_object_terms( $post_id, array( (int) $venue['term_id'] ), 'venue' );
 
@@ -82,16 +82,16 @@ class EventUpsertPastCreateTest extends EventUpsertTestCase {
 	public function test_site_timezone_controls_same_day_grace(): void {
 		// Pick a site offset whose day differs from UTC right now.
 		$utc_hour = (int) gmdate( 'G' );
-		$offset = $utc_hour < 12 ? '-12:00' : '+14:00';
+		$offset   = $utc_hour < 12 ? '-12:00' : '+14:00';
 		$previous = get_option( 'timezone_string' );
 		update_option( 'timezone_string', $offset );
 		try {
 			$result = $this->invoke_upsert( $this->event( 'today' ) );
 			$this->assertTrue( $result['success'] );
 			$this->assertSame( 'created', $result['data']['action'] );
-			$event = $this->event( 'yesterday' );
+			$event          = $this->event( 'yesterday' );
 			$event['title'] = 'Earlier Concert';
-			$result = $this->invoke_upsert( $event );
+			$result         = $this->invoke_upsert( $event );
 			$this->assertFalse( $result['success'] );
 			$this->assertSame( 'past_event_create', $result['rule'] );
 		} finally {

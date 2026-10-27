@@ -243,8 +243,9 @@ class BandzoogleExtractor extends BaseExtractor {
 			if ( ! is_string( $inner ) ) {
 				continue;
 			}
-			$is_bandsintown = $xpath->query( "ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' bandsintown_feature ') or starts-with(@id, 'bandsintown_feature_')]", $node )->length > 0;
-			$event = $this->parseEventDetailBlock( $inner, $source_url, $page_venue, $calendar_year, $node->getAttribute( 'data-event-id' ), $node->getAttribute( 'data-occurrence-id' ), $is_bandsintown );
+			$ancestors      = $xpath->query( "ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' bandsintown_feature ') or starts-with(@id, 'bandsintown_feature_')]", $node );
+			$is_bandsintown = false !== $ancestors && $ancestors->length > 0;
+			$event          = $this->parseEventDetailBlock( $inner, $source_url, $page_venue, $calendar_year, $node->getAttribute( 'data-event-id' ), $node->getAttribute( 'data-occurrence-id' ), $is_bandsintown );
 			if ( ! empty( $event['title'] ) && ! empty( $event['startDate'] ) ) {
 				$events[] = $event;
 			}
@@ -452,7 +453,7 @@ class BandzoogleExtractor extends BaseExtractor {
 			$month_name = $dm[1];
 			$day        = (int) $dm[2];
 			// Inline years are authoritative over headers and inferred years.
-			$calendar_year = isset( $dm[3] ) && '' !== $dm[3] ? (int) $dm[3] : $calendar_year;
+			$calendar_year = isset( $dm[3] ) ? (int) $dm[3] : $calendar_year;
 
 			if ( $calendar_year > 0 ) {
 				try {

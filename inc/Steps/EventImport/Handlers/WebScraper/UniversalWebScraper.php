@@ -760,6 +760,8 @@ class UniversalWebScraper extends EventImportHandler {
 	 *
 	 * Tries with browser spoofing first, then falls back to standard headers
 	 * if it encounters a 403 or a captcha challenge.
+	 *
+	 * @throws \RuntimeException When both HTTP attempts fail.
 	 */
 	private function fetch_html( string $url, ExecutionContext $context ): string {
 		$result = \DataMachine\Core\HttpClient::get(
@@ -822,18 +824,22 @@ class UniversalWebScraper extends EventImportHandler {
 						'reason' => 'dns_unresolvable',
 					)
 				);
-				return '';
+			} else {
+				$context->log(
+					'error',
+					'Universal Web Scraper: HTTP request failed',
+					array(
+						'url'   => $url,
+						'error' => $error_message,
+					)
+				);
 			}
 
-			$context->log(
-				'error',
-				'Universal Web Scraper: HTTP request failed',
-				array(
-					'url'   => $url,
-					'error' => $error_message,
-				)
+			// FetchHandler only accepts array returns. FetchStep converts exceptions
+			// to WP_Error so transport failures cannot become completed_no_items.
+			throw new \RuntimeException(
+				esc_html( sprintf( 'Universal Web Scraper: HTTP request failed for %s: %s', $url, $error_message ) )
 			);
-			return '';
 		}
 
 		if ( empty( $result['data'] ) ) {

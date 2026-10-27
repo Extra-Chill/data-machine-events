@@ -42,10 +42,15 @@ class UniversalWebScraperHttpFailureTest extends WP_UnitTestCase {
 		} catch ( RuntimeException $error ) {
 			$this->assertStringContainsString( '403', $error->getMessage() );
 			$this->assertStringContainsString( esc_html( $url ), $error->getMessage() );
-			$this->assertCount( 2, $requests );
-			$this->assertSame( $url, $requests[0][0] );
-			$this->assertSame( $url, $requests[1][0] );
-			$this->assertNotSame( $requests[0][1], $requests[1][1] );
+			$source_requests = array_values(
+				array_filter(
+					$requests,
+					static fn( array $request ): bool => $url === $request[0]
+				)
+			);
+			// Browser-mode attempt, then standard-mode retry; API discovery may add more.
+			$this->assertCount( 2, $source_requests );
+			$this->assertNotSame( $source_requests[0][1], $source_requests[1][1] );
 			return;
 		} finally {
 			remove_filter( 'pre_http_request', $mock, 10 );
@@ -95,6 +100,50 @@ class UniversalWebScraperHttpFailureTest extends WP_UnitTestCase {
 	 * @param string $url Source URL.
 	 * @return array
 	 */
+	/**
+	 * A blocked listing page still recovers through WordPress API discovery.
+	 */
+	public function test_blocked_page_falls_back_to_api_discovery(): void {
+		$requests = array();
+		$mock     = static function ( $preempt, $args, $request_url ) use ( &$requests ) {
+			$requests[] = $request_url;
+			if ( false !== strpos( $request_url, '/wp-json/tribe/events/v1/events' ) ) {
+				return array(
+					'headers'  => array( 'content-type' => 'application/json' ),
+					'body'     => wp_json_encode( array( 'events' => array() ) ),
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+				);
+			}
+			return array(
+				'headers'  => array(),
+				'body'     => '<html><title>Just a moment...</title></html>',
+				'response' => array(
+					'code'    => 403,
+					'message' => 'Forbidden',
+				),
+			);
+		};
+		add_filter( 'pre_http_request', $mock, 10, 3 );
+
+		try {
+			$result = $this->fetch( 'https://venue.example/events/' );
+		} finally {
+			remove_filter( 'pre_http_request', $mock, 10 );
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty(
+			array_filter(
+				$requests,
+				static fn( string $url ): bool => false !== strpos( $url, '/wp-json/tribe/events/v1/events' )
+			),
+			'API discovery must still run when the listing page is blocked.'
+		);
+	}
+
 	private function fetch( string $url ): array {
 		return ( new UniversalWebScraper() )->get_fetch_data(
 			'direct',

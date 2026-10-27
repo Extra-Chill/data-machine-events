@@ -304,7 +304,26 @@ class UniversalWebScraper extends EventImportHandler {
 			}
 			$visited_urls[ $url_hash ] = true;
 
-			$html_content = $this->fetch_html( $current_url, $context );
+			$fetch_error = null;
+			try {
+				$html_content = $this->fetch_html( $current_url, $context );
+			} catch ( \RuntimeException $e ) {
+				if ( 1 < $current_page ) {
+					// Keep events from earlier pages; a later page failing ends pagination.
+					$context->log(
+						'warning',
+						'Universal Web Scraper: Pagination request failed, keeping earlier pages',
+						array(
+							'url'   => $current_url,
+							'page'  => $current_page,
+							'error' => $e->getMessage(),
+						)
+					);
+					break;
+				}
+				$fetch_error  = $e;
+				$html_content = '';
+			}
 			if ( empty( $html_content ) ) {
 				if ( 1 === $current_page ) {
 					// If initial page fails, try WordPress API discovery as a last resort
@@ -326,6 +345,9 @@ class UniversalWebScraper extends EventImportHandler {
 								$context
 							) ?? array();
 						}
+					}
+					if ( null !== $fetch_error ) {
+						throw $fetch_error;
 					}
 					return array();
 				}

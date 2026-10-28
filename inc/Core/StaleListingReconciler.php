@@ -353,7 +353,7 @@ class StaleListingReconciler {
 		$candidates = array();
 
 		foreach ( $db_events as $db_event ) {
-			$source_id = (string) ( $db_event['source_id'] ?? '' );
+			$source_id = $db_event['source_id'];
 
 			if ( '' !== $source_id && isset( $source_slots['identifiers'][ $source_id ] ) ) {
 				continue;

@@ -202,22 +202,23 @@ class EventDuplicateStrategy {
 		}
 		$location = $context;
 		foreach ( array( 'address', 'city', 'state', 'country' ) as $field ) {
-			$location[ $field ] = get_term_meta( $venue->term_id, '_venue_' . $field, true ) ?: ( $context[ $field ] ?? '' );
+			$stored             = (string) get_term_meta( $venue->term_id, '_venue_' . $field, true );
+			$location[ $field ] = '' !== $stored ? $stored : ( $context[ $field ] ?? '' );
 		}
-		$parsed = \DataMachineEvents\Core\Venue_Taxonomy::parse_festival_venue( (string) ( $context['venue'] ?? '' ), $location );
-		$incoming_names = (array) ( $context['festival'] ?? array() );
+		$parsed           = \DataMachineEvents\Core\Venue_Taxonomy::parse_festival_venue( (string) ( $context['venue'] ?? '' ), $location );
+		$incoming_names   = (array) ( $context['festival'] ?? array() );
 		$incoming_names[] = $parsed['festival'];
-		$incoming_names = array_merge( $incoming_names, self::festivalNamesFromTitle( $title ) );
-		$incoming = $title . ' ' . ( $context['venue'] ?? '' ) . ' ' . implode( ' ', $incoming_names );
-		$contains = static function ( string $text, string $name ): bool {
+		$incoming_names   = array_merge( $incoming_names, self::festivalNamesFromTitle( $title ) );
+		$incoming         = $title . ' ' . ( $context['venue'] ?? '' ) . ' ' . implode( ' ', $incoming_names );
+		$contains         = static function ( string $text, string $name ): bool {
 			$text = EventIdentifierGenerator::normalizeBasic( $text );
 			$name = EventIdentifierGenerator::normalizeBasic( $name );
 			return '' !== $name && str_contains( ' ' . $text . ' ', ' ' . $name . ' ' );
 		};
-		$matches = array();
+		$matches          = array();
 		foreach ( self::candidatePagesByDate( $date ) as $candidates ) {
 			foreach ( $candidates as $candidate ) {
-				$id = (int) $candidate->ID;
+				$id    = (int) $candidate->ID;
 				$terms = wp_get_post_terms( $id, 'festival', array( 'fields' => 'names' ) );
 				$names = is_wp_error( $terms ) ? array() : $terms;
 				// A title-only festival need not have been tagged yet.
@@ -239,10 +240,10 @@ class EventDuplicateStrategy {
 		if ( 1 !== count( $matches ) ) {
 			return null;
 		}
-		$id = (int) array_key_first( $matches );
-		$result = self::duplicateResult( $id, 'festival_lineup' );
+		$id                            = (int) array_key_first( $matches );
+		$result                        = self::duplicateResult( $id, 'festival_lineup' );
 		$result['match']['merge_mode'] = 'festival_lineup';
-		$result['match']['festival'] = $matches[ $id ];
+		$result['match']['festival']   = $matches[ $id ];
 		return $result;
 	}
 

@@ -340,7 +340,12 @@ class EventUpsert extends UpsertHandler {
 		// which returned "clear" and created duplicate events on re-import (#883).
 		$venue_resolution       = $this->taxonomy_assigner->resolveVenue( $parameters, $engine, $handler_config );
 		$authoritative_venue_id = (int) $venue_resolution['term_id'];
-		$festival_venue = \DataMachineEvents\Core\Venue_Taxonomy::parse_festival_venue( $venue, array( 'address' => $venueAddress, 'city' => $venueCity, 'state' => $venueState, 'country' => $venueCountry ) );
+		$festival_venue         = \DataMachineEvents\Core\Venue_Taxonomy::parse_festival_venue( $venue, array(
+			'address' => $venueAddress,
+			'city'    => $venueCity,
+			'state'   => $venueState,
+			'country' => $venueCountry,
+		) );
 		if ( '' !== $festival_venue['festival'] ) {
 			$parameters['festival'] = $festival_venue['festival'];
 		}
@@ -370,21 +375,28 @@ class EventUpsert extends UpsertHandler {
 		if ( $existing_post_id > 0 && 'festival_lineup' === ( $festival_match['merge_mode'] ?? '' ) ) {
 			// A set contributes lineup taxonomy only. Never persist incoming event
 			// fields, source identity, or ticket data over the canonical festival.
-			$artists = $engine->get( 'artist' ) ?: ( $parameters['artist'] ?? '' );
-			$artists = $artists ?: ( $engine->get( 'performer' ) ?: ( $parameters['performer'] ?? '' ) );
-			$artists = is_array( $artists ) ? $artists : array_filter( array_map( 'trim', explode( ',', (string) $artists ) ) );
+			$artists   = $engine->get( 'artist' ) ?: ( $parameters['artist'] ?? '' );
+			$artists   = $artists ?: ( $engine->get( 'performer' ) ?: ( $parameters['performer'] ?? '' ) );
+			$artists   = is_array( $artists ) ? $artists : array_filter( array_map( 'trim', explode( ',', (string) $artists ) ) );
 			$selection = $handler_config['taxonomy_artist_selection'] ?? '';
 			if ( is_numeric( $selection ) ) {
 				$artists[] = (int) $selection;
 			}
-			foreach ( array( 'artist' => $artists, 'festival' => array( $festival_match['festival'] ) ) as $taxonomy => $names ) {
+			foreach ( array(
+				'artist'   => $artists,
+				'festival' => array( $festival_match['festival'] ),
+			) as $taxonomy => $names ) {
 				$result = wp_set_object_terms( $existing_post_id, $names, $taxonomy, true );
 				if ( is_wp_error( $result ) ) {
 					return $this->lifecycleErrorResponse( $result, $title );
 				}
 			}
 			do_action( 'datamachine_event_taxonomy_processed', $existing_post_id );
-			return $this->successResponse( array( 'post_id' => $existing_post_id, 'post_url' => get_permalink( $existing_post_id ), 'action' => 'updated' ) );
+			return $this->successResponse( array(
+				'post_id'  => $existing_post_id,
+				'post_url' => get_permalink( $existing_post_id ),
+				'action'   => 'updated',
+			) );
 		}
 
 		// Only unmatched events are creates. Keep corrections to past events

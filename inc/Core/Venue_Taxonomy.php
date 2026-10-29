@@ -903,11 +903,17 @@ class Venue_Taxonomy {
 			if ( $known_festival || preg_match( '/\b(?:festival|fest)\b/iu', $festival ) ) {
 				$identity = self::resolve_venue_identity( $venue, $data );
 				if ( ! empty( $identity['term_id'] ) && 'matched' === $identity['match_status'] ) {
-					return array( 'venue' => $identity['term']->name, 'festival' => $festival );
+					return array(
+						'venue'    => $identity['term']->name,
+						'festival' => $festival,
+					);
 				}
 			}
 		}
-		return array( 'venue' => $name, 'festival' => '' );
+		return array(
+			'venue'    => $name,
+			'festival' => '',
+		);
 	}
 
 	/**
@@ -928,7 +934,7 @@ class Venue_Taxonomy {
 	 * @return array{term: \WP_Term|null, term_id: int|null, match_status: string, matched_via: string, conflicting_term_ids: int[], venue_name: string}
 	 */
 	public static function resolve_venue_identity( string $venue_name, array $venue_data = array() ): array {
-		$venue_name = self::parse_festival_venue( $venue_name, $venue_data )['venue'];
+		$venue_name        = self::parse_festival_venue( $venue_name, $venue_data )['venue'];
 		$extracted_address = self::extract_address_from_name( $venue_name );
 		if ( ! empty( $extracted_address ) ) {
 			$venue_name = $extracted_address['name'];

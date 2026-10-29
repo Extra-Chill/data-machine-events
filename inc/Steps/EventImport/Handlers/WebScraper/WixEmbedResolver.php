@@ -34,7 +34,7 @@ class WixEmbedResolver {
 		$seen   = array();
 		foreach ( array_unique( $urls[0] ) as $raw_url ) {
 			$url = html_entity_decode( $raw_url, ENT_QUOTES | ENT_HTML5 );
-			parse_str( wp_parse_url( $url, PHP_URL_QUERY ) ?? '', $query );
+			parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
 			if ( ( $query['module'] ?? '' ) !== 'thunderbolt-features' ) {
 				continue;
 			}
@@ -46,13 +46,13 @@ class WixEmbedResolver {
 				if ( ! is_string( $embed_url ) || isset( $seen[ $embed_url ] ) ) {
 					continue;
 				}
-				$host = strtolower( wp_parse_url( $embed_url, PHP_URL_HOST ) ?? '' );
-				if ( wp_parse_url( $embed_url, PHP_URL_SCHEME ) !== 'https'
-					|| ( $host !== 'filesusr.com' && ! str_ends_with( $host, '.filesusr.com' ) ) ) {
+				$host = strtolower( (string) wp_parse_url( $embed_url, PHP_URL_HOST ) );
+				if ( 'https' !== wp_parse_url( $embed_url, PHP_URL_SCHEME )
+					|| ( 'filesusr.com' !== $host && ! str_ends_with( $host, '.filesusr.com' ) ) ) {
 					continue;
 				}
 				$seen[ $embed_url ] = true;
-				$content           = $this->fetch( $embed_url, 15 );
+				$content            = $this->fetch( $embed_url, 15 );
 				if ( ! empty( $content ) ) {
 					$embeds[] = $content;
 				}

@@ -201,6 +201,13 @@ class EventDuplicateStrategy {
 		if ( ! $venue ) {
 			return null;
 		}
+		// A title that leads with a festival name is the festival listing itself
+		// (including a retitled re-import of it), not an artist's set. Leave it to
+		// the ordinary strategies so its canonical fields keep updating.
+		$leading = preg_split( '/\s+(?:at|@)\s+/iu', $title, 2 );
+		if ( array() !== self::festivalNamesFromTitle( false === $leading ? $title : (string) $leading[0] ) ) {
+			return null;
+		}
 		$location = $context;
 		foreach ( array( 'address', 'city', 'state', 'country' ) as $field ) {
 			$stored             = (string) get_term_meta( $venue->term_id, '_venue_' . $field, true );

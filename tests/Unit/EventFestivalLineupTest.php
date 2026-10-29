@@ -127,4 +127,14 @@ class EventFestivalLineupTest extends EventUpsertTestCase {
 			'context' => array( 'venue_term_id' => $this->venue, 'venue' => 'The Royal American', 'startDate' => '2027-10-31 19:00:00' ),
 		) ) );
 	}
+
+	public function test_festival_listing_reimport_is_not_a_lineup_merge(): void {
+		foreach ( array( '6th Annual Boogieman Halloween Festival', 'Boogieman Halloween Festival 2027' ) as $title ) {
+			$result = EventDuplicateStrategy::check( array(
+				'title' => $title,
+				'context' => array( 'venue_term_id' => $this->venue, 'venue' => 'The Royal American', 'startDate' => '2027-10-31 13:00:00' ),
+			) );
+			$this->assertNotSame( 'festival_lineup', $result['match']['merge_mode'] ?? '', $title );
+		}
+	}
 }

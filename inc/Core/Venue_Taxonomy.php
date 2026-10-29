@@ -895,7 +895,7 @@ class Venue_Taxonomy {
 	 * Unknown suffixes and ordinary artist/venue strings remain untouched.
 	 */
 	public static function parse_festival_venue( string $name, array $data = array() ): array {
-		$parts = preg_split( '/\s+(?:@|at|-|—)\s+/iu', $name );
+		$parts = (array) preg_split( '/\s+(?:@|at|-|—)\s+/iu', $name );
 		if ( count( $parts ) > 1 ) {
 			$venue          = array_pop( $parts );
 			$festival       = implode( ' ', $parts );

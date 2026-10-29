@@ -187,7 +187,8 @@ class EventDuplicateStrategy {
 	/** Extract conservative festival phrases from canonical and artist titles. */
 	private static function festivalNamesFromTitle( string $title ): array {
 		$names = array();
-		foreach ( (array) preg_split( '/\s+(?:at|@)\s+/iu', $title ) as $part ) {
+		$parts = preg_split( '/\s+(?:at|@)\s+/iu', $title );
+		foreach ( false === $parts ? array( $title ) : $parts as $part ) {
 			if ( preg_match( '/^(?:\d+(?:st|nd|rd|th)\s+)?(?:annual\s+)?(.+?\b(?:festival|fest)\b)/iu', $part, $match ) ) {
 				$names[] = $match[1];
 			}

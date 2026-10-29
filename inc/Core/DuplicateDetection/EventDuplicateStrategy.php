@@ -161,10 +161,10 @@ class EventDuplicateStrategy {
 				}
 			}
 			if ( 1 === count( $matches ) ) {
-				$post_id = (int) array_key_first( $matches );
-				$dates   = $matches[ $post_id ];
+				$post_id            = (int) array_key_first( $matches );
+				$dates              = $matches[ $post_id ];
 				$incoming_date_only = ! self::hasTimeComponent( $startDate ) || 1 === preg_match( '/[T ]00:00(?::00)?(?:Z|[+-]\d{2}:?\d{2})?$/', $startDate );
-				$stored_all_day = str_ends_with( $dates->start_datetime, ' 00:00:00' )
+				$stored_all_day     = str_ends_with( $dates->start_datetime, ' 00:00:00' )
 					&& $dates->end_datetime === $date_only . ' 23:59:59';
 				if ( $incoming_date_only || $stored_all_day ) {
 					return self::duplicateResult( $post_id, 'exact_title_venue_date_unknown_time' );

@@ -148,7 +148,7 @@ class SquarespaceExtractor extends BaseExtractor {
 				foreach ( array_slice( $time_matches, 0, 2 ) as $time_index => $time_match ) {
 					$text = trim( wp_strip_all_tags( $time_match[2] ) );
 					if ( preg_match( '/^(\d{1,2}):(\d{2})$/', $text, $clock ) ) {
-						$edge = 0 === $time_index ? 'start' : 'end';
+						$edge                   = 0 === $time_index ? 'start' : 'end';
 						$item[ $edge . 'Date' ] = substr( $time_match[1], 0, 10 ) . 'T' . sprintf( '%02d:%s:00', (int) $clock[1], $clock[2] );
 					}
 				}

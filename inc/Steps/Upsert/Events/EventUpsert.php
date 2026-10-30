@@ -643,7 +643,7 @@ class EventUpsert extends UpsertHandler {
 			$engine_data_array = $engine->all();
 			// Normalize the actual generic-pass input, including its engine fallback.
 			$parameters['artist'] = $this->taxonomy_assigner->normalizeArtists( ! empty( $parameters['artist'] ) ? $parameters['artist'] : ( $engine_data_array['artist'] ?? '' ) );
-			$artist_selection = $handler_config_for_tax['taxonomy_artist_selection'] ?? 'skip';
+			$artist_selection     = $handler_config_for_tax['taxonomy_artist_selection'] ?? 'skip';
 			if ( ! is_numeric( $artist_selection ) && ! in_array( $artist_selection, array( 'skip', 'ai_decides' ), true ) ) {
 				$handler_config_for_tax['taxonomy_artist_selection'] = $this->taxonomy_assigner->normalizeArtists( array( $artist_selection ) )[0];
 			}

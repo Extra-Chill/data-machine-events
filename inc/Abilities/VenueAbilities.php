@@ -130,22 +130,28 @@ class VenueAbilities {
 		wp_register_ability(
 			'data-machine-events/set-term-instagram',
 			array(
-				'label' => 'Set Term Instagram',
-				'description' => 'Set or clear a venue or artist Instagram handle.',
-				'category' => 'datamachine-events-venues',
-				'input_schema' => array(
-					'type' => 'object',
-					'required' => array( 'taxonomy', 'term_id', 'instagram' ),
+				'label'               => 'Set Term Instagram',
+				'description'         => 'Set or clear a venue or artist Instagram handle.',
+				'category'            => 'datamachine-events-venues',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'required'   => array( 'taxonomy', 'term_id', 'instagram' ),
 					'properties' => array(
-						'taxonomy' => array( 'type' => 'string', 'enum' => array( 'venue', 'artist' ) ),
-						'term_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+						'taxonomy'  => array(
+							'type' => 'string',
+							'enum' => array( 'venue', 'artist' ),
+						),
+						'term_id'   => array(
+							'type'    => 'integer',
+							'minimum' => 1,
+						),
 						'instagram' => array( 'type' => 'string' ),
 					),
 				),
-				'output_schema' => array( 'type' => 'object' ),
-				'execute_callback' => array( $this, 'executeSetTermInstagram' ),
+				'output_schema'       => array( 'type' => 'object' ),
+				'execute_callback'    => array( $this, 'executeSetTermInstagram' ),
 				'permission_callback' => AbilityPermissions::canWrite(),
-				'meta' => array( 'show_in_rest' => true ),
+				'meta'                => array( 'show_in_rest' => true ),
 			)
 		);
 	}
@@ -156,7 +162,7 @@ class VenueAbilities {
 			return new \WP_Error( 'invalid_taxonomy', 'Expected venue or artist.', array( 'status' => 400 ) );
 		}
 		$term_id = absint( $input['term_id'] ?? 0 );
-		$term = get_term( $term_id, $taxonomy );
+		$term    = get_term( $term_id, $taxonomy );
 		if ( ! $term || is_wp_error( $term ) ) {
 			return new \WP_Error( 'term_not_found', 'Term not found.', array( 'status' => 404 ) );
 		}
@@ -174,7 +180,10 @@ class VenueAbilities {
 		if ( false === $result && get_term_meta( $term_id, 'instagram', true ) !== $handle ) {
 			return new \WP_Error( 'instagram_save_failed', 'Could not persist Instagram handle.', array( 'status' => 500 ) );
 		}
-		return array( 'term_id' => $term_id, 'instagram' => $handle );
+		return array(
+			'term_id'   => $term_id,
+			'instagram' => $handle,
+		);
 	}
 
 	private function registerUpdateVenueAbility(): void {
@@ -224,7 +233,10 @@ class VenueAbilities {
 							'type'        => 'string',
 							'description' => 'Phone number',
 						),
-						'instagram'     => array( 'type' => 'string', 'description' => 'Instagram username or profile URL; empty string clears it.' ),
+						'instagram'     => array(
+							'type'        => 'string',
+							'description' => 'Instagram username or profile URL; empty string clears it.',
+						),
 						'website'       => array(
 							'type'        => 'string',
 							'description' => 'Official venue website URL',

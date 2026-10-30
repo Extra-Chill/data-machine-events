@@ -38,8 +38,8 @@ class CommandRegistry {
 		$cli = DATA_MACHINE_EVENTS_PLUGIN_DIR . 'inc/Cli/';
 
 		return array(
-			'data-machine-events set-term-instagram' => array(
-				'file' => $cli . 'SetTermInstagramCommand.php',
+			'data-machine-events set-term-instagram'      => array(
+				'file'  => $cli . 'SetTermInstagramCommand.php',
 				'class' => SetTermInstagramCommand::class,
 			),
 			// Handler / scraper testing.

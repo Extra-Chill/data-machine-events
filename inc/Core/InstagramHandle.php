@@ -31,7 +31,7 @@ class InstagramHandle {
 
 	/** Read the same public field from either supported taxonomy. */
 	public static function read( int $term_id, string $taxonomy ): string {
-		$key = 'venue' === $taxonomy ? '_venue_instagram' : 'instagram';
+		$key   = 'venue' === $taxonomy ? '_venue_instagram' : 'instagram';
 		$value = self::normalize( get_term_meta( $term_id, $key, true ) );
 		return is_wp_error( $value ) ? '' : $value;
 	}

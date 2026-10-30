@@ -28,8 +28,8 @@ class PlainGigListExtractor extends BaseExtractor {
 		$loaded = $this->loadDom( $html );
 		$xpath  = $loaded['xpath'];
 		$groups = array();
-		foreach ( $xpath->query( '//tr | //div | //li | //article' ) as $row ) {
-			if ( $xpath->query( 'ancestor::nav | ancestor::footer', $row )->length ) {
+		foreach ( $this->elements( $xpath, '//tr | //div | //li | //article' ) as $row ) {
+			if ( array() !== $this->elements( $xpath, 'ancestor::nav | ancestor::footer', $row ) ) {
 				continue;
 			}
 			$candidate = $this->parseRow( $row, $xpath, $source_url );
@@ -68,13 +68,14 @@ class PlainGigListExtractor extends BaseExtractor {
 		$venue    = $this->fieldText( $row, $xpath, 'venue' );
 		$location = $this->fieldText( $row, $xpath, 'citystate' );
 		$artist   = $this->fieldText( $row, $xpath, 'artist-name' );
-		$cells    = $xpath->query( './td', $row );
-		if ( '' === $venue && $cells->length >= 3 ) {
+		$cells    = $this->elements( $xpath, './td', $row );
+		if ( '' === $venue && count( $cells ) >= 3 ) {
 			foreach ( $cells as $index => $cell ) {
 				$text = $this->nodeText( $cell );
-				if ( preg_match( '/^[A-Z]{2}\s*-\s*\p{L}/u', $text ) && isset( $cells[ $index + 1 ] ) ) {
+				$next = $cells[ $index + 1 ] ?? null;
+				if ( preg_match( '/^[A-Z]{2}\s*-\s*\p{L}/u', $text ) && null !== $next ) {
 					$location = $text;
-					$venue    = $this->nodeText( $cells[ $index + 1 ] );
+					$venue    = $this->nodeText( $next );
 					break;
 				}
 			}
@@ -99,7 +100,7 @@ class PlainGigListExtractor extends BaseExtractor {
 			$state    = $parts[2];
 		}
 		$ticket = '';
-		foreach ( $xpath->query( './/a[@href]', $row ) as $link ) {
+		foreach ( $this->elements( $xpath, './/a[@href]', $row ) as $link ) {
 			if ( preg_match( '/\b(?:tickets?|buy|book)\b/i', $this->nodeText( $link ) ) ) {
 				$ticket = esc_url_raw( $this->resolveUrl( $link->getAttribute( 'href' ), $source_url ) );
 				break;
@@ -133,16 +134,35 @@ class PlainGigListExtractor extends BaseExtractor {
 		return trim( preg_replace( '/\s+/u', ' ', $text ) );
 	}
 
+	/**
+	 * Element results of an XPath query; an invalid expression yields none.
+	 *
+	 * @return \DOMElement[]
+	 */
+	private function elements( \DOMXPath $xpath, string $expression, ?\DOMNode $context = null ): array {
+		$nodes = $xpath->query( $expression, $context );
+		if ( false === $nodes ) {
+			return array();
+		}
+		$elements = array();
+		foreach ( $nodes as $node ) {
+			if ( $node instanceof \DOMElement ) {
+				$elements[] = $node;
+			}
+		}
+		return $elements;
+	}
+
 	private function fieldText( \DOMElement $row, \DOMXPath $xpath, string $field_class ): string {
-		$nodes = $xpath->query( ".//*[contains(concat(' ', normalize-space(@class), ' '), ' {$field_class} ')]", $row );
-		if ( ! $nodes->length ) {
+		$node = $this->elements( $xpath, ".//*[contains(concat(' ', normalize-space(@class), ' '), ' {$field_class} ')]", $row )[0] ?? null;
+		if ( null === $node ) {
 			return '';
 		}
 		// Venue names are often links to the venue homepage, not event URLs.
 		if ( 'venue' === $field_class ) {
-			return trim( preg_replace( '/\s+/u', ' ', $nodes[0]->textContent ) );
+			return trim( preg_replace( '/\s+/u', ' ', $node->textContent ) );
 		}
-		return $this->nodeText( $nodes[0] );
+		return $this->nodeText( $node );
 	}
 
 	/**

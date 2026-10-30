@@ -235,7 +235,7 @@ class EventDuplicateStrategy {
 		$leading       = preg_split( '/\s+(?:at|@)\s+/iu', $title, 2 );
 		$listing_names = self::festivalNamesFromTitle( false === $leading ? $title : (string) $leading[0] );
 		$is_listing    = array() !== $listing_names;
-		$location = $context;
+		$location      = $context;
 		foreach ( array( 'address', 'city', 'state', 'country' ) as $field ) {
 			$stored             = (string) get_term_meta( $venue->term_id, '_venue_' . $field, true );
 			$location[ $field ] = '' !== $stored ? $stored : ( $context[ $field ] ?? '' );
